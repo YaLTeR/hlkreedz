@@ -1120,6 +1120,10 @@ Teleport(id, cp)
 	{
 		ShowMessage(id, "Teleported to the start position");
 	}
+	else if (cp == CP_TYPE_CUSTOM_START)
+	{
+		ShowMessage(id, "Teleported to the custom start position");
+	}
 	else if (cp == CP_TYPE_CURRENT || cp == CP_TYPE_OLD)
 	{
 		// Increment teleport times counter
