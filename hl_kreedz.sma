@@ -181,6 +181,8 @@ new pcvar_kz_autoheal_hp;
 new pcvar_kz_spawn_mainmenu;
 new pcvar_kz_nostat;
 
+new pcvar_sv_ag_match_running;
+
 new Array:g_ArrayStatsNub;
 new Array:g_ArrayStatsPro;
 
@@ -224,6 +226,8 @@ public plugin_init()
 	pcvar_kz_nostat = register_cvar("kz_nostat", "0");		// Disable stats storing (use for tests or fun)
 
 	pcvar_allow_spectators = get_cvar_pointer("allow_spectators");
+
+	pcvar_sv_ag_match_running = get_cvar_pointer("sv_ag_match_running");
 
 	register_dictionary("telemenu.txt");
 	register_dictionary("common.txt");
@@ -766,6 +770,13 @@ CmdStuck(id)
 
 CmdStart(id)
 {
+	if (!g_bMatchRunning && CanTeleport(id, CP_TYPE_CUSTOM_START, false))
+	{
+		ResetPlayer(id, false, true);
+		Teleport(id, CP_TYPE_CUSTOM_START);
+		return;
+	}
+
 	if (CanTeleport(id, CP_TYPE_START))
 		Teleport(id, CP_TYPE_START);
 }
@@ -1128,10 +1139,19 @@ TeleportAfterRespawn(id)
 	}
 	else
 	{
+		// g_bMatchRunning isn't updated by this point yet.
+		if (get_pcvar_num(pcvar_sv_ag_match_running) == 1)
+		{
+			if (CanTeleport(id, CP_TYPE_START, false))
+				Teleport(id, CP_TYPE_START);
+
+			return;
+		}
+
 		// Teleport player to last checkpoint
 		if (CanTeleport(id, CP_TYPE_CURRENT, false))
 			Teleport(id, CP_TYPE_CURRENT);
-		else if (!g_bMatchRunning && CanTeleport(id, CP_TYPE_CUSTOM_START, false))
+		else if (CanTeleport(id, CP_TYPE_CUSTOM_START, false))
 			Teleport(id, CP_TYPE_CUSTOM_START);
 		else if (CanTeleport(id, CP_TYPE_START, false))
 			Teleport(id, CP_TYPE_START);
@@ -1862,7 +1882,7 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 	{
 		if (is_user_alive(i) && pev(i, pev_iuser1) == OBS_NONE)
 		{
-			InitPlayer(i);
+			InitPlayer(i, true);
 			StartTimer(i);
 		}
 	}
