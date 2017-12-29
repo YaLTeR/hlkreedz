@@ -496,13 +496,15 @@ DisplayKzMenu(id, mode)
 		}
 	case 1:
 		{
-			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4;
+			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6;
 
 			len = formatex(menuBody[len], charsmax(menuBody) - len, "Climb Menu\n\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Start position\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Respawn\n\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Pause timer\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Reset\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Reset\n\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Set custom start position\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Clear custom start position\n");
 		}
 	case 2:
 		{
@@ -597,6 +599,8 @@ public ActionKzMenu(id, key)
 		case 2: CmdRespawn(id);
 		case 3: CmdPause(id);
 		case 4: CmdReset(id);
+		case 5: CmdSetCustomStartHandler(id);
+		case 6: CmdClearCustomStartHandler(id);
 		}
 	case 2:
 		switch (key)
