@@ -76,7 +76,8 @@ enum _:CP_TYPES
 	CP_TYPE_SPEC,
 	CP_TYPE_CURRENT,
 	CP_TYPE_OLD,
-	CP_TYPE_START,
+	CP_TYPE_CUSTOM_START, // kz_set_custom_start position.
+	CP_TYPE_START,        // Standard spawn or the start button.
 }
 
 enum _:CP_DATA
@@ -230,6 +231,9 @@ public plugin_init()
 	register_clcmd("kz_teleportmenu", "CmdTeleportMenuHandler", ADMIN_CFG, "- displays kz teleport menu");
 	register_clcmd("kz_setstart", "CmdSetStartHandler", ADMIN_CFG, "- set start position");
 	register_clcmd("kz_clearstart", "CmdClearStartHandler", ADMIN_CFG, "- clear start position");
+
+	register_clcmd("kz_set_custom_start", "CmdSetCustomStartHandler", -1, "- sets the custom start position");
+	register_clcmd("kz_clear_custom_start", "CmdClearCustomStartHandler", -1, "- clears the custom start position");
 
 	register_clcmd("say", "CmdSayHandler");
 	register_clcmd("say_team", "CmdSayHandler");
@@ -712,7 +716,7 @@ InitPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 	}
 
 	// Reset checkpoints
-	for (i = 0; i < CP_TYPE_START; i++)
+	for (i = 0; i < CP_TYPE_CUSTOM_START; i++)
 		g_ControlPoints[id][i][CP_VALID] = false;
 
 	// Reset counters
@@ -995,7 +999,7 @@ bool:CanTeleport(id, cp, bool:showMessages = true)
 	if (cp >= CP_TYPES)
 		return false;
 
-	if (cp != CP_TYPE_START && !get_pcvar_num(pcvar_kz_checkpoints))
+	if (cp != CP_TYPE_START && cp != CP_TYPE_CUSTOM_START && !get_pcvar_num(pcvar_kz_checkpoints))
 	{
 		if (showMessages) ShowMessage(id, "Checkpoint commands are disabled");
 		return false;
@@ -1024,6 +1028,7 @@ bool:CanTeleport(id, cp, bool:showMessages = true)
 			{
 			case CP_TYPE_CURRENT: ShowMessage(id, "You don't have checkpoint created");
 			case CP_TYPE_OLD: ShowMessage(id, "You don't have previous checkpoint created");
+			case CP_TYPE_CUSTOM_START: ShowMessage(id, "You don't have a custom start point set");
 			case CP_TYPE_START: ShowMessage(id, "You don't have start checkpoint created and the map doesn't have a default one");
 			}
 		return false;
@@ -1126,6 +1131,8 @@ TeleportAfterRespawn(id)
 		// Teleport player to last checkpoint
 		if (CanTeleport(id, CP_TYPE_CURRENT, false))
 			Teleport(id, CP_TYPE_CURRENT);
+		else if (!g_bMatchRunning && CanTeleport(id, CP_TYPE_CUSTOM_START, false))
+			Teleport(id, CP_TYPE_CUSTOM_START);
 		else if (CanTeleport(id, CP_TYPE_START, false))
 			Teleport(id, CP_TYPE_START);
 	}
@@ -2058,6 +2065,34 @@ public CmdClearStartHandler(id)
 	g_MapDefaultStart[CP_VALID] = false;
 
 	ShowMessage(id, "Map start position cleared");
+
+	return PLUGIN_HANDLED;
+}
+
+public CmdSetCustomStartHandler(id)
+{
+	if (!IsAlive(id) || pev(id, pev_iuser1))
+	{
+		ShowMessage(id, "You must be alive to use this command");
+		return PLUGIN_HANDLED;
+	}
+	if (!IsValidPlaceForCp(id))
+	{
+		ShowMessage(id, "You must be on the ground");
+		return PLUGIN_HANDLED;
+	}
+
+	CreateCp(id, CP_TYPE_CUSTOM_START);
+	ShowMessage(id, "Custom starting position set");
+
+	return PLUGIN_HANDLED;
+}
+
+public CmdClearCustomStartHandler(id)
+{
+	g_ControlPoints[id][CP_TYPE_CUSTOM_START][CP_VALID] = false;
+
+	ShowMessage(id, "Custom starting position cleared");
 
 	return PLUGIN_HANDLED;
 }
