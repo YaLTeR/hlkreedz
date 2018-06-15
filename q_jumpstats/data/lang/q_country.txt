@@ -1,0 +1,11 @@
+[en]
+QCNTR_ENTERGAME = "name" from "country" has entered the game.
+QCNTR_LEAVEGAME = "name" from "country" has left the game.
+QCNTR_MENUTITLE = Player's Countries
+QCNTR_UNKNOWNCNTR = Unknown Country
+
+[sr]
+QCNTR_ENTERGAME = "name" iz "country" je usao u igru.
+QCNTR_LEAVEGAME = "name" iz "country" je napustio igru.
+QCNTR_MENUTITLE = Države igrača
+QCNTR_UNKNOWNCNTR = Nepoznata drzava

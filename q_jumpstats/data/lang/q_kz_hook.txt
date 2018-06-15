@@ -1,0 +1,23 @@
+[en]
+QKZHOOK_MENUTITLE = Hook
+QKZHOOK_MENUSPEED = Hook Speed
+QKZHOOK_MENUCOLOR = Hook Color
+QKZHOOK_WAIT = Wait 3 seconds after using hook
+QKZHOOK_NOTAVAIL = You don't have hook yet
+QKZHOOK_GIVEHOOK = GiveHook
+QKZHOOK_GIVEHOOKCVAR = GiveHook command works only if q_kz_hook is 2
+QKZHOOK_GIVEHOOKON = Admin enabled your hook
+QKZHOOK_GIVEHOOKOFF = Admin disabled your hook
+QKZHOOK_TERMINATERUN = Timer stopped because you used hook!
+
+[sr]
+QKZHOOK_MENUTITLE = Kuka
+QKZHOOK_MENUSPEED = Brzina kuke
+QKZHOOK_MENUCOLOR = Boja kuke
+QKZHOOK_WAIT = Sacekaj 3 sekunde posle korišćenja kuke.
+QKZHOOK_NOTAVAIL = Nemaš kuku
+QKZHOOK_GIVEHOOK = Dodeli kuku
+QKZHOOK_GIVEHOOKCVAR = Dodela kuke je moguća samo ako je q_kz_hook 2.
+QKZHOOK_GIVEHOOKON = Admin ti je uključio kuku
+QKZHOOK_GIVEHOOKOFF = Admin ti je isključio kuku
+QKZHOOK_TERMINATERUN = Tajmer je stopiran jer si iskoristio kuku!

@@ -1,0 +1,11 @@
+[en]
+Q_MENU = Menu
+Q_MENU_NEXT = More
+Q_MENU_BACK = Back
+Q_MENU_EXIT = Exit
+
+[sr]
+Q_MENU = Meni
+Q_MENU_NEXT = Još
+Q_MENU_BACK = Nazad
+Q_MENU_EXIT = Izlaz

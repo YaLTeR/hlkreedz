@@ -1,0 +1,165 @@
+##########
+# CVARS: #
+##########
+q_kz_checkpoints
+Toggle checkpoints and checkpoint related commands.
+Default: "1"
+
+q_kz_checkpointangles
+Default toggle value for checkpoint angles setting.
+Default: "1"
+
+q_kz_teleport_splash
+Toggle teleport splash effect.
+Default: "0"
+
+q_kz_prefix
+Prefix goes in various plugin notifications and messages.
+Default: "QKZ"
+
+q_kz_pause
+Toggle pause command.
+Default: "1"
+
+q_kz_godmode
+Toggle god mode command.
+Default: "1"
+
+q_kz_noclip
+Toggle noclip command.
+Default: "1"
+
+q_kz_semiclip
+Toggle semiclip.
+Default: "1"
+
+q_kz_semiclip_alpha
+Ammount of semiclip transparency.
+Default: "80"
+
+q_kz_weapons_ammo
+Set ammo in backpack (after spawn, starting timer, ...):
+0 - regular
+1 - double the ammount of bullets
+2 - full backpack
+Default: "2"
+
+q_kz_weapons_speed
+Toggle weapon speed notification when taking a weapon.
+Default: "1"
+
+q_kz_respawn
+Toggle respawn.
+Default: "1"
+
+q_kz_respawn_time
+Time before respawning player.
+Default: "3.0"
+
+q_kz_hpbug
+Toggle hp bug fixer.
+Default: "0"
+
+q_kz_print_type
+Set how to display plugin messages:
+0 - HUD
+1 - chat
+2 - center screen text
+Default: "0"
+
+q_kz_print_color
+If q_kz_print_type is set to 0 (HUD), this sets color of the HUD.
+Default: "0 100 255"
+
+q_kz_print_pos
+If q_kz_print_type is to 0 (HUD), this sets messages position on the screen.
+Default: "-1.0 0.9"
+
+q_kz_spawnwithmenu
+Toggle if menu should appear when player spawns.
+Default: "1"
+
+q_kz_vipflags
+Set flag that will treat players as VIP.
+Default: "a"
+
+q_kz_rewards
+Toggle rewards for finishing the map. (There are no plugins that use this. (Yet.))
+Default: "0"
+
+q_kz_command_save
+Toggle /save command.
+Default: "1"
+
+####################
+# PLAYER COMMANDS: #
+####################
+Supported commands to be used in $moddir/addons/amxmodx/configs/q_clcmds.ini:
+q_kz_checkpoint - Save current player position.
+q_kz_teleport - Move player to last saved position.
+q_kz_unstuck - Move player to second last saved position.
+q_kz_start - Teleport to start button position.
+q_kz_end - Teleoprt to end button position.
+q_kz_setstart - Set custom start position.
+q_kz_unsetstart - Remove cutsom start position.
+q_kz_pause - Pause timer.
+q_kz_stop - Stop timer.
+q_kz_save - Save timer.
+q_kz_restore - Restore saved timer.
+q_kz_spec - Toggle spectate mode.
+q_kz_cpangles - Toggle saving player checkpoint orientation.
+q_kz_menu - Open KZ menu.
+q_kz_maxspeed - Toggle weapon speed notification.
+q_kz_godmode - Toggle player god mode.
+q_kz_noclip - Toggle player noclip mode.
+
+Recommended aliases (just copy/paste the section below to q_clcmds.ini):
+; q_kz.amxx
+"/cp" "q_kz_checkpoint"
+"/check" "q_kz_checkpoint"
+"/tp" "q_kz_teleport"
+"/gc" "q_kz_teleport"
+"/stuck" "q_kz_unstuck"
+"/unstuck" "q_kz_unstuck"
+"/start" "q_kz_start"
+"/end" "q_kz_end"
+"/setstart" "q_kz_setstart"
+"/unsetstart" "q_kz_unsetstart"
+"/pause" "q_kz_pause"
+"/stop" "q_kz_stop"
+"/save" "q_kz_save"
+"/restore" "q_kz_restore"
+"/spec" "q_kz_spec"
+"/ct" "q_kz_spec"
+"/cpangles" "q_kz_cpangles"
+"/kzmenu" "q_kz_menu"
+"/ms" "q_kz_maxspeed"
+"/maxspeed" "q_kz_maxspeed"
+"/god" "q_kz_godmode"
+"/godmode" "q_kz_godmode"
+"/nc" "q_kz_noclip"
+"/noclip" "q_kz_noclip"
+"say /cp" "q_kz_checkpoint"
+"say /check" "q_kz_checkpoint"
+"say /tp" "q_kz_teleport"
+"say /gc" "q_kz_teleport"
+"say /stuck" "q_kz_unstuck"
+"say /unstuck" "q_kz_unstuck"
+"say /start" "q_kz_start"
+"say /end" "q_kz_end"
+"say /setstart" "q_kz_setstart"
+"say /unsetstart" "q_kz_unsetstart"
+"say /pause" "q_kz_pause"
+"say /stop" "q_kz_stop"
+"say /save" "q_kz_save"
+"say /restore" "q_kz_restore"
+"say /spec" "q_kz_spec"
+"say /ct" "q_kz_spec"
+"say /cpangles" "q_kz_cpangles"
+"say /kzmenu" "q_kz_menu"
+"say /ms" "q_kz_maxspeed"
+"say /maxspeed" "q_kz_maxspeed"
+"say /god" "q_kz_godmode"
+"say /godmode" "q_kz_godmode"
+"say /nc" "q_kz_noclip"
+"say /noclip" "q_kz_noclip"

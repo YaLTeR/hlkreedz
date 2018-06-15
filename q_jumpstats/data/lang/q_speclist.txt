@@ -1,0 +1,13 @@
+[en]
+Q_SL_SPECLIST = Spectator list
+Q_SL_TOGGLE = Toggle spectator list
+Q_SL_SETCOLOR = Set color
+Q_SL_TOGGLEIMMUNITY = Toggle immunity
+Q_SL_NOIMMUNITYPRIVILEGE = You don't have access to this command
+
+[sr]
+Q_SL_SPECLIST = Lista posmatraca
+Q_SL_TOGGLE = Uključi listu posmatrača
+Q_SL_SETCOLOR = Postavi boju
+Q_SL_TOGGLEIMMUNITY = Uključi imunitet
+Q_SL_NOIMMUNITYPRIVILEGE = Nemate pristup ovoj komandi

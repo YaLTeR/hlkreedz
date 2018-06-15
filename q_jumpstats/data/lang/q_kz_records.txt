@@ -1,0 +1,9 @@
+[en]
+Q_KZ_RECORDS_RECORD_ON = !g%COMMUNITY%!n record on !g%MAP%
+Q_KZ_RECORDS_WAY_RECORD = - !g[%WAY%]!n way by !g%PLAYER%!n done in !g%TIME%
+Q_KZ_RECORDS_MAP_RECORD = !g%COMMUNITY%!n record on !g%MAP%!n by !g%PLAYER%!n done in !g%TIME%
+
+[sr]
+Q_KZ_RECORDS_RECORD_ON = !g%COMMUNITY%!n rekord na !g%MAP%
+Q_KZ_RECORDS_WAY_RECORD = - !g[%WAY%]!n put uradio !g%PLAYER%!n za !g%TIME%
+Q_KZ_RECORDS_MAP_RECORD = !g%COMMUNITY%!n rekord na !g%MAP%!n uradio !g%PLAYER%!n za !g%TIME%
