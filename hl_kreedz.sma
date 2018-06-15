@@ -4,6 +4,8 @@
 * http://aghl.ru/forum/ - Russian Half-Life and Adrenaline Gamer Community
 *
 * This file is provided as is (no warranties)
+*
+* Credit to Quaker for the snippet of setting light style (nightvision) https://github.com/skyrim/qmxx/blob/master/scripting/q_nightvision.sma
 */
 
 #pragma semicolon 1
@@ -19,8 +21,8 @@
 
 #define PLUGIN "HL KreedZ Beta"
 #define PLUGIN_TAG "HLKZ"
-#define VERSION "0.24"
-#define AUTHOR "KORD_12.7 & Lev & YaLTeR"
+#define VERSION "0.30"
+#define AUTHOR "KORD_12.7 & Lev & YaLTeR & naz"
 
 // Compilation options
 //#define _DEBUG		// Enable debug output at server console.
@@ -53,6 +55,8 @@
 #define MAIN_MENU_ID	"HL KreedZ Menu"
 #define TELE_MENU_ID	"HL KreedZ Teleport Menu"
 
+#define BONE_LF_FOOT	45
+
 new const configsSubDir[] = "/hl_kreedz";
 new const pluginCfgFileName[] = "hl_kreedz.cfg";
 
@@ -69,6 +73,11 @@ new const g_szStops[][] =
 {
 	"hlkz_finish", "counter_off", "clockstopbutton", "clockstop", "but_stop", "counter_stop_button",
 	"multi_stop", "stop_counter", "m_counter_end_emi"
+};
+
+new const g_szTops[][] =
+{
+	"Pure", "Pro", "Noob"
 };
 
 enum _:CP_TYPES
@@ -117,9 +126,9 @@ enum BUTTON_TYPE
 	BUTTON_NOT,
 }
 
-new g_bit_is_connected, g_bit_is_alive;
+new g_bit_is_connected, g_bit_is_alive, g_bit_invis, g_bit_waterinvis;
 new g_bit_is_hltv, g_bit_is_bot;
-new g_baIsClimbing, g_baIsPaused, g_baIsFirstSpawn;
+new g_baIsClimbing, g_baIsPaused, g_baIsFirstSpawn, g_baIsPureRunning;
 
 new Float:g_PlayerTime[MAX_PLAYERS + 1];
 new Float:g_PlayerTimePause[MAX_PLAYERS + 1];
@@ -138,15 +147,33 @@ new g_TeleMenuPlayersNum[MAX_PLAYERS + 1];
 new g_TeleMenuOption[MAX_PLAYERS + 1];
 new g_KzMenuOption[MAX_PLAYERS + 1];
 new g_CheatCommandsGuard[MAX_PLAYERS + 1];
+new g_ShowStartMsg[MAX_PLAYERS + 1];
+new g_TimeDecimals[MAX_PLAYERS + 1];
+new g_Nightvision[MAX_PLAYERS + 1];
+
+new g_FrameTime[MAX_PLAYERS + 1][2];
+new Float:g_FrameTimeInMsec[MAX_PLAYERS + 1];
 
 new g_ControlPoints[MAX_PLAYERS + 1][CP_TYPES][CP_DATA];
 new g_CpCounters[MAX_PLAYERS + 1][COUNTERS];
+new g_RunType[MAX_PLAYERS + 1][9];
+new Float:g_Velocity[MAX_PLAYERS + 1][3];
+new Float:g_Origin[MAX_PLAYERS + 1][3];
+new bool:g_bIsSurfing[MAX_PLAYERS + 1];
+new bool:g_bWasSurfing[MAX_PLAYERS + 1];
+new bool:g_bIsSurfingWithFeet[MAX_PLAYERS + 1];
+new bool:g_hasSurfbugged[MAX_PLAYERS + 1];
+new bool:g_hasSlopebugged[MAX_PLAYERS + 1];
+new bool:g_StoppedSlidingRamp[MAX_PLAYERS + 1];
+new g_RampFrameCounter[MAX_PLAYERS + 1];
+new g_HBFrameCounter[MAX_PLAYERS + 1]; // frame counter for healthbooster trigger_multiple
 
 new g_HudRGB[3];
 new g_SyncHudTimer;
 new g_SyncHudMessage;
 new g_SyncHudKeys;
 new g_SyncHudHealth;
+new g_SyncHudShowStartMsg;
 new g_MaxPlayers;
 new g_PauseSprite;
 new g_TaskEnt;
@@ -155,8 +182,11 @@ new g_Map[64];
 new g_ConfigsDir[256];
 new g_StatsFileNub[256];
 new g_StatsFilePro[256];
+new g_StatsFilePure[256];
+
 new g_MapIniFile[256];
 new g_MapDefaultStart[CP_DATA];
+new g_MapDefaultLightStyle[32];
 
 new g_SpectatePreSpecMode;
 new bool:g_InForcedRespawn;
@@ -175,22 +205,32 @@ new pcvar_kz_pause;
 new pcvar_kz_nodamage;
 new pcvar_kz_show_timer;
 new pcvar_kz_show_keys;
+new pcvar_kz_show_start_msg;
+new pcvar_kz_time_decimals;
 new pcvar_kz_nokill;
 new pcvar_kz_autoheal;
 new pcvar_kz_autoheal_hp;
 new pcvar_kz_spawn_mainmenu;
 new pcvar_kz_nostat;
+new pcvar_kz_pure_max_start_speed;
+new pcvar_kz_pure_allow_healthboost;
+new pcvar_kz_remove_func_friction;
+new pcvar_kz_nightvision;
+
+new g_FwLightStyle;
 
 new pcvar_sv_ag_match_running;
 
 new Array:g_ArrayStatsNub;
 new Array:g_ArrayStatsPro;
+new Array:g_ArrayStatsPure;
 
 
 
 
 public plugin_precache()
 {
+	g_FwLightStyle = register_forward(FM_LightStyle, "Fw_FmLightStyle");
 	g_PauseSprite = precache_model("sprites/pause_icon.spr");
 	//precache_model("models/w_jumppack.mdl");
 }
@@ -220,10 +260,16 @@ public plugin_init()
 	pcvar_kz_nodamage = register_cvar("kz_nodamage", "1");
 	pcvar_kz_show_timer = register_cvar("kz_show_timer", "2");
 	pcvar_kz_show_keys = register_cvar("kz_show_keys", "1");
+	pcvar_kz_show_start_msg = register_cvar("kz_show_start_message", "1");
+	pcvar_kz_time_decimals = register_cvar("kz_def_time_decimals", "3");
 	pcvar_kz_nokill = register_cvar("kz_nokill", "0");
 	pcvar_kz_autoheal = register_cvar("kz_autoheal", "0");
 	pcvar_kz_autoheal_hp = register_cvar("kz_autoheal_hp", "50");
 	pcvar_kz_nostat = register_cvar("kz_nostat", "0");		// Disable stats storing (use for tests or fun)
+	pcvar_kz_pure_max_start_speed = register_cvar("kz_pure_max_start_speed", "50"); // Maximum speed when starting the timer to be considered a pure run
+	pcvar_kz_pure_allow_healthboost = register_cvar("kz_pure_allow_healthboost", "0");
+	pcvar_kz_remove_func_friction = register_cvar("kz_remove_func_friction", "0");
+	pcvar_kz_nightvision = register_cvar("kz_def_nightvision", "0"); // 0 = disabled, 1 = all nightvision types allowed, 2 = only flashlight-like nightvision allowed, 3 = only map-global nightvision allowed
 
 	pcvar_allow_spectators = get_cvar_pointer("allow_spectators");
 
@@ -238,6 +284,9 @@ public plugin_init()
 
 	register_clcmd("kz_set_custom_start", "CmdSetCustomStartHandler", -1, "- sets the custom start position");
 	register_clcmd("kz_clear_custom_start", "CmdClearCustomStartHandler", -1, "- clears the custom start position");
+	register_clcmd("kz_start_message", "CmdShowStartMsg", -1, "<0/1> - toggles the message that appears when starting the timer");
+	register_clcmd("kz_time_decimals", "CmdTimeDecimals", -1, "<1-6> - sets a number of decimals to be displayed for times (seconds)");
+	register_clcmd("kz_nightvision", "CmdNightvision", -1, "<0-2> - sets nightvision mode. 0=off, 1=flashlight-like, 2=map-global");
 
 	register_clcmd("say", "CmdSayHandler");
 	register_clcmd("say_team", "CmdSayHandler");
@@ -252,6 +301,7 @@ public plugin_init()
 	register_menucmd(register_menuid(TELE_MENU_ID), 1023, "ActionTeleportMenu");
 
 	RegisterHam(Ham_Use, "func_button", "Fw_HamUseButtonPre");
+	RegisterHam(Ham_Touch, "trigger_multiple", "Fw_HamUseButtonPre"); // ag_bhop_master.bsp starts timer when jumping on a platform
 	RegisterHam(Ham_Spawn, "player", "Fw_HamSpawnPlayerPost", 1);
 	RegisterHam(Ham_Killed, "player", "Fw_HamKilledPlayerPre");
 	RegisterHam(Ham_Killed, "player", "Fw_HamKilledPlayerPost", 1);
@@ -266,6 +316,12 @@ public plugin_init()
 	register_forward(FM_PlayerPostThink, "Fw_FmPlayerPostThinkPre");
 	register_forward(FM_AddToFullPack, "Fw_FmAddToFullPackPost", 1);
 	register_forward(FM_GetGameDescription,"Fw_FmGetGameDescriptionPre");
+	unregister_forward(FM_LightStyle, g_FwLightStyle);
+	register_forward(FM_Touch, "Fw_FmTouchPre");
+	register_forward(FM_CmdStart, "Fw_FmCmdStartPre");
+	register_touch("trigger_teleport", "player", "Fw_FmPlayerTouchTeleport");
+	register_touch("trigger_push", "player", "Fw_FmPlayerTouchPush");
+	register_touch("trigger_multiple", "player", "Fw_FmPlayerTouchHealthBooster");
 
 	register_message(get_user_msgid("Health"), "Fw_MsgHealth");
 	register_message(SVC_TEMPENTITY, "Fw_MsgTempEntity");
@@ -286,9 +342,11 @@ public plugin_init()
 	g_SyncHudMessage = CreateHudSyncObj();
 	g_SyncHudKeys = CreateHudSyncObj();
 	g_SyncHudHealth = CreateHudSyncObj();
+	g_SyncHudShowStartMsg = CreateHudSyncObj();
 
 	g_ArrayStatsNub = ArrayCreate(STATS);
 	g_ArrayStatsPro = ArrayCreate(STATS);
+	g_ArrayStatsPure = ArrayCreate(STATS);
 }
 
 public plugin_cfg()
@@ -314,8 +372,10 @@ public plugin_cfg()
 	// Load stats
 	formatex(g_StatsFileNub, charsmax(g_StatsFileNub), "%s/%s_%s.dat", g_ConfigsDir, g_Map, "nub");
 	formatex(g_StatsFilePro, charsmax(g_StatsFilePro), "%s/%s_%s.dat", g_ConfigsDir, g_Map, "pro");
-	LoadRecords(true);
-	LoadRecords(false);
+	formatex(g_StatsFilePure, charsmax(g_StatsFilePure), "%s/%s_%s.dat", g_ConfigsDir, g_Map, "pure");
+	LoadRecords(g_szTops[0]);
+	LoadRecords(g_szTops[1]);
+	LoadRecords(g_szTops[2]);
 
 	// Load map settings
 	formatex(g_MapIniFile, charsmax(g_MapIniFile), "%s/%s.ini", g_ConfigsDir, g_Map);
@@ -325,7 +385,7 @@ public plugin_cfg()
 	if (get_pcvar_num(pcvar_kz_autoheal))
 		CreateGlobalHealer();
 
-	// Setup hud color
+	// Set up hud color
 	new rgb[12], r[4], g[4], b[4];
 	get_pcvar_string(pcvar_kz_hud_rgb, rgb, charsmax(rgb));
 	parse(rgb, r, charsmax(r), g, charsmax(g), b, charsmax(b));
@@ -333,15 +393,17 @@ public plugin_cfg()
 	g_HudRGB[0] = str_to_num(r);
 	g_HudRGB[1] = str_to_num(g);
 	g_HudRGB[2] = str_to_num(b);
+
+	if (get_pcvar_num(pcvar_kz_remove_func_friction))
+		RemoveFuncFriction();
 }
 
 public plugin_end()
 {
 	ArrayDestroy(g_ArrayStatsNub);
 	ArrayDestroy(g_ArrayStatsPro);
+	ArrayDestroy(g_ArrayStatsPure);
 }
-
-
 
 
 //*******************************************************
@@ -488,7 +550,7 @@ DisplayKzMenu(id, mode)
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. START CLIMB\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Checkpoints\n\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. HUD settings\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Spectate playes\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Spectate players\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Top climbers\n\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Help\n\n");
 			//len += formatex(menuBody[len], charsmax(menuBody) - len, "7. About\n\n");
@@ -531,7 +593,7 @@ DisplayKzMenu(id, mode)
 		}
 	case 3:
 		{
-			keys |= MENU_KEY_1 | MENU_KEY_2;
+			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4;
 
 			new timerStatus[7], keysStatus[5];
 			switch(g_ShowTimer[id])
@@ -550,14 +612,17 @@ DisplayKzMenu(id, mode)
 			len = formatex(menuBody[len], charsmax(menuBody) - len, "HUD Settings\n\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Timer display: %s\n", timerStatus);
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Keys display: %s\n", keysStatus);
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Start message display: %s\n", g_ShowStartMsg[id] ? "ON" : "OFF");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Time decimals display: %d\n", g_TimeDecimals[id]);
 		}
 	case 5:
 		{
-			keys |= MENU_KEY_1 | MENU_KEY_2;
+			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3;
 
 			len = formatex(menuBody[len], charsmax(menuBody) - len, "Show Top Climbers\n\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Pro 15\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Noob 15\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Pure 15\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Pro 15\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Noob 15\n");
 		}
 	}
 
@@ -614,12 +679,15 @@ public ActionKzMenu(id, key)
 		{
 		case 1: CmdTimer(id);
 		case 2: CmdShowkeys(id);
+		case 3: CmdMenuShowStartMsg(id);
+		case 4: CmdMenuTimeDecimals(id);
 		}
 	case 5:
 		switch (key)
 		{
-		case 1: ShowTopClimbers(id, true);
-		case 2: ShowTopClimbers(id, false);
+		case 1: ShowTopClimbers(id, g_szTops[0]);
+		case 2: ShowTopClimbers(id, g_szTops[1]);
+		case 3: ShowTopClimbers(id, g_szTops[2]);
 		}
 	}
 
@@ -646,6 +714,18 @@ public client_putinserver(id)
 
 	g_ShowTimer[id] = get_pcvar_num(pcvar_kz_show_timer);
 	g_ShowKeys[id] = get_pcvar_num(pcvar_kz_show_keys);
+	g_ShowStartMsg[id] = get_pcvar_num(pcvar_kz_show_start_msg);
+	// FIXME: get default value from client, and then fall back to server if cleint doesn't have the command set
+	g_TimeDecimals[id] = get_pcvar_num(pcvar_kz_time_decimals);
+	g_Nightvision[id] = get_pcvar_num(pcvar_kz_nightvision);
+	// Nightvision value 1 in server cvar is "all modes allowed", if that's the case we default it to mode 2 in client,
+	// every other mode in cvar is +1 than client command, so we do -1 to get the correct mode
+	if (g_Nightvision[id] > 1)
+		g_Nightvision[id]--;
+	else if (g_Nightvision[id] == 1)
+		g_Nightvision[id] = 2;
+
+	//query_client_cvar(id, "kz_nightvision", "ClCmdNightvision"); // TODO save user variables in a file and retrieve them when they connect to server
 
 	g_ControlPoints[id][CP_TYPE_START] = g_MapDefaultStart;
 
@@ -657,7 +737,10 @@ public client_disconnect(id)
 	clr_bit(g_bit_is_connected, id);
 	clr_bit(g_bit_is_hltv, id);
 	clr_bit(g_bit_is_bot, id);
+	clr_bit(g_bit_invis, id);
+	clr_bit(g_bit_waterinvis, id);
 	clr_bit(g_baIsFirstSpawn, id);
+	clr_bit(g_baIsPureRunning, id);
 	g_SolidState[id] = -1;
 
 	// Clear and reset other things
@@ -690,6 +773,7 @@ InitPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 	// Reset timer
 	clr_bit(g_baIsClimbing, id);
 	clr_bit(g_baIsPaused, id);
+	clr_bit(g_baIsPureRunning, id);
 
 	g_PlayerTime[id] = 0.0;
 	g_PlayerTimePause[id] = 0.0;
@@ -802,24 +886,55 @@ CmdSpec(id)
 	client_cmd(id, "spectate");	// CanSpectate is called inside of command hook handler
 }
 
+CmdInvis(id)
+{
+	if(get_bit(g_bit_invis, id) || !IsAlive(id) || pev(id, pev_iuser1))
+	{
+		clr_bit(g_bit_invis, id);
+		client_print(id, print_chat, "[%s] All players visible", PLUGIN_TAG);
+	}
+	else
+	{
+		set_bit(g_bit_invis, id);
+		client_print(id, print_chat, "[%s] All players hidden", PLUGIN_TAG);
+	}
+	return PLUGIN_CONTINUE;
+}
+
+CmdWaterInvis(id)
+{
+	if (get_bit(g_bit_waterinvis, id) || pev(id, pev_iuser1))
+	{
+		clr_bit(g_bit_waterinvis, id);
+		client_print(id, print_chat, "[%s] Liquids are now visible", PLUGIN_TAG);
+	}
+	else
+	{
+		set_bit(g_bit_waterinvis, id);
+		client_print(id, print_chat, "[%s] Liquids are now hidden", PLUGIN_TAG);
+	}
+	return PLUGIN_CONTINUE;
+}
+
 CmdTimer(id)
 {
 	if (!get_pcvar_num(pcvar_kz_show_timer))
 	{
-		ShowMessage(id, "Timer display is disabled by server");
+		ShowMessage(id, "Timer display modification is disabled by server");
 		return;
 	}
 
 	client_print(id, print_center, "");
 	ClearSyncHud(id, g_SyncHudTimer);
 	ClearSyncHud(id, g_SyncHudKeys);
+	ClearSyncHud(id, g_SyncHudShowStartMsg);
 
 	if (g_ShowTimer[id] < 2)
-		ShowMessage(id, "Timer display destination: %s", g_ShowTimer[id]++ < 1 ? "center" : "hud");
+		ShowMessage(id, "Timer display position: %s", g_ShowTimer[id]++ < 1 ? "center" : "HUD");
 	else
 	{
 		g_ShowTimer[id] = 0;
-		ShowMessage(id, "Timer display off");
+		ShowMessage(id, "Timer display: off");
 	}
 }
 
@@ -827,19 +942,55 @@ CmdShowkeys(id)
 {
 	if (!get_pcvar_num(pcvar_kz_show_keys))
 	{
-		ShowMessage(id, "Keys display is disabled by server");
+		ShowMessage(id, "Keys display modification is disabled by server");
 		return;
 	}
 
 	ClearSyncHud(id, g_SyncHudKeys);
 
 	if (g_ShowKeys[id] < 2)
-		ShowMessage(id, "Keys display %s", g_ShowKeys[id]++ < 1 ? "on in spectator mode" : "on");
+		ShowMessage(id, "Keys display: %s", g_ShowKeys[id]++ < 1 ? "on in spectator mode" : "on");
 	else
 	{
 		g_ShowKeys[id] = 0;
-		ShowMessage(id, "Keys display off");
+		ShowMessage(id, "Keys display: off");
 	}
+}
+
+CmdMenuShowStartMsg(id)
+{
+	if (!get_pcvar_num(pcvar_kz_show_start_msg))
+	{
+		ShowMessage(id, "Start message display toggling is disabled by server");
+		return;
+	}
+
+	client_print(id, print_center, "");
+	ClearSyncHud(id, g_SyncHudTimer);
+	ClearSyncHud(id, g_SyncHudKeys);
+	ClearSyncHud(id, g_SyncHudShowStartMsg);
+
+	g_ShowStartMsg[id] = !g_ShowStartMsg[id];
+	ShowMessage(id, "Start message display: %s", g_ShowStartMsg[id] ? "on" : "off");
+	client_cmd(id, "kz_start_message %d", g_ShowStartMsg[id]);
+}
+
+CmdMenuTimeDecimals(id)
+{
+	if (!get_pcvar_num(pcvar_kz_time_decimals))
+	{
+		ShowMessage(id, "Modifying the number of decimals to display is disabled by server");
+		return;
+	}
+
+	client_print(id, print_center, "");
+
+	if (g_TimeDecimals[id] < 6)
+		g_TimeDecimals[id]++;
+	else
+		g_TimeDecimals[id] = 1;
+	ShowMessage(id, "Decimals to show in times: %d", g_TimeDecimals[id]);
+	client_cmd(id, "kz_time_decimals %d", g_TimeDecimals[id]);
 }
 
 CmdRespawn(id)
@@ -860,7 +1011,7 @@ CmdRespawn(id)
 
 CmdHelp(id)
 {
-	new motd[2047], title[32], len;
+	new motd[1537], title[32], len;
 
 	len = formatex(motd[len], charsmax(motd) - len,
 		"Say commands:\n\
@@ -868,20 +1019,37 @@ CmdHelp(id)
 		/cp - create control point\n\
 		/tp - teleport to last control point\n\
 		/top - show Top climbers\n\
+		/pure - /pro - /nub - /noob - show specific tops\n\
 		/unstuck - teleport to previous control point\n\
 		/pause - pause timer and freeze player\n\
 		/reset - reset timer and clear checkpoints\n");
+
+	if (is_plugin_loaded("Q::Jumpstats", false))
+	{
+		len = formatex(motd[len], charsmax(motd) - len,
+			"/ljstats /jumpstats - toggle showing different jump distances\n\
+			/speed - toggle showing your horizontal speed\n\
+			/prestrafe /showpre /preshow - toggle showing prestrafe speed\n");
+	}
+
 	len += formatex(motd[len], charsmax(motd) - len,
 		"/start - go to start button\n\
 		/respawn - go to spawn point\n\
-		/spec - go to spectate mode or exit from it\n\
+		/spectate /spec - go to spectate mode or exit from it\n\
+		/setstart /ss - set custom start position\n\
+		/clearstart /cs - clear custom start position\n\
+		/invis - make other players invisible to you\n\
+		/winvis /waterinvis /liquidinvis - make most liquids invisible\n\
 		/timer - switch between different timer display modes\n\
 		/showkeys - display pressed movement keys in HUD\n\
+		/startmsg - display timer start message in HUD\n\
+		/decimals /dec <1-6> - number of decimals in times\n\
+		/nightvision /nv <0-2> - nightvision mode, 0=off, 1=flashlight, 2=global\n\
 		/kzhelp - this motd\n");
 
 	formatex(motd[len], charsmax(motd) - len,
-		"\n%s %s by KORD_12.7 & Lev\n\
-		Visit aghl.ru for news\n\n", PLUGIN, VERSION);
+		"\n%s %s by %s\n\
+		Visit aghl.ru or sourceruns.org for news\n\n", PLUGIN, VERSION, AUTHOR);
 
 	formatex(title, charsmax(title), "%s Help", PLUGIN);
 	show_motd(id, motd, title);
@@ -894,7 +1062,7 @@ public CmdSayHandler(id)
 	read_args(args, charsmax(args));
 	remove_quotes(args); trim(args);
 
-	if (args[0] != '/' && args[0] != '.')
+	if (args[0] != '/' && args[0] != '.' && args[0] != '!')
 		return PLUGIN_CONTINUE;
 
 	if (equali(args[1], "cp"))
@@ -918,11 +1086,26 @@ public CmdSayHandler(id)
 	else if (equali(args[1], "timer"))
 		CmdTimer(id);
 
-	else if (equali(args[1], "spec"))
+	else if (equali(args[1], "spectate") || equali(args[1], "spec"))
 		CmdSpec(id);
+
+	else if (equali(args[1], "setstart") || equali(args[1], "ss"))
+		CmdSetCustomStartHandler(id);
+
+	else if (equali(args[1], "clearstart") || equali(args[1], "cs"))
+		CmdClearCustomStartHandler(id);
+
+	else if (equali(args[1], "invis"))
+		CmdInvis(id);
+
+	else if (equali(args[1], "winvis") || equali(args[1], "waterinvis") || equali(args[1], "liquidinvis"))
+		CmdWaterInvis(id);
 
 	else if (equali(args[1], "showkeys") || equali(args[1], "keys"))
 		CmdShowkeys(id);
+
+	else if (equali(args[1], "startmsg"))
+		CmdMenuShowStartMsg(id);
 
 	else if (equali(args[1], "spawn") || equali(args[1], "respawn"))
 		CmdRespawn(id);
@@ -933,7 +1116,22 @@ public CmdSayHandler(id)
 	else if (equali(args[1], "kzhelp") || equali(args[1], "help") || equali(args[1], "h"))
 		CmdHelp(id);
 
-	else if (contain(args[1], "top") != -1 || contain(args[1], "pro") != -1 || contain(args[1], "nub") != -1 || contain(args[1], "noob") != -1)
+	else if (contain(args[1], "dec") == 0/* || contain(args[1], "decimals") != -1*/)
+		CmdTimeDecimals(id);
+
+	else if (contain(args[1], "nv") == 0 || contain(args[1], "nightvision") == 0)
+		CmdNightvision(id);
+
+	else if (contain(args[1], "pure") == 0)
+		ShowTopClimbers(id, g_szTops[0]);
+
+	else if (contain(args[1], "pro") == 0)
+		ShowTopClimbers(id, g_szTops[1]);
+
+	else if (contain(args[1], "nub") == 0 || contain(args[1], "noob") == 0)
+		ShowTopClimbers(id, g_szTops[2]);
+
+	else if (contain(args[1], "top") == 0)
 		DisplayKzMenu(id, 5);
 
 	else
@@ -1097,6 +1295,8 @@ Teleport(id, cp)
 	if (!g_ControlPoints[id][cp][CP_VALID])
 		return;
 
+	g_RampFrameCounter[id] = 0;
+
 	// Restore player state and position
 	if (g_ControlPoints[id][cp][CP_FLAGS] & FL_DUCKING)
 		set_pev(id, pev_flags, pev(id, pev_flags) | FL_DUCKING);
@@ -1173,7 +1373,17 @@ bool:IsValidPlaceForCp(id)
 	return (pev(id, pev_flags) & FL_ONGROUND_ALL) != 0;
 }
 
+bool:IsUserOnGround(id)
+{
+	return !!(pev(id, pev_flags) & FL_ONGROUND_ALL);
+}
 
+Float:GetPlayerSpeed(id)
+{
+	new Float:velocity[3];
+	pev(id, pev_velocity, velocity);
+	return floatsqroot(floatpower(velocity[0], 2.0) + floatpower(velocity[1], 2.0));
+}
 
 
 //*******************************************************
@@ -1261,6 +1471,7 @@ ClientCommandSpectatePost(id)
 		}
 		else
 		{
+			clr_bit(g_bit_invis, id);
 			// Entered spectate mode
 			// Remove frozen state and pause sprite if any, but maintain timer stopped
 			if (get_bit(g_baIsPaused, id))
@@ -1396,6 +1607,10 @@ FinishClimb(id)
 		ShowMessage(id, "You must press the start button first");
 		return;
 	}
+	if (get_bit(g_baIsPureRunning, id))
+	{
+		ShowMessage(id, "You have performed a pure run :)");
+	}
 
 	FinishTimer(id);
 
@@ -1404,28 +1619,50 @@ FinishClimb(id)
 
 StartTimer(id)
 {
+	new Float:speed = GetPlayerSpeed(id);
+
 	set_bit(g_baIsClimbing, id);
+	if (speed <= get_pcvar_float(pcvar_kz_pure_max_start_speed))
+		set_bit(g_baIsPureRunning, id);
+
 	g_PlayerTime[id] = get_gametime();
-	ShowMessage(id, "Timer started");
+
+	if (g_ShowStartMsg[id])
+	{
+		new msg[38];
+		formatex(msg, charsmax(msg), "Timer started with speed %5.2fu/s", speed);
+		ShowMessage(id, msg);
+	}
 }
 
 FinishTimer(id)
 {
-	new name[32], minutes, Float:seconds;
+	new name[32], minutes, Float:seconds, pureRun[11];
 	new Float:kztime = get_gametime() - g_PlayerTime[id];
 
 	minutes = floatround(kztime, floatround_floor) / 60;
 	seconds = kztime - (60 * minutes);
+	pureRun = get_bit(g_baIsPureRunning, id) ? "(Pure Run)" : "";
 
 	client_cmd(0, "spk fvox/bell");
 
 	get_user_name(id, name, charsmax(name));
-	client_print(0, print_chat,"[%s] %s finished in %02d:%06.3f (CPs: %d | TPs: %d)", PLUGIN_TAG, name, minutes, seconds, g_CpCounters[id][COUNTER_CP], g_CpCounters[id][COUNTER_TP]);
+	client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s finished in %02d:%", "f (CPs: %d | TPs: %d) %s"),
+		PLUGIN_TAG, name, minutes, seconds, g_CpCounters[id][COUNTER_CP], g_CpCounters[id][COUNTER_TP], pureRun);
 
 	if (!get_pcvar_num(pcvar_kz_nostat))
-		UpdateRecords(id, kztime, !g_CpCounters[id][COUNTER_CP] && !g_CpCounters[id][COUNTER_TP]);
+		if (!g_CpCounters[id][COUNTER_CP] && !g_CpCounters[id][COUNTER_TP])
+		{
+			if (get_bit(g_baIsPureRunning, id))
+				UpdateRecords(id, kztime, g_szTops[0], g_szTops[1]);
+			else
+				UpdateRecords(id, kztime, g_szTops[1], _);
+		}
+		else
+			UpdateRecords(id, kztime, g_szTops[2], _);
 
 	clr_bit(g_baIsClimbing, id);
+	clr_bit(g_baIsPureRunning, id);
 
 	if (g_bMatchRunning)
 	{
@@ -1594,6 +1831,7 @@ UpdateHud(Float:currentGameTime)
 			g_LastMode[id] = mode;
 			ClearSyncHud(id, g_SyncHudTimer);
 			ClearSyncHud(id, g_SyncHudKeys);
+			ClearSyncHud(id, g_SyncHudShowStartMsg);
 		}
 		if (g_LastTarget[id] != targetId)
 		{
@@ -1601,6 +1839,7 @@ UpdateHud(Float:currentGameTime)
 			g_LastTarget[id] = targetId;
 			ClearSyncHud(id, g_SyncHudTimer);
 			ClearSyncHud(id, g_SyncHudKeys);
+			ClearSyncHud(id, g_SyncHudShowStartMsg);
 		}
 
 		HudShowPressedKeys(id, mode, targetId);
@@ -1633,15 +1872,22 @@ UpdateHud(Float:currentGameTime)
 			min = floatround(kztime / 60.0, floatround_floor);
 			sec = floatround(kztime - min * 60.0, floatround_floor);
 
+			if (g_CpCounters[id][COUNTER_CP] || g_CpCounters[id][COUNTER_TP])
+				g_RunType[id] = "Noob run";
+			else if (get_bit(g_baIsPureRunning, id))
+				g_RunType[id] = "Pure run";
+			else
+				g_RunType[id] = "Pro run";
+
 			switch (g_ShowTimer[id])
 			{
-			case 1: client_print(id, print_center, "Time: %02d:%02d | CPs: %d | TPs: %d %s",
-						min, sec, g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP], get_bit(g_baIsPaused, targetId) ? "| *Paused*" : "");
+			case 1: client_print(id, print_center, "%s | Time: %02d:%02d | CPs: %d | TPs: %d %s",
+						g_RunType[id], min, sec, g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP], get_bit(g_baIsPaused, targetId) ? "| *Paused*" : "");
 			case 2:
 				{
 					set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, 0.10, 0, 0.0, 999999.0, 0.0, 0.0, -1);
-					ShowSyncHudMsg(id, g_SyncHudTimer, "Time: %02d:%02d | CPs: %d | TPs: %d %s",
-						min, sec, g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP], get_bit(g_baIsPaused, targetId) ? "| *Paused*" : "");
+					ShowSyncHudMsg(id, g_SyncHudTimer, "%s | Time: %02d:%02d | CPs: %d | TPs: %d %s",
+						g_RunType[id], min, sec, g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP], get_bit(g_baIsPaused, targetId) ? "| *Paused*" : "");
 				}
 			}
 		}
@@ -1910,6 +2156,15 @@ public Fw_FmGetGameDescriptionPre()
 	return FMRES_SUPERCEDE;
 }
 
+public Fw_FmCmdStartPre(id, uc_handle, seed)
+{
+
+	g_FrameTime[id][1] = g_FrameTime[id][0];
+	g_FrameTime[id][0] = get_uc(uc_handle, UC_Msec);
+
+	g_FrameTimeInMsec[id] = g_FrameTime[id][0] * 0.001;
+}
+
 public Fw_MsgTempEntity()
 {
 	// Block MiniAG timer from being sent
@@ -1931,6 +2186,23 @@ public Fw_MsgTempEntity()
 
 public Fw_FmPlayerPreThinkPost(id)
 {
+	g_bWasSurfing[id] = g_bIsSurfing[id];
+	g_bIsSurfing[id] = false;
+	g_bIsSurfingWithFeet[id] = false;
+	g_hasSurfbugged[id] = false;
+	g_hasSlopebugged[id] = false;
+
+	if (g_RampFrameCounter[id] > 0)
+		g_RampFrameCounter[id] -= 1;
+
+	if (g_HBFrameCounter[id] > 0)
+	{
+		g_HBFrameCounter[id] -= 1;
+		CheckHealthBoost(id);
+	}
+	pev(id, pev_velocity, g_Velocity[id]);
+	pev(id, pev_origin, g_Origin[id]);
+
 	// Store pressed keys here, cos HUD updating is called not so frequently
 	HudStorePressedKeys(id);
 
@@ -1954,8 +2226,201 @@ public Fw_FmPlayerPreThinkPost(id)
 	g_RestoreSolidStates = true;
 }
 
+public Fw_FmTouchPre(iEntity1, iEntity2)
+{
+	// Surf detection
+	if(IsPlayer(iEntity1))
+	{
+		// Setting stuff
+		g_StoppedSlidingRamp[iEntity1] = false;
+		new className[32];
+		pev(iEntity2, pev_classname, className, charsmax(className));
+		pev(iEntity1, pev_velocity, g_Velocity[iEntity1]);
+		new Float:player[3], Float:angles[3], Float:velocity[3];
+		new Float:belowOrigin[3], Float:sideOrigin[3];
+		new Float:belowNormal[3], Float:sideNormal[3];
+		pev(iEntity1, pev_origin, player);
+		pev(iEntity1, pev_angles, angles);
+		pev(iEntity1, pev_velocity, velocity);
+
+		// Start checking planes around player to know their context
+		GetNormalPlaneRelativeToPlayer(iEntity1, player, Float:{0.0, 0.0, -9999.0}, belowOrigin, belowNormal); // direction: below player
+		GetNormalPlaneAtSideOfPlayer(iEntity1, player, sideOrigin, sideNormal);
+
+		new Float:footOrigin[3], Float:footSideOrigin[3], Float:footSideNormal[3];
+		new Float:feetZ = (pev(iEntity1, pev_flags) & FL_DUCKING) ? -18.0 : -36.0;
+		new Float:feet[3];
+		feet[0] = 0.0;
+		feet[1] = 0.0;
+		feet[2] = feetZ;
+		xs_vec_add(player, feet, footOrigin);
+		GetNormalPlaneAtSideOfPlayer(iEntity1, footOrigin, footSideOrigin, footSideNormal);
+
+		new bool:bOnRamp = player[1] == belowOrigin[1] && belowNormal[1] != 0 && player[2] - belowOrigin[2] <= 50.0; // should be 36.0, but in some rare case it was more than 40, and most times it's between 34.9 and 35.0, and between 16.9 and 17.5 when crouched
+
+		if (bOnRamp)
+		{
+			g_RampFrameCounter[iEntity1] = 125; // for the next 125 frames will continue checking slopebug
+		}
+		else
+			g_RampFrameCounter[iEntity1] = 0;
+
+		// Avoid keeping the velocity when appearing on the other side of the teleport
+		// It thinks you're surfing when jumping into it
+		if (equali(className, "trigger_teleport"))
+		{ // Made a register_touch for this as it seems that it never makes it to this point
+			g_bIsSurfing[iEntity1] = false;
+			g_RampFrameCounter[iEntity1] = 0;
+			g_hasSurfbugged[iEntity1] = false;
+			g_hasSlopebugged[iEntity1] = false;
+		}
+
+		if (!IsUserOnGround(iEntity1) && (sideNormal[2] != 0 || footSideNormal[2] != 0 || bOnRamp))
+		{ // Surfing
+			if (footSideNormal[2] != 0 && sideNormal[2] == 0)
+				g_bIsSurfingWithFeet[iEntity1] = true;
+			else
+				g_bIsSurfingWithFeet[iEntity1] = false;
+
+			if (!equali(className, "trigger_teleport"))
+				g_bIsSurfing[iEntity1] = true;
+		}
+		else if (g_bWasSurfing[iEntity1] && bOnRamp)
+		{
+			// Player is sliding a ramp, and it was surfing in the previous frame,
+			// but the player's not longer surfing but landing on the ramp to make another jump
+			g_StoppedSlidingRamp[iEntity1] = true;
+			g_bIsSurfing[iEntity1] = false;
+		}
+	}
+	// Would also do in case the player is iEntity2 and not iEntity1, but turns out that
+	// if a player touches something, it will enter twice in this forward, once with player
+	// as iEntity1 and entity (worldspawn or whatever) as iEntity2 and the next time viceversa
+}
+
+public Fw_FmPlayerTouchTeleport(tp, id) {
+    if (is_user_alive(id))
+    {
+		g_bIsSurfing[id] = false;
+		g_bWasSurfing[id] = false;
+		g_hasSurfbugged[id] = false;
+		g_hasSlopebugged[id] = false;
+		g_RampFrameCounter[id] = 0;
+		g_HBFrameCounter[id] = 0;
+    }
+}
+
+public Fw_FmPlayerTouchPush(push, id)
+{
+	if (is_user_alive(id))
+		CheckHealthBoost(id);
+}
+
+CheckHealthBoost(id)
+{
+	if (!get_pcvar_num(pcvar_kz_pure_allow_healthboost))
+	{
+		new Float:startSpeed = floatsqroot(floatpower(g_Velocity[id][0], 2.0) + floatpower(g_Velocity[id][1], 2.0));
+		new Float:endSpeed = GetPlayerSpeed(id);
+		if (endSpeed > (startSpeed * 1.5) && endSpeed >= 2000.0)
+		{
+			// Very likely used healthboost, so this is not a pure run anymore
+			clr_bit(g_baIsPureRunning, id);
+			if (g_CpCounters[id][COUNTER_CP] || g_CpCounters[id][COUNTER_TP])
+				g_RunType[id] = "Noob run";
+			else
+				g_RunType[id] = "Pro run";
+
+			g_HBFrameCounter[id] = 0;
+		}
+	}
+}
+
+public Fw_FmPlayerTouchHealthBooster(hb, id)
+{
+	if (is_user_alive(id))
+		g_HBFrameCounter[id] = 250;
+}
+
 public Fw_FmPlayerPostThinkPre(id)
 {
+	new Float:currOrigin[3], Float:futureOrigin[3], Float:currVelocity[3];
+	pev(id, pev_origin, currOrigin);
+	pev(id, pev_velocity, currVelocity);
+	new Float:startSpeed = floatsqroot(floatpower(g_Velocity[id][0], 2.0) + floatpower(g_Velocity[id][1], 2.0));
+	new Float:endSpeed = floatsqroot(floatpower(currVelocity[0], 2.0) + floatpower(currVelocity[1], 2.0));
+
+	new Float:svGravity = get_cvar_float("sv_gravity");
+	new Float:pGravity;
+	pev(id, pev_gravity, pGravity);
+
+	futureOrigin[0] = currOrigin[0] + g_Velocity[id][0] * g_FrameTimeInMsec[id];
+	futureOrigin[1] = currOrigin[1] + g_Velocity[id][1] * g_FrameTimeInMsec[id];
+	futureOrigin[2] = currOrigin[2] + 0.4 + g_FrameTimeInMsec[id] * (g_Velocity[id][2] - pGravity * svGravity * g_FrameTimeInMsec[id] / 2);
+
+	if (g_bIsSurfing[id] && startSpeed > 1.0 && endSpeed <= 0.0)
+	{
+		// We restore the velocity that the player had before occurring the slopebug
+		set_pev(id, pev_velocity, g_Velocity[id]);
+
+		// We move the player to the position where they would be if they were not blocked by the bug,
+		// only if they're not gonna get stuck inside a wall
+		new Float:leadingBoundary[3], Float:collisionPoint[3];
+		if (IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
+		{
+			// The player has some boundary component inside the wall, so make
+			// that component go outside, touching the wall but not inside it
+			if (xs_fabs(leadingBoundary[0]) - xs_fabs(collisionPoint[0]) < 0.0)
+			{
+				new Float:x = float(xs_fsign(g_Velocity[id][0])) * 16.0;
+				futureOrigin[0] = collisionPoint[0] - x;
+
+			}
+			if (xs_fabs(leadingBoundary[1]) - xs_fabs(collisionPoint[1]) < 0.0)
+			{
+				new Float:y = float(xs_fsign(g_Velocity[id][1])) * 16.1;
+				futureOrigin[1] = collisionPoint[1] - y;
+			}
+			if (!IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
+				set_pev(id, pev_origin, futureOrigin); // else player is not teleported, just keeps velocity
+			// Tried to do a while to continue checking if player's inside a wall, but crashed with reliable channel overflowed
+		}
+		else
+			set_pev(id, pev_origin, futureOrigin);
+
+		g_hasSurfbugged[id] = true;
+	}
+	if ((g_StoppedSlidingRamp[id] || g_RampFrameCounter[id] > 0) && startSpeed > 1.0 && endSpeed <= 0.0)
+	{
+		set_pev(id, pev_velocity, g_Velocity[id]);
+		new Float:leadingBoundary[3], Float:collisionPoint[3];
+		if (IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
+		{
+			// The player has some boundary component inside the wall, so make
+			// that component go outside, touching the wall but not inside it
+			if (xs_fabs(leadingBoundary[0]) - xs_fabs(collisionPoint[0]) < 0.0)
+			{
+				new Float:x = float(xs_fsign(g_Velocity[id][0])) * 16.0;
+				futureOrigin[0] = collisionPoint[0] - x;
+
+			}
+			if (xs_fabs(leadingBoundary[1]) - xs_fabs(collisionPoint[1]) < 0.0)
+			{
+				new Float:y = float(xs_fsign(g_Velocity[id][1])) * 16.1;
+				futureOrigin[1] = collisionPoint[1] - y;
+			}
+			if (!IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
+				set_pev(id, pev_origin, futureOrigin); // else player is not teleported, just keeps velocity
+		}
+		else
+			set_pev(id, pev_origin, futureOrigin);
+
+		g_hasSlopebugged[id] = true;
+	}
+
+	if (g_HBFrameCounter[id] > 0)
+		CheckHealthBoost(id);
+
 	if (!g_RestoreSolidStates)
 		return;
 
@@ -1969,10 +2434,58 @@ public Fw_FmPlayerPostThinkPre(id)
 	}
 }
 
+/* TODO: Review this dead code. There's NOT a forward pointing here, so it's never called and I don't know it should be
+public Fw_FmAddToFullPackPre(es, e, ent, host, hostflags, player, pSet)
+{
+	if (!player || ent == host)
+		return FMRES_IGNORED;
+
+	if(get_bit(g_bit_invis, host))
+	{
+		forward_return(FMV_CELL, 0);
+		return FMRES_SUPERCEDE;
+	}
+	return FMRES_HANDLED;
+}
+*/
+
 public Fw_FmAddToFullPackPost(es, e, ent, host, hostflags, player, pSet)
 {
-	if (!player || ent == host || IsHltv(host) || !IsConnected(ent) || !IsConnected(host) || !get_pcvar_num(pcvar_kz_semiclip) || pev(host, pev_iuser1) || !get_orig_retval())
+	if (!player)
+	{
+		if (get_bit(g_bit_waterinvis, host) && !IsHltv(host) && !IsConnected(ent) && IsConnected(host) && pev_valid(ent))
+		{
+			static className[32];
+			pev(ent, pev_classname, className, charsmax(className));
+			if (equali(className, "func_water") || equali(className, "func_conveyor"))
+				set_es(es, ES_Effects, get_es(es, ES_Effects) | EF_NODRAW);
+
+			else if (equali(className, "func_illusionary"))
+			{
+				new iContent = pev(ent, pev_skin);
+				// CONTENTS_ORIGIN is Volumetric light, which is the only content option other than Empty
+				// in some map editors and is used for liquids too
+				if (iContent == CONTENTS_WATER || iContent == CONTENTS_ORIGIN
+					|| iContent == CONTENTS_LAVA || iContent == CONTENTS_SLIME)
+					set_es(es, ES_Effects, get_es(es, ES_Effects) | EF_NODRAW);
+			}
+
+		}
 		return FMRES_IGNORED;
+	}
+	else if (player && (g_Nightvision[host] == 1) && (ent == host))
+		set_es(es, ES_Effects, get_es(es, ES_Effects) | EF_BRIGHTLIGHT);
+
+	if (ent == host || IsHltv(host) || !IsConnected(ent) || !IsConnected(host) || !get_pcvar_num(pcvar_kz_semiclip) || pev(host, pev_iuser1) || !get_orig_retval())
+		return FMRES_IGNORED;
+
+	if(get_bit(g_bit_invis, host))
+	{
+		set_es(es, ES_RenderMode, kRenderTransTexture);
+		set_es(es, ES_RenderAmt, 0);
+		set_es(es, ES_Origin, { 999999999.0, 999999999.0, 999999999.0 } );
+		return FMRES_IGNORED;
+	}
 
 	// Update player (host) with setting all players as not solid ...
 	set_es(es, ES_Solid, SOLID_NOT);
@@ -1990,7 +2503,11 @@ public Fw_FmAddToFullPackPost(es, e, ent, host, hostflags, player, pSet)
 	return FMRES_HANDLED;
 }
 
-
+public Fw_FmLightStyle(style, const value[]) {
+	if(!style) {
+		copy(g_MapDefaultLightStyle, charsmax(g_MapDefaultLightStyle), value);
+	}
+}
 
 
 //*******************************************************
@@ -2034,6 +2551,17 @@ kz_create_button(id, type, Float:pOrigin[3] = {0.0, 0.0, 0.0})
 	return PLUGIN_HANDLED;
 }
 // */
+
+public RemoveFuncFriction()
+{
+	new iEnt = FM_NULLENT, i = 0;
+	while( (iEnt = find_ent_by_class(iEnt, "func_friction")) )
+	{
+		remove_entity(iEnt);
+		i++;
+	}
+	server_print("[%s] %d func_friction entities removed", PLUGIN_TAG, i);
+}
 
 public CmdSetStartHandler(id)
 {
@@ -2123,6 +2651,85 @@ public CmdClearCustomStartHandler(id)
 	ShowMessage(id, "Custom starting position cleared");
 
 	return PLUGIN_HANDLED;
+}
+
+public CmdShowStartMsg(id)
+{
+	if (!get_pcvar_num(pcvar_kz_show_start_msg))
+	{
+		ShowMessage(id, "Start message display toggling is disabled by server");
+		return PLUGIN_HANDLED;
+	}
+
+	new arg1[2];
+ 	read_argv(1, arg1, charsmax(arg1));
+
+	ClearSyncHud(id, g_SyncHudTimer);
+	ClearSyncHud(id, g_SyncHudKeys);
+	ClearSyncHud(id, g_SyncHudShowStartMsg);
+
+ 	g_ShowStartMsg[id] = str_to_num(arg1);
+
+ 	return PLUGIN_HANDLED;
+}
+
+public CmdTimeDecimals(id)
+{
+	if (!get_pcvar_num(pcvar_kz_time_decimals))
+	{
+		ShowMessage(id, "Modifying the number of decimals to display is disabled by server");
+		return PLUGIN_HANDLED;
+	}
+
+	new decimals = GetNumberArg();
+ 	if (decimals < 1)
+ 		decimals = 1;
+ 	else if (decimals > 6)
+ 		decimals = 6;
+
+ 	g_TimeDecimals[id] = decimals;
+
+ 	return PLUGIN_HANDLED;
+}
+
+public CmdNightvision(id)
+{
+	new cvar_nightvision = get_pcvar_num(pcvar_kz_nightvision);
+	if (!cvar_nightvision)
+	{
+		ShowMessage(id, "Nightvision is disabled by server");
+		return PLUGIN_HANDLED;
+	}
+
+	new mode = GetNumberArg();
+	if (mode >= 2 && cvar_nightvision == 2)
+	{
+		ShowMessage(id, "Only nightvision mode 1 is allowed by server");
+		return PLUGIN_HANDLED;
+	}
+	else if (mode == 1 && cvar_nightvision == 3)
+	{
+		ShowMessage(id, "Only nightvision mode 2 is allowerd by server");
+		return PLUGIN_HANDLED;
+	}
+
+	if (mode >= 2)
+	{
+		message_begin(MSG_ONE_UNRELIABLE, SVC_LIGHTSTYLE, _, id);
+		write_byte(0);
+		write_string("#");
+		message_end();
+	}
+	else
+	{
+		message_begin(MSG_ONE_UNRELIABLE, SVC_LIGHTSTYLE, _, id);
+		write_byte(0);
+		write_string(g_MapDefaultLightStyle);
+		message_end();
+	}
+ 	g_Nightvision[id] = mode;
+
+ 	return PLUGIN_HANDLED;
 }
 
 LoadMapSettings()
@@ -2249,15 +2856,27 @@ GetUserUniqueId(id, uniqueid[], len)
 	}
 }
 
-LoadRecords(bool:pro)
+LoadRecords(szTopType[])
 {
-	new file = fopen(pro ? g_StatsFilePro : g_StatsFileNub, "r");
+	new file;
+	if (equali(szTopType, g_szTops[0]))
+		file = fopen(g_StatsFilePure, "r");
+	else if (equali(szTopType, g_szTops[1]))
+		file = fopen(g_StatsFilePro, "r");
+	else
+		file = fopen(g_StatsFileNub, "r");
 	if (!file) return;
 
 	new data[1024], stats[STATS], uniqueid[32], name[32], cp[24], tp[24], i;
 	new kztime[24], timestamp[24];
 	new current_time = get_systime();
-	new Array:arr = pro ? g_ArrayStatsPro : g_ArrayStatsNub;
+	new Array:arr;
+	if (equali(szTopType, g_szTops[0]))
+		arr = g_ArrayStatsPure;
+	else if (equali(szTopType, g_szTops[1]))
+		arr = g_ArrayStatsPro;
+	else
+		arr = g_ArrayStatsNub;
 	ArrayClear(arr);
 
 	while (!feof(file))
@@ -2289,19 +2908,31 @@ LoadRecords(bool:pro)
 	fclose(file);
 }
 
-SaveRecords(bool:pro)
+SaveRecords(szTopType[])
 {
-	new file = fopen(pro ? g_StatsFilePro : g_StatsFileNub, "w+");
+	new file;
+	if (equali(szTopType, g_szTops[0]))
+		file = fopen(g_StatsFilePure, "w+");
+	else if (equali(szTopType, g_szTops[1]))
+		file = fopen(g_StatsFilePro, "w+");
+	else
+		file = fopen(g_StatsFileNub, "w+");
 	if (!file) return;
 
 	new stats[STATS];
-	new Array:arr = pro ? g_ArrayStatsPro : g_ArrayStatsNub;
+	new Array:arr;
+	if (equali(szTopType, g_szTops[0]))
+		arr = g_ArrayStatsPure;
+	else if (equali(szTopType, g_szTops[1]))
+		arr = g_ArrayStatsPro;
+	else
+		arr = g_ArrayStatsNub;
 
 	for (new i; i < ArraySize(arr); i++)
 	{
 		ArrayGetArray(arr, i, stats);
 
-		fprintf(file, "\"%s\" \"%s\" %d %d %.5f %i\n",
+		fprintf(file, "\"%s\" \"%s\" %d %d %.6f %i\n",
 			stats[STATS_ID],
 			stats[STATS_NAME],
 			stats[STATS_CP],
@@ -2313,18 +2944,36 @@ SaveRecords(bool:pro)
 	fclose(file);
 }
 
-UpdateRecords(id, Float:kztime, bool:pro)
+// Refactor if somehow more than 2 tops have to be passed
+// The second top is only in case you do a Pure that is
+// better than your Pro record, so it gets updated in both
+UpdateRecords(id, Float:kztime, szTopType[], szTopType2[]="")
 {
-	new uniqueid[32], name[32], rank;
+	new uniqueid[32], name[32], rank, rank2;
 	new stats[STATS], insertItemId = -1, deleteItemId = -1;
+	new stats2[STATS], insertItemId2 = -1, deleteItemId2 = -1;
 	new minutes, Float:seconds, Float:slower, Float:faster;
-	LoadRecords(pro);
-	new Array:arr = pro ? g_ArrayStatsPro : g_ArrayStatsNub;
+	LoadRecords(szTopType);
+	new Array:arr, Array:arr2;
+	if (equali(szTopType, g_szTops[0]))
+	{
+		arr = g_ArrayStatsPure;
+		if (equali(szTopType2, g_szTops[1]))
+		{
+			LoadRecords(szTopType2);
+			arr2 = g_ArrayStatsPro;
+		}
+
+	}
+	else if (equali(szTopType, g_szTops[1]))
+		arr = g_ArrayStatsPro;
+	else
+		arr = g_ArrayStatsNub;
 
 	GetUserUniqueId(id, uniqueid, charsmax(uniqueid));
 	GetColorlessName(id, name, charsmax(name));
 
-	new result;
+	new result, result2, bool:skipResult = false, bool:skipResult2 = false;
 
 	for (new i = 0; i < ArraySize(arr); i++)
 	{
@@ -2342,65 +2991,144 @@ UpdateRecords(id, Float:kztime, bool:pro)
 			slower = kztime - stats[STATS_TIME];
 			minutes = floatround(slower, floatround_floor) / 60;
 			seconds = slower - (60 * minutes);
-			client_print(id, print_chat, "[%s] You failed your time by %02d:%06.3f", PLUGIN_TAG, minutes, seconds);
+			client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You failed your time by %02d:%", "f"),
+				PLUGIN_TAG, minutes, seconds);
 
-			return;
+			skipResult = true;
+			break;
 		}
 
 		faster = stats[STATS_TIME] - kztime;
 		minutes = floatround(faster, floatround_floor) / 60;
 		seconds = faster - (60 * minutes);
-		client_print(id, print_chat, "[%s] You improved your time by %02d:%06.3f", PLUGIN_TAG, minutes, seconds);
+		client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You improved your time by %02d:%", "f"),
+			PLUGIN_TAG, minutes, seconds);
 
 		deleteItemId = i;
 		break;
 	}
 
-	copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
-	copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
-	stats[STATS_CP] = g_CpCounters[id][COUNTER_CP];
-	stats[STATS_TP] = g_CpCounters[id][COUNTER_TP];
-	stats[STATS_TIME] = _:kztime;
-	stats[STATS_TIMESTAMP] = get_systime();
-
-	if (insertItemId != -1)
+	if (equali(szTopType2, g_szTops[1]))
 	{
-		rank = insertItemId;
-		ArrayInsertArrayBefore(arr, insertItemId, stats);
+		for (new i = 0; i < ArraySize(arr2); i++)
+		{
+			ArrayGetArray(arr2, i, stats2);
+			result2 = floatcmp(kztime, stats2[STATS_TIME]);
+
+			if (result2 == -1 && insertItemId2 == -1)
+				insertItemId2 = i;
+
+			if (!equal(stats2[STATS_ID], uniqueid))
+				continue;
+
+			if (result2 != -1)
+			{
+				skipResult2 = true;
+				break; // their pure time is worse than their pro time
+			}
+
+			faster = stats2[STATS_TIME] - kztime;
+			minutes = floatround(faster, floatround_floor) / 60;
+			seconds = faster - (60 * minutes);
+			client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You improved your %s time by %02d:%", "f"),
+				PLUGIN_TAG, g_szTops[1], minutes, seconds);
+
+			deleteItemId2 = i;
+			break;
+		}
 	}
-	else
+
+	// If it gets here it's because it's a new PB
+	if (!skipResult)
 	{
-		rank = ArraySize(arr);
-		ArrayPushArray(arr, stats);
+		copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
+		copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
+		stats[STATS_CP] = g_CpCounters[id][COUNTER_CP];
+		stats[STATS_TP] = g_CpCounters[id][COUNTER_TP];
+		stats[STATS_TIME] = _:kztime;
+		stats[STATS_TIMESTAMP] = get_systime();
+
+		if (insertItemId != -1)
+		{
+			rank = insertItemId;
+			ArrayInsertArrayBefore(arr, insertItemId, stats);
+		}
+		else
+		{
+			rank = ArraySize(arr);
+			ArrayPushArray(arr, stats);
+		}
+
+		if (deleteItemId != -1)
+			ArrayDeleteItem(arr, insertItemId != -1 ? deleteItemId + 1 : deleteItemId);
+
+		rank++;
+		if (rank <= 15)
+		{
+			client_cmd(0, "spk woop");
+			client_print(0, print_chat, "[%s] %s is now on place %d in %s 15", PLUGIN_TAG, name, rank, szTopType);
+		}
+		else
+			client_print(0, print_chat, "[%s] %s's rank is %d of %d among %s players", PLUGIN_TAG, name, rank, ArraySize(arr), szTopType);
+
+		SaveRecords(szTopType);
 	}
 
-	if (deleteItemId != -1)
-		ArrayDeleteItem(arr, insertItemId != -1 ? deleteItemId + 1 : deleteItemId);
-
-	rank++;
-	if (rank <= 15)
+	if (equali(szTopType2, g_szTops[1]) && !skipResult2)
 	{
-		client_cmd(0, "spk woop");
-		client_print(0, print_chat, "[%s] %s is now on place %d in %s 15", PLUGIN_TAG, name, rank, pro ? "Pro" : "Noob");
-	}
-	else
-		client_print(0, print_chat, "[%s] %s's rank is %d of %d among %s players", PLUGIN_TAG, name, rank, ArraySize(arr), pro ? "Pro" : "Noob");
+		copy(stats2[STATS_ID], charsmax(stats2[STATS_ID]), uniqueid);
+		copy(stats2[STATS_NAME], charsmax(stats2[STATS_NAME]), name);
+		stats2[STATS_CP] = g_CpCounters[id][COUNTER_CP];
+		stats2[STATS_TP] = g_CpCounters[id][COUNTER_TP];
+		stats2[STATS_TIME] = _:kztime;
+		stats2[STATS_TIMESTAMP] = get_systime();
 
-	SaveRecords(pro);
+		if (insertItemId2 != -1)
+		{
+			rank2 = insertItemId2;
+			ArrayInsertArrayBefore(arr2, insertItemId2, stats2);
+		}
+		else
+		{
+			rank2 = ArraySize(arr2);
+			ArrayPushArray(arr2, stats2);
+		}
+
+		if (deleteItemId2 != -1)
+			ArrayDeleteItem(arr2, insertItemId2 != -1 ? deleteItemId2 + 1 : deleteItemId2);
+
+		rank2++;
+		if (rank2 <= 15)
+		{
+			client_cmd(0, "spk woop");
+			client_print(0, print_chat, "[%s] %s is now on place %d in %s 15", PLUGIN_TAG, name, rank2, szTopType2);
+		}
+		else
+			client_print(0, print_chat, "[%s] %s's rank is %d of %d among %s players", PLUGIN_TAG, name, rank2, ArraySize(arr2), szTopType2);
+
+		SaveRecords(szTopType2);
+	}
+
 }
 
-ShowTopClimbers(id, bool:pro)
+ShowTopClimbers(id, szTopType[])
 {
 	new buffer[2048], len;
 	new stats[STATS], date[32], time[32], minutes, Float:seconds;
-	LoadRecords(pro);
-	new Array:arr = pro ? g_ArrayStatsPro : g_ArrayStatsNub;
+	LoadRecords(szTopType);
+	new Array:arr;
+	if (equali(szTopType, g_szTops[0]))
+		arr = g_ArrayStatsPure;
+	else if (equali(szTopType, g_szTops[1]))
+		arr = g_ArrayStatsPro;
+	else
+		arr = g_ArrayStatsNub;
 	new size = min(ArraySize(arr), 15);
 
-	if (pro)
-		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time              Date\n\n");
-	else
+	if (equali(szTopType, g_szTops[2]))
 		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time       CP  TP         Date\n\n");
+	else
+		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time              Date\n\n");
 
 	for (new i = 0; i < size && charsmax(buffer) - len > 0; i++)
 	{
@@ -2412,18 +3140,141 @@ ShowTopClimbers(id, bool:pro)
 		minutes = floatround(stats[STATS_TIME], floatround_floor) / 60;
 		seconds = stats[STATS_TIME] - (60 * minutes);
 
-		formatex(time, charsmax(time), "%02d:%06.3f", minutes, seconds);
+		formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%", "f"), minutes, seconds);
 		format_time(date, charsmax(date), "%d/%m/%Y", stats[STATS_TIMESTAMP]);
 
-		if (pro)
-			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s         %s\n", i + 1, stats[STATS_NAME], time, date);
-		else
+		if (equali(szTopType, g_szTops[2]))
 			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s  %3d %3d        %s\n", i + 1, stats[STATS_NAME], time, stats[STATS_CP], stats[STATS_TP], date);
+		else
+			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s         %s\n", i + 1, stats[STATS_NAME], time, date);
 	}
 
 	len += formatex(buffer[len], charsmax(buffer) - len, "\n%s %s", PLUGIN, VERSION);
 
-	show_motd(id, buffer, pro ? "Pro15 Climbers" : "Noob15 Climbers");
+	new header[16];
+	formatex(header, charsmax(header), "%s15 Climbers", szTopType);
+	show_motd(id, buffer, header);
 
 	return PLUGIN_HANDLED;
+}
+
+// Get the normal of the plane that is in the given direction from the player
+GetNormalPlaneRelativeToPlayer(id, Float:start[3], Float:direction[3], Float:origin[3], Float:normal[3])
+{
+    static Float:dest[3];
+    // Make a vector that points to the given direction, and add it to the player position
+    xs_vec_add(start, direction, dest);
+
+    // Declare a handle for the traceline function and a variable to hold the distance
+    // between the player and the brush at the sides of them
+    static tr, Float:dist;
+    tr = create_tr2();
+    engfunc(EngFunc_TraceLine, start, dest, IGNORE_MONSTERS, id, tr);
+    // Put the endpoint, where we hit a brush, into the variable origin
+    get_tr2(tr, TR_vecEndPos, origin);
+    // Get the distance between the player and the endpoint
+    dist = get_distance_f(start, origin);
+
+    origin[0] -= (origin[0] - start[0])/dist;
+    origin[1] -= (origin[1] - start[1])/dist;
+    origin[2] -= (origin[2] - start[2])/dist;
+
+    // This returns the vector that is perpendicular to the surface in the given direction from the player
+    get_tr2(tr, TR_vecPlaneNormal, normal);
+    free_tr2(tr);
+}
+
+// Get the normal of the nearest plane at a side of the player,
+// (e.g.: player is surfing a slope, get that slope's plane the player is touching)
+GetNormalPlaneAtSideOfPlayer(id, Float:start[3], Float:origin[3], Float:normal[3])
+{
+	new Float:lfOrigin[3], Float:rtOrigin[3], Float:lfNormal[3], Float:rtNormal[3];
+	GetNormalPlaneRelativeToPlayer(id, start, Float:{-9999.0, 0.0, 0.0}, lfOrigin, lfNormal); // get plane at left
+	GetNormalPlaneRelativeToPlayer(id, start, Float:{9999.0, 0.0, 0.0}, rtOrigin, rtNormal); // get plane at right
+
+    new Float:px = start[0], Float:lfox = lfOrigin[0], Float:rtox = rtOrigin[0];
+
+	if (floatabs(px - lfox) <= floatabs(px - rtox)) // what if both planes are at the same distance
+	{
+		origin = lfOrigin;
+		normal = lfNormal;
+	}
+	else
+	{
+		origin = rtOrigin;
+		normal = rtNormal;
+	}
+}
+
+// Checks if the bounding box of the player has its nearest boundary to the wall inside that same wall
+// The nearest boundary is the one that is frontmost, known thanks to the velocity of the player
+IsPlayerInsideWall(id, Float:origin[3], Float:leadingBoundary[3], Float:collisionPoint[3])
+{
+	// Get the player boundary that will be colliding against a wall due to velocity going in that direction
+	new Float:x = float(xs_fsign(g_Velocity[id][0])); // 1 unit
+	new Float:y = float(xs_fsign(g_Velocity[id][1])); // 1 unit
+	leadingBoundary[0] = x * 15.01; // we go outwards from the center of the player, towards one of their boundaries
+	leadingBoundary[1] = y * 15.11; // 15.1 tested ingame, + 0.05 so the distance to wall can later be checked as less or equal to 1.0, and yea probably not the best way
+
+	if (g_bIsSurfingWithFeet[id])
+		leadingBoundary[2] = (pev(id, pev_flags) & FL_DUCKING) ? -17.95 : -35.95; // the lower Z bound or feet position + 0.05
+	else
+		leadingBoundary[2] = 0.0;
+
+	// Now this will have the point (of the player) that will collide against some wall
+	xs_vec_add(origin, leadingBoundary, leadingBoundary);
+
+	new Float:direction[3];
+	direction[0] = x - 0.01; // a bit more to the side than straight in case it were to end in the corner between the ramp and the side wall, so it goes more towards the wall (I may have to think this better)
+	direction[1] = y;
+	direction[2] = 0.0; // the ray will go at the same height as the one defined for the boundary
+
+	new Float:normal[3];
+	GetNormalPlaneRelativeToPlayer(id, leadingBoundary, direction, collisionPoint, normal); // collisionPoint is (0.0, 0.0, 0.0) if not colliding against a side plane
+
+	if (vector_length(collisionPoint) == 0.0)
+		return false;
+	if (xs_fabs(leadingBoundary[0]) - xs_fabs(collisionPoint[0]) < 0.0 || xs_fabs(leadingBoundary[1]) - xs_fabs(collisionPoint[1]) < 0.0)
+		return true;
+	else
+		return false;
+}
+
+// Create a string that has the correct formating for seconds, that is a float
+// with a variable number of decimals per user configuration
+// This may actually be a silly thing due to my unknowledge about Pawn/AMXX
+GetVariableDecimalMessage(id, msg1[], msg2[])
+{
+	new sec[3]; // e.g.: number 6 in "%06.3f"
+	new dec[3]; // e.g.: number 3 in "%06.3f"
+	num_to_str(g_TimeDecimals[id], dec, charsmax(dec));
+	new iSec = g_TimeDecimals[id] + 3; // the left part is the sum of all digits to be printed + 3 (= 2 digits for seconds + the dot)
+	num_to_str(iSec, sec, charsmax(sec));
+
+	new msg[192];
+	strcat(msg, msg1, charsmax(msg));
+	strcat(msg, "0", charsmax(msg));
+	strcat(msg, sec, charsmax(msg));
+	strcat(msg, ".", charsmax(msg));
+	strcat(msg, dec, charsmax(msg));
+	strcat(msg, msg2, charsmax(msg));
+	return msg;
+}
+
+// e.g.: say "/decimals 4" // get the '4'
+GetNumberArg()
+{
+	new cmdArg[32], numberPart[32];
+	read_args(cmdArg, charsmax(cmdArg));
+
+	new bool:prevWasDigit = false;
+    for (new i = 0; cmdArg[i]; i++) {
+        if (isdigit(cmdArg[i])) {
+            formatex(numberPart, charsmax(numberPart), "%s%s", numberPart, cmdArg[i]);
+            prevWasDigit = true;
+        }
+        else if (prevWasDigit)
+        	break; // e.g.: say "/top 42 some text and 123 numbers here" --> get out when parsing the '42'
+    }
+    return str_to_num(numberPart);
 }
