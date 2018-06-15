@@ -29,13 +29,16 @@
 *
 ****************************************************************************
 *
-*   Version 1.6 - 07/24/2005
+*   Version 1.7 - 14/06/2018
 *
 *   Original by Eric Lidman aka "Ludwig van" <ejlmozart@hotmail.com>
 *   Homepage: http://lidmanmusic.com/cs/plugins.html
 *
 *   Upgraded to STEAM and ported to AMXx by: jtp10181 <jtp@jtpage.net>
 *   Homepage: http://www.jtpage.net
+*
+*	Modification for Adrenaline Gamer mod by naz
+*
 *
 ****************************************************************************
 *
@@ -64,6 +67,9 @@
 *    listmapsm <target>   returns all maps containing search target in a
 *                            MOTD popup window.
 *
+*	 rtv 				  votes a random map of the map list
+*
+*
 *  ***IF LISTCYCLE mode is enabled below***
 *
 *    listcycle            returns mapcycle in the console paginated amx_help style
@@ -78,6 +84,11 @@
 *
 *
 *  Changelog:
+*
+*  v1.7 - naz - 14/06/2018
+*   - Added rockthevote say command to make the player start a vote for
+*		a random map. This vote is specific to Adrenaline Gamer mod, so it
+*		only works there or in HL MiniAG
 *
 *  v1.6 - JTP10181 - 07/24/05
 *	- Fixed bug causing it to not compile on loadfile mode
@@ -120,6 +131,7 @@
 ***************************************************************************/
 
 #include <amxmodx>
+#include <amxconst>
 #include <amxmisc>
 
 #define MAX_MAPS 6144	// Max number of maps the plugin will handle
@@ -139,11 +151,11 @@
 *  NOTE: In testing reading the directory had issues with LINUX server
 *	where it was reading each map multiples times into the maps array.
 */
-#define LOADFILE 0
+#define LOADFILE 1
 
 //Set to 1 to enable listcycle mode which adds an extra command
 //to display and search the current mapcycle.
-#define LISTCYCLE 0
+#define LISTCYCLE 1
 
 // Max number of mapcycle maps the plugin will handle
 #define MAX_CYCLE_MAPS 64
@@ -183,7 +195,11 @@ public HandleSay(id) {
 	new Speech[192]
 	read_args(Speech,192)
 	remove_quotes(Speech)
-	if(equal(Speech,"mapsearch",9)){
+	if (equali(Speech,"rtv", 3) || equali(Speech,"rockthevote", 11) ||
+		equali(Speech,"/rtv",4) || equali(Speech,"/rockthevote",12) ||
+		equali(Speech,"!rtv",4) || equali(Speech,"!rockthevote",12)) {
+		vote_random_map(id)
+	} else if(equal(Speech,"mapsearch",9)){
 		search_engine(id,Speech[10])
 	}
 	else if(equal(Speech,"find",4)){
@@ -489,8 +505,8 @@ public get_listing() {
 	new allmaps[128],mapchoice[128],configsdir[64]
 	copy(filename,127,"null")
 	get_configsdir(configsdir, 63)
-	format(allmaps,127,"%s/map_manage/allmaps.txt",configsdir)
-	format(mapchoice,127,"%s/map_manage/mapchoice.ini",configsdir)
+	format(allmaps,127,"%s/allmaps.txt",configsdir)
+	format(mapchoice,127,"%s/mapchoice.ini",configsdir)
 
 	if (file_exists(allmaps)) {
 		copy(filename,127,allmaps)
@@ -593,4 +609,18 @@ sort_maps() {
 			}
 		}
 	}
+}
+
+vote_random_map(id)
+{
+	if (T_LMaps[0][0]) {
+		new rand = random_num(0, sizeof(T_LMaps))
+		new mapName[32]
+		formatex(mapName, charsmax(mapName), "%s", T_LMaps[rand])
+		console_print(id, "Map to vote: %s", mapName)
+		client_cmd(id, "agmap %s", mapName)
+	} else {
+		client_print(id, print_chat, "Sorry, an error happened when trying to get the map.")
+	}
+	return PLUGIN_HANDLED
 }
