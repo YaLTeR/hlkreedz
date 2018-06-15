@@ -55,8 +55,6 @@
 #define MAIN_MENU_ID	"HL KreedZ Menu"
 #define TELE_MENU_ID	"HL KreedZ Teleport Menu"
 
-#define BONE_LF_FOOT	45
-
 new const configsSubDir[] = "/hl_kreedz";
 new const pluginCfgFileName[] = "hl_kreedz.cfg";
 
@@ -1019,17 +1017,22 @@ CmdHelp(id)
 		/cp - create control point\n\
 		/tp - teleport to last control point\n\
 		/top - show Top climbers\n\
-		/pure - /pro - /nub - /noob - show specific tops\n\
+		/pure /pro /nub /noob - show specific tops\n\
 		/unstuck - teleport to previous control point\n\
 		/pause - pause timer and freeze player\n\
 		/reset - reset timer and clear checkpoints\n");
 
-	if (is_plugin_loaded("Q::Jumpstats", false))
+	if (is_plugin_loaded("Q::Jumpstats"))
 	{
-		len = formatex(motd[len], charsmax(motd) - len,
+		len += formatex(motd[len], charsmax(motd) - len,
 			"/ljstats /jumpstats - toggle showing different jump distances\n\
 			/speed - toggle showing your horizontal speed\n\
 			/prestrafe /showpre /preshow - toggle showing prestrafe speed\n");
+	}
+	if (is_plugin_loaded("Enhanced Map Searching"))
+	{
+		len += formatex(motd[len], charsmax(motd) - len,
+			"/rockthevote /rtv - vote a random map (agmap command)\n");
 	}
 
 	len += formatex(motd[len], charsmax(motd) - len,
