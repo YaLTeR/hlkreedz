@@ -974,11 +974,7 @@ display_stats( id, bool:failed = false )
 		{
 			if( player_show_stats[i] && player_show_stats_chat[i] )
 			{
-				if( jump_distance[id] >= jump_level[jump_type[id]][3] )
-				{
-					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_YOUNAMEIT" );
-				}
-				else if( jump_distance[id] >= jump_level[jump_type[id]][2] )
+				if( jump_distance[id] >= jump_level[jump_type[id]][2] )
 				{
 					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_GODLIKE" );
 				}
