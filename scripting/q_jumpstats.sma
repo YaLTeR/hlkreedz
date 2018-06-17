@@ -37,7 +37,7 @@ enum State
 	State_InJump,
 	State_InDD_FirstFrame,
 	State_InDD,
-	State_InDrop,		// fall bellow duck/jump origin while still in air
+	State_InDrop,		// fall below duck/jump origin while still in air
 	State_InFall,		// walk across the edge of surface
 	State_OnLadder,
 	State_InLadderDrop,	// jump from ladder
@@ -205,7 +205,7 @@ reset_stats( id )
 	jump_maxspeed[id] = 0.0;
 	jump_sync[id] = 0;
 	jump_frames[id] = 0;
-	for( new i = 0; i <= jump_strafes[id]; ++i )
+	for( new i = 0; i < jump_strafes[id]; ++i )
 	{
 		jump_strafe_sync[id][i] = 0;
 		jump_strafe_frames[id][i] = 0;
@@ -974,41 +974,31 @@ display_stats( id, bool:failed = false )
 		{
 			if( player_show_stats[i] && player_show_stats_chat[i] )
 			{
+				new name[32];
+				get_user_name( id, name, charsmax(name) );
+
 				if( jump_distance[id] >= jump_level[jump_type[id]][2] )
 				{
-					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_GODLIKE" );
+					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_GODLIKE", name, jump_shortname[jump_type[id]], jump_distance[id] );
 				}
 				else if( jump_distance[id] >= jump_level[jump_type[id]][1] )
 				{
-					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_PERFECT" );
+					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_PERFECT", name, jump_shortname[jump_type[id]], jump_distance[id] );
 				}
 				else if( jump_distance[id] >= jump_level[jump_type[id]][0] )
 				{
-					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_IMPRESSIVE" );
+					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_IMPRESSIVE", name, jump_shortname[jump_type[id]], jump_distance[id] );
 				}
 				
 				if( jump_info_chat[0] )
 				{
-					new name[32];
-					get_user_name( id, name, charsmax(name) );
-					
-					new dist[7];
-					float_to_str( jump_distance[id], dist, charsmax(dist) );
-					
-					new pre[7];
-					float_to_str( jump_prestrafe[id], pre, charsmax(pre) );
-					
-					new maxs[7];
-					float_to_str( jump_maxspeed[id], maxs, charsmax(maxs) );
-					
-					new gain[6];
-					float_to_str( jump_maxspeed[id] - jump_prestrafe[id], gain, charsmax(gain) );
-					
-					new sync[4];
-					num_to_str( jump_sync[id], sync, charsmax(sync) );
-					
-					new strafes[3];
-					num_to_str( jump_strafes[id], strafes, charsmax(strafes) );
+					new pre[7], dist[7], maxs[7], gain[6], sync[4], strafes[3];
+					float_to_str( jump_prestrafe[id], pre, charsmax(pre) ); // prestrafe speed
+					float_to_str( jump_distance[id], dist, charsmax(dist) ); // distance from jump start to end point
+					float_to_str( jump_maxspeed[id], maxs, charsmax(maxs) ); // maxspeed during jump
+					float_to_str( jump_maxspeed[id] - jump_prestrafe[id], gain, charsmax(gain) ); // gain
+					num_to_str( jump_sync[id], sync, charsmax(sync) ); // sync
+					num_to_str( jump_strafes[id], strafes, charsmax(strafes) ); // strafes during jump
 					
 					replace_all( jump_info_chat, charsmax(jump_info_chat), "!name", name );
 					replace_all( jump_info_chat, charsmax(jump_info_chat), "!dist", dist );
