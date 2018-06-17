@@ -6,7 +6,7 @@
 #pragma semicolon 1
 
 #define PLUGIN "Q::Cookies"
-#define VERSION "1.0.3"
+#define VERSION "1.0.2"
 #define AUTHOR "Quaker"
 
 new g_dir_cookies[128];

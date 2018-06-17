@@ -2262,9 +2262,7 @@ public Fw_FmTouchPre(iEntity1, iEntity2)
 		new bool:bOnRamp = player[1] == belowOrigin[1] && belowNormal[1] != 0 && player[2] - belowOrigin[2] <= 50.0; // should be 36.0, but in some rare case it was more than 40, and most times it's between 34.9 and 35.0, and between 16.9 and 17.5 when crouched
 
 		if (bOnRamp)
-		{
 			g_RampFrameCounter[iEntity1] = 125; // for the next 125 frames will continue checking slopebug
-		}
 		else
 			g_RampFrameCounter[iEntity1] = 0;
 
@@ -2347,7 +2345,7 @@ public Fw_FmPlayerTouchHealthBooster(hb, id)
 
 public Fw_FmPlayerPostThinkPre(id)
 {
-	new Float:currOrigin[3], Float:futureOrigin[3], Float:currVelocity[3];
+	new Float:currOrigin[3], Float:futureOrigin[3], Float:currVelocity[3], Float:futureVelocity[3];
 	pev(id, pev_origin, currOrigin);
 	pev(id, pev_velocity, currVelocity);
 	new Float:startSpeed = floatsqroot(floatpower(g_Velocity[id][0], 2.0) + floatpower(g_Velocity[id][1], 2.0));
@@ -2361,10 +2359,13 @@ public Fw_FmPlayerPostThinkPre(id)
 	futureOrigin[1] = currOrigin[1] + g_Velocity[id][1] * g_FrameTimeInMsec[id];
 	futureOrigin[2] = currOrigin[2] + 0.4 + g_FrameTimeInMsec[id] * (g_Velocity[id][2] - pGravity * svGravity * g_FrameTimeInMsec[id] / 2);
 
+	futureVelocity = g_Velocity[id];
+	futureVelocity[2] += 0.1;
+
 	if (g_bIsSurfing[id] && startSpeed > 1.0 && endSpeed <= 0.0)
 	{
 		// We restore the velocity that the player had before occurring the slopebug
-		set_pev(id, pev_velocity, g_Velocity[id]);
+		set_pev(id, pev_velocity, futureVelocity);
 
 		// We move the player to the position where they would be if they were not blocked by the bug,
 		// only if they're not gonna get stuck inside a wall
@@ -2395,7 +2396,7 @@ public Fw_FmPlayerPostThinkPre(id)
 	}
 	if ((g_StoppedSlidingRamp[id] || g_RampFrameCounter[id] > 0) && startSpeed > 1.0 && endSpeed <= 0.0)
 	{
-		set_pev(id, pev_velocity, g_Velocity[id]);
+		set_pev(id, pev_velocity, futureVelocity);
 		new Float:leadingBoundary[3], Float:collisionPoint[3];
 		if (IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
 		{
@@ -3033,13 +3034,23 @@ UpdateRecords(id, Float:kztime, szTopType[], szTopType2[]="")
 			faster = stats2[STATS_TIME] - kztime;
 			minutes = floatround(faster, floatround_floor) / 60;
 			seconds = faster - (60 * minutes);
-			client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You improved your %s time by %02d:%", "f"),
+			client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You also improved your %s time by %02d:%", "f"),
 				PLUGIN_TAG, g_szTops[1], minutes, seconds);
 
 			deleteItemId2 = i;
 			break;
 		}
 	}
+
+	server_print("uniqueid = %s, name = %s", uniqueid, name);
+	server_print("result 1 = %d", result);
+	server_print("result 2 = %d", result2);
+	server_print("skipResult 1 = %d", skipResult);
+	server_print("skipResult 2 = %d", skipResult2);
+	server_print("insertItemId 1 = %d", insertItemId);
+	server_print("insertItemId 2 = %d", insertItemId2);
+	server_print("deleteItemId 1 = %d", deleteItemId);
+	server_print("deleteItemId 2 = %d", deleteItemId2);
 
 	// If it gets here it's because it's a new PB
 	if (!skipResult)
@@ -3217,7 +3228,7 @@ IsPlayerInsideWall(id, Float:origin[3], Float:leadingBoundary[3], Float:collisio
 	new Float:x = float(xs_fsign(g_Velocity[id][0])); // 1 unit
 	new Float:y = float(xs_fsign(g_Velocity[id][1])); // 1 unit
 	leadingBoundary[0] = x * 15.01; // we go outwards from the center of the player, towards one of their boundaries
-	leadingBoundary[1] = y * 15.11; // 15.1 tested ingame, + 0.05 so the distance to wall can later be checked as less or equal to 1.0, and yea probably not the best way
+	leadingBoundary[1] = y * 15.11; // 15.1 tested ingame, + 0.1 so the distance to wall can later be checked as less or equal to 1.0, and yea probably not the best way
 
 	if (g_bIsSurfingWithFeet[id])
 		leadingBoundary[2] = (pev(id, pev_flags) & FL_DUCKING) ? -17.95 : -35.95; // the lower Z bound or feet position + 0.05
