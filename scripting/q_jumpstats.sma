@@ -205,7 +205,7 @@ reset_stats( id )
 	jump_maxspeed[id] = 0.0;
 	jump_sync[id] = 0;
 	jump_frames[id] = 0;
-	for( new i = 0; i < jump_strafes[id]; ++i )
+	for( new i = 0; i < sizeof(jump_strafe_sync[]); ++i )
 	{
 		jump_strafe_sync[id][i] = 0;
 		jump_strafe_frames[id][i] = 0;
@@ -934,7 +934,7 @@ display_stats( id, bool:failed = false )
 	if( jump_strafes[id] > 1 )
 	{
 		new len;
-		for( new i = 1; i <= jump_strafes[id]; ++i )
+		for( new i = 1; i < sizeof(jump_strafes[]); ++i )
 		{
 			formatex( strafes_info_console[i], charsmax(strafes_info_console[]), "^t%d^t%.3f^t%.3f^t%d^t%d",
 				i,
