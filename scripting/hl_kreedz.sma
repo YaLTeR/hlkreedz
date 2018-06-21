@@ -148,6 +148,7 @@ new g_CheatCommandsGuard[MAX_PLAYERS + 1];
 new g_ShowStartMsg[MAX_PLAYERS + 1];
 new g_TimeDecimals[MAX_PLAYERS + 1];
 new g_Nightvision[MAX_PLAYERS + 1];
+new g_Slopefix[MAX_PLAYERS + 1];
 
 new g_FrameTime[MAX_PLAYERS + 1][2];
 new Float:g_FrameTimeInMsec[MAX_PLAYERS + 1];
@@ -214,6 +215,7 @@ new pcvar_kz_pure_max_start_speed;
 new pcvar_kz_pure_allow_healthboost;
 new pcvar_kz_remove_func_friction;
 new pcvar_kz_nightvision;
+new pcvar_kz_slopefix;
 
 new g_FwLightStyle;
 
@@ -230,7 +232,6 @@ public plugin_precache()
 {
 	g_FwLightStyle = register_forward(FM_LightStyle, "Fw_FmLightStyle");
 	g_PauseSprite = precache_model("sprites/pause_icon.spr");
-	//precache_model("models/w_jumppack.mdl");
 }
 
 public plugin_init()
@@ -268,6 +269,7 @@ public plugin_init()
 	pcvar_kz_pure_allow_healthboost = register_cvar("kz_pure_allow_healthboost", "0");
 	pcvar_kz_remove_func_friction = register_cvar("kz_remove_func_friction", "0");
 	pcvar_kz_nightvision = register_cvar("kz_def_nightvision", "0"); // 0 = disabled, 1 = all nightvision types allowed, 2 = only flashlight-like nightvision allowed, 3 = only map-global nightvision allowed
+	pcvar_kz_slopefix = register_cvar("kz_slopefix", "1"); // 0 - slopebug/surfbug fix disabled, 1 - fix enabled, may want to disable it when you consistently get stuck in little slopes while sliding+wallstrafing
 
 	pcvar_allow_spectators = get_cvar_pointer("allow_spectators");
 
@@ -282,7 +284,7 @@ public plugin_init()
 
 	register_clcmd("kz_set_custom_start", "CmdSetCustomStartHandler", -1, "- sets the custom start position");
 	register_clcmd("kz_clear_custom_start", "CmdClearCustomStartHandler", -1, "- clears the custom start position");
-	register_clcmd("kz_start_message", "CmdShowStartMsg", -1, "<0/1> - toggles the message that appears when starting the timer");
+	register_clcmd("kz_start_message", "CmdShowStartMsg", -1, "<0|1> - toggles the message that appears when starting the timer");
 	register_clcmd("kz_time_decimals", "CmdTimeDecimals", -1, "<1-6> - sets a number of decimals to be displayed for times (seconds)");
 	register_clcmd("kz_nightvision", "CmdNightvision", -1, "<0-2> - sets nightvision mode. 0=off, 1=flashlight-like, 2=map-global");
 
@@ -716,6 +718,7 @@ public client_putinserver(id)
 	// FIXME: get default value from client, and then fall back to server if cleint doesn't have the command set
 	g_TimeDecimals[id] = get_pcvar_num(pcvar_kz_time_decimals);
 	g_Nightvision[id] = get_pcvar_num(pcvar_kz_nightvision);
+	g_Slopefix[id] = get_pcvar_num(pcvar_kz_slopefix);
 	// Nightvision value 1 in server cvar is "all modes allowed", if that's the case we default it to mode 2 in client,
 	// every other mode in cvar is +1 than client command, so we do -1 to get the correct mode
 	if (g_Nightvision[id] > 1)
@@ -1027,7 +1030,7 @@ CmdHelp(id)
 		len += formatex(motd[len], charsmax(motd) - len,
 			"/ljstats /jumpstats - toggle showing different jump distances\n\
 			/speed - toggle showing your horizontal speed\n\
-			/prestrafe /showpre /preshow - toggle showing prestrafe speed\n");
+			/prestrafe - toggle showing prestrafe speed\n");
 	}
 	if (is_plugin_loaded("Enhanced Map Searching"))
 	{
@@ -1038,16 +1041,17 @@ CmdHelp(id)
 	len += formatex(motd[len], charsmax(motd) - len,
 		"/start - go to start button\n\
 		/respawn - go to spawn point\n\
-		/spectate /spec - go to spectate mode or exit from it\n\
-		/setstart /ss - set custom start position\n\
-		/clearstart /cs - clear custom start position\n\
+		/spec - go to spectate mode or exit from it\n\
+		/ss - set custom start position\n\
+		/cs - clear custom start position\n\
 		/invis - make other players invisible to you\n\
-		/winvis /waterinvis /liquidinvis - make most liquids invisible\n\
+		/winvis - make most liquids invisible\n\
 		/timer - switch between different timer display modes\n\
 		/showkeys - display pressed movement keys in HUD\n\
 		/startmsg - display timer start message in HUD\n\
-		/decimals /dec <1-6> - number of decimals in times\n\
-		/nightvision /nv <0-2> - nightvision mode, 0=off, 1=flashlight, 2=global\n\
+		/dec <1-6> - number of decimals in times\n\
+		/nv <0-2> - nightvision mode, 0=off, 1=flashlight, 2=global\n\
+		/slopefix - toggle slopebug/surfbug fix, if you get stuck in little slopes disable it\n\
 		/kzhelp - this motd\n");
 
 	formatex(motd[len], charsmax(motd) - len,
@@ -1118,6 +1122,9 @@ public CmdSayHandler(id)
 
 	else if (equali(args[1], "kzhelp") || equali(args[1], "help") || equali(args[1], "h"))
 		CmdHelp(id);
+
+	else if (equali(args[1], "slopefix"))
+		CmdSlopefix(id);
 
 	else if (contain(args[1], "dec") == 0/* || contain(args[1], "decimals") != -1*/)
 		CmdTimeDecimals(id);
@@ -2345,81 +2352,84 @@ public Fw_FmPlayerTouchHealthBooster(hb, id)
 
 public Fw_FmPlayerPostThinkPre(id)
 {
-	new Float:currOrigin[3], Float:futureOrigin[3], Float:currVelocity[3], Float:futureVelocity[3];
-	pev(id, pev_origin, currOrigin);
-	pev(id, pev_velocity, currVelocity);
-	new Float:startSpeed = floatsqroot(floatpower(g_Velocity[id][0], 2.0) + floatpower(g_Velocity[id][1], 2.0));
-	new Float:endSpeed = floatsqroot(floatpower(currVelocity[0], 2.0) + floatpower(currVelocity[1], 2.0));
-
-	new Float:svGravity = get_cvar_float("sv_gravity");
-	new Float:pGravity;
-	pev(id, pev_gravity, pGravity);
-
-	futureOrigin[0] = currOrigin[0] + g_Velocity[id][0] * g_FrameTimeInMsec[id];
-	futureOrigin[1] = currOrigin[1] + g_Velocity[id][1] * g_FrameTimeInMsec[id];
-	futureOrigin[2] = currOrigin[2] + 0.4 + g_FrameTimeInMsec[id] * (g_Velocity[id][2] - pGravity * svGravity * g_FrameTimeInMsec[id] / 2);
-
-	futureVelocity = g_Velocity[id];
-	futureVelocity[2] += 0.1;
-
-	if (g_bIsSurfing[id] && startSpeed > 1.0 && endSpeed <= 0.0)
+	if (g_Slopefix[id])
 	{
-		// We restore the velocity that the player had before occurring the slopebug
-		set_pev(id, pev_velocity, futureVelocity);
+		new Float:currOrigin[3], Float:futureOrigin[3], Float:currVelocity[3], Float:futureVelocity[3];
+		pev(id, pev_origin, currOrigin);
+		pev(id, pev_velocity, currVelocity);
+		new Float:startSpeed = floatsqroot(floatpower(g_Velocity[id][0], 2.0) + floatpower(g_Velocity[id][1], 2.0));
+		new Float:endSpeed = floatsqroot(floatpower(currVelocity[0], 2.0) + floatpower(currVelocity[1], 2.0));
 
-		// We move the player to the position where they would be if they were not blocked by the bug,
-		// only if they're not gonna get stuck inside a wall
-		new Float:leadingBoundary[3], Float:collisionPoint[3];
-		if (IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
+		new Float:svGravity = get_cvar_float("sv_gravity");
+		new Float:pGravity;
+		pev(id, pev_gravity, pGravity);
+
+		futureOrigin[0] = currOrigin[0] + g_Velocity[id][0] * g_FrameTimeInMsec[id];
+		futureOrigin[1] = currOrigin[1] + g_Velocity[id][1] * g_FrameTimeInMsec[id];
+		futureOrigin[2] = currOrigin[2] + 0.4 + g_FrameTimeInMsec[id] * (g_Velocity[id][2] - pGravity * svGravity * g_FrameTimeInMsec[id] / 2);
+
+		futureVelocity = g_Velocity[id];
+		futureVelocity[2] += 0.1;
+
+		if (g_bIsSurfing[id] && startSpeed > 1.0 && endSpeed <= 0.0)
 		{
-			// The player has some boundary component inside the wall, so make
-			// that component go outside, touching the wall but not inside it
-			if (xs_fabs(leadingBoundary[0]) - xs_fabs(collisionPoint[0]) < 0.0)
-			{
-				new Float:x = float(xs_fsign(g_Velocity[id][0])) * 16.0;
-				futureOrigin[0] = collisionPoint[0] - x;
+			// We restore the velocity that the player had before occurring the slopebug
+			set_pev(id, pev_velocity, futureVelocity);
 
-			}
-			if (xs_fabs(leadingBoundary[1]) - xs_fabs(collisionPoint[1]) < 0.0)
+			// We move the player to the position where they would be if they were not blocked by the bug,
+			// only if they're not gonna get stuck inside a wall
+			new Float:leadingBoundary[3], Float:collisionPoint[3];
+			if (IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
 			{
-				new Float:y = float(xs_fsign(g_Velocity[id][1])) * 16.1;
-				futureOrigin[1] = collisionPoint[1] - y;
+				// The player has some boundary component inside the wall, so make
+				// that component go outside, touching the wall but not inside it
+				if (xs_fabs(leadingBoundary[0]) - xs_fabs(collisionPoint[0]) < 0.0)
+				{
+					new Float:x = float(xs_fsign(g_Velocity[id][0])) * 16.0;
+					futureOrigin[0] = collisionPoint[0] - x;
+
+				}
+				if (xs_fabs(leadingBoundary[1]) - xs_fabs(collisionPoint[1]) < 0.0)
+				{
+					new Float:y = float(xs_fsign(g_Velocity[id][1])) * 16.1;
+					futureOrigin[1] = collisionPoint[1] - y;
+				}
+				if (!IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
+					set_pev(id, pev_origin, futureOrigin); // else player is not teleported, just keeps velocity
+				// Tried to do a while to continue checking if player's inside a wall, but crashed with reliable channel overflowed
 			}
-			if (!IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
-				set_pev(id, pev_origin, futureOrigin); // else player is not teleported, just keeps velocity
-			// Tried to do a while to continue checking if player's inside a wall, but crashed with reliable channel overflowed
+			else
+				set_pev(id, pev_origin, futureOrigin);
+
+			g_hasSurfbugged[id] = true;
 		}
-		else
-			set_pev(id, pev_origin, futureOrigin);
-
-		g_hasSurfbugged[id] = true;
-	}
-	if ((g_StoppedSlidingRamp[id] || g_RampFrameCounter[id] > 0) && startSpeed > 1.0 && endSpeed <= 0.0)
-	{
-		set_pev(id, pev_velocity, futureVelocity);
-		new Float:leadingBoundary[3], Float:collisionPoint[3];
-		if (IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
+		if ((g_StoppedSlidingRamp[id] || g_RampFrameCounter[id] > 0) && startSpeed > 1.0 && endSpeed <= 0.0)
 		{
-			// The player has some boundary component inside the wall, so make
-			// that component go outside, touching the wall but not inside it
-			if (xs_fabs(leadingBoundary[0]) - xs_fabs(collisionPoint[0]) < 0.0)
+			set_pev(id, pev_velocity, futureVelocity);
+			new Float:leadingBoundary[3], Float:collisionPoint[3];
+			if (IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
 			{
-				new Float:x = float(xs_fsign(g_Velocity[id][0])) * 16.0;
-				futureOrigin[0] = collisionPoint[0] - x;
+				// The player has some boundary component inside the wall, so make
+				// that component go outside, touching the wall but not inside it
+				if (xs_fabs(leadingBoundary[0]) - xs_fabs(collisionPoint[0]) < 0.0)
+				{
+					new Float:x = float(xs_fsign(g_Velocity[id][0])) * 16.0;
+					futureOrigin[0] = collisionPoint[0] - x;
 
+				}
+				if (xs_fabs(leadingBoundary[1]) - xs_fabs(collisionPoint[1]) < 0.0)
+				{
+					new Float:y = float(xs_fsign(g_Velocity[id][1])) * 16.1;
+					futureOrigin[1] = collisionPoint[1] - y;
+				}
+				if (!IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
+					set_pev(id, pev_origin, futureOrigin); // else player is not teleported, just keeps velocity
 			}
-			if (xs_fabs(leadingBoundary[1]) - xs_fabs(collisionPoint[1]) < 0.0)
-			{
-				new Float:y = float(xs_fsign(g_Velocity[id][1])) * 16.1;
-				futureOrigin[1] = collisionPoint[1] - y;
-			}
-			if (!IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
-				set_pev(id, pev_origin, futureOrigin); // else player is not teleported, just keeps velocity
+			else
+				set_pev(id, pev_origin, futureOrigin);
+
+			g_hasSlopebugged[id] = true;
 		}
-		else
-			set_pev(id, pev_origin, futureOrigin);
-
-		g_hasSlopebugged[id] = true;
 	}
 
 	if (g_HBFrameCounter[id] > 0)
@@ -2675,6 +2685,13 @@ public CmdShowStartMsg(id)
  	g_ShowStartMsg[id] = str_to_num(arg1);
 
  	return PLUGIN_HANDLED;
+}
+
+public CmdSlopefix(id)
+{
+	g_Slopefix[id] = !g_Slopefix[id];
+	ShowMessage(id, "Slopebug/Surfbug fix is now %s", g_Slopefix[id] ? "enabled" : "disabled");
+	return PLUGIN_HANDLED;
 }
 
 public CmdTimeDecimals(id)
@@ -3292,3 +3309,29 @@ GetNumberArg()
     }
     return str_to_num(numberPart);
 }
+
+/*
+// e.g.: say "/pro 1-18" --> get the 1 and 18 in an array of 2 cells
+public GetRangeArg(range[2])
+{
+	new cmdArg[32], numberPart[2][32];
+	read_args(cmdArg, charsmax(cmdArg));
+
+	new bool:prevWasDigit = false;
+    for (new i = 0, j = 0; cmdArg[i] && j < 2; i++) {
+        if (isdigit(cmdArg[i])) {
+        	new aux[32];
+            formatex(aux, charsmax(aux), "%s%s", numberPart[j], cmdArg[i]);
+            numberPart[j] = aux;
+            prevWasDigit = true;
+        }
+        else if (prevWasDigit)
+        {
+        	prevWasDigit = false;
+        	j++; // e.g.: say "/top 15-30 some text and 123 numbers here" --> get out when parsing the '30', having also stored the previous number '15'
+        }
+    }
+    range[0] = str_to_num(numberPart[0]);
+    range[1] = str_to_num(numberPart[1]);
+}
+*/
