@@ -2,8 +2,12 @@
 Q_JS_GODLIKE = [LJStats] [GODLIKE] %s did a %s of %.2f!
 Q_JS_PERFECT = [LJStats] [Perfect] %s did a %s of %.2f!
 Q_JS_IMPRESSIVE = [LJStats] [Impressive] %s did a %s of %.2f!
+Q_JS_LEET = [LJStats] [Leet] %s did a %s of %.2f!
+Q_JS_PRO = [LJStats] [Pro] %s did a %s of %.2f!
 
 [es]
 Q_JS_GODLIKE = [LJStats] [ALUCINANTE] %s hizo un %s de %.2f!
 Q_JS_PERFECT = [LJStats] [Perfecto] %s hizo un %s de %.2f!
 Q_JS_IMPRESSIVE = [LJStats] [Impresionante] %s hizo un %s de %.2f!
+Q_JS_LEET = [LJStats] [Leet] %s hizo un %s de %.2f!
+Q_JS_PRO = [LJStats] [Pro] %s hizo un %s de %.2f!

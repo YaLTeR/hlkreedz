@@ -30,6 +30,8 @@
 
 #define TASKID_SPEED 489273421
 
+#define LJSTATS_MENU_ID "LJ Stats Menu"
+
 enum State
 {
 	State_Initial,
@@ -128,6 +130,13 @@ new Float:fall_time[33];
 new Float:ladderdrop_origin[33][3];
 new Float:ladderdrop_time[33];
 
+new g_DisplayLJStats[33];
+new g_DisplayHJStats[33];
+new g_DisplayCJStats[33];
+new g_DisplayWJStats[33];
+new g_DisplayBhStats[33];
+new g_DisplayLadderStats[33];
+
 new Trie:illegal_touch_entity_classes;
 
 public plugin_init( )
@@ -155,6 +164,8 @@ public plugin_init( )
 	register_clcmd( "say /showpre", "clcmd_prestrafe" );
 	register_clcmd( "say /preshow", "clcmd_prestrafe" );
 	register_clcmd( "say /prestrafe", "clcmd_prestrafe" );
+
+	register_menucmd(register_menuid(LJSTATS_MENU_ID), 1023, "actions_ljstats");
 	
 	sv_airaccelerate = get_cvar_pointer( "sv_airaccelerate" );
 	sv_gravity = get_cvar_pointer( "sv_gravity" );
@@ -177,9 +188,15 @@ public client_connect( id )
 	reset_state( id );
 	
 	player_show_speed[id] = false;
-	player_show_stats[id] = false;
-	player_show_stats_chat[id] = false;
+	player_show_stats[id] = true;
+	player_show_stats_chat[id] = true;
 	player_show_prestrafe[id] = false;
+	g_DisplayLJStats[id] = false;
+	g_DisplayHJStats[id] = false;
+	g_DisplayCJStats[id] = false;
+	g_DisplayWJStats[id] = false;
+	g_DisplayBhStats[id] = false;
+	g_DisplayLadderStats[id] = false;
 }
 
 reset_state( id )
@@ -215,13 +232,47 @@ reset_stats( id )
 	jump_strafes[id] = 0;
 }
 
-public clcmd_ljstats( id, level, cid )
+public clcmd_ljstats( id )
 {
-	// TODO: create menu blah blah blah
-	player_show_stats[id] = !player_show_stats[id];
-	player_show_stats_chat[id] = !player_show_stats_chat[id];
-	client_print( id, print_chat, "LJStats: %s", player_show_stats[id] ? "ON" : "OFF" );
-	
+	new menuBody[512], len;
+	new keys = MENU_KEY_0 | MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7;
+
+	len = formatex(menuBody[len], charsmax(menuBody), "LJStats^n^n");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Top 15 LongJump^n");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Display LongJump stats: %s^n", g_DisplayLJStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Display HighJump stats: %s^n", g_DisplayHJStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Display CountJump stats: %s^n", g_DisplayCJStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Display WeirdJump stats: %s^n", g_DisplayWJStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Display Bhop stats: %s^n", g_DisplayBhStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "7. Display Ladder stats: %s^n", g_DisplayLadderStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "0. Exit");
+
+	//format(menuBody, 191, "LJStats^n^n1. Top 15 LongJump^n2. Display LongJump stats");
+	//player_show_stats[id] = !player_show_stats[id];
+	//player_show_stats_chat[id] = !player_show_stats_chat[id];
+	//client_print( id, print_chat, "LJStats: %s", player_show_stats[id] ? "ON" : "OFF" );
+
+	show_menu(id, keys, menuBody, -1, LJSTATS_MENU_ID);
+	return PLUGIN_HANDLED;
+}
+
+public actions_ljstats(id, key)
+{
+	key++;
+	console_print(id, "pressed key is %d", key);
+	switch (key)
+	{
+		case 0, 10: return PLUGIN_HANDLED;
+		case 1: show_hudmessage(id, "Not implemented yet!");
+		case 2: g_DisplayLJStats[id] = !g_DisplayLJStats[id];
+		case 3: g_DisplayHJStats[id] = !g_DisplayHJStats[id];
+		case 4: g_DisplayCJStats[id] = !g_DisplayCJStats[id];
+		case 5: g_DisplayWJStats[id] = !g_DisplayWJStats[id];
+		case 6: g_DisplayBhStats[id] = !g_DisplayBhStats[id];
+		case 7: g_DisplayLadderStats[id] = !g_DisplayLadderStats[id];
+	}
+
+	clcmd_ljstats(id);
 	return PLUGIN_HANDLED;
 }
 
@@ -442,7 +493,22 @@ state_injump_firstframe( id )
 	//console_print(id, "state_injump_firstframe");
 	if( movetype[id] == MOVETYPE_WALK )
 	{
-		if( flags[id] & FL_ONGROUND2 )
+		// TODO: tidy up this code -- begin
+		new bool:bJumpTypeDisabled = false;
+		jump_type[id] = get_jump_type( id );
+		switch (jump_type[id])
+		{
+			case JumpType_LJ: if (!g_DisplayLJStats[id]) bJumpTypeDisabled = true;
+			case JumpType_HJ: if (!g_DisplayHJStats[id]) bJumpTypeDisabled = true;
+			case JumpType_CJ, JumpType_DCJ, JumpType_MCJ, JumpType_DropCJ: if (!g_DisplayCJStats[id]) bJumpTypeDisabled = true;
+			case JumpType_WJ: if (!g_DisplayWJStats[id]) bJumpTypeDisabled = true;
+			case JumpType_BJ, JumpType_SBJ, JumpType_DropBJ: if (!g_DisplayBhStats[id]) bJumpTypeDisabled = true;
+			case JumpType_LadderBJ: if (!g_DisplayLadderStats[id]) bJumpTypeDisabled = true;
+			default: bJumpTypeDisabled = false;
+		}
+		// TODO: tidy up this code -- end
+
+		if( (flags[id] & FL_ONGROUND2) || bJumpTypeDisabled )
 		{
 			new ret;
 			ExecuteForward( mfwd_jump_interrupt, ret, id );
@@ -455,7 +521,6 @@ state_injump_firstframe( id )
 		
 		jump_first_origin[id] = origin[id];
 		jump_first_velocity[id] = velocity[id];
-		jump_type[id] = get_jump_type( id );
 		
 		set_hudmessage( 255, 128, 0, -1.0, 0.7, 0, 0.0, 1.0, 0.0, 0.1, 1 );
 		for( new i = 1, players = get_maxplayers( ); i <= players; ++i )
@@ -977,17 +1042,25 @@ display_stats( id, bool:failed = false )
 				new name[32];
 				get_user_name( id, name, charsmax(name) );
 
-				if( jump_distance[id] >= jump_level[jump_type[id]][2] )
+				if( jump_distance[id] >= jump_level[jump_type[id]][4] )
 				{
 					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_GODLIKE", name, jump_shortname[jump_type[id]], jump_distance[id] );
 				}
-				else if( jump_distance[id] >= jump_level[jump_type[id]][1] )
+				else if( jump_distance[id] >= jump_level[jump_type[id]][3] )
 				{
 					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_PERFECT", name, jump_shortname[jump_type[id]], jump_distance[id] );
 				}
-				else if( jump_distance[id] >= jump_level[jump_type[id]][0] )
+				else if( jump_distance[id] >= jump_level[jump_type[id]][2] )
 				{
 					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_IMPRESSIVE", name, jump_shortname[jump_type[id]], jump_distance[id] );
+				}
+				else if( jump_distance[id] >= jump_level[jump_type[id]][1] )
+				{
+					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_LEET", name, jump_shortname[jump_type[id]], jump_distance[id] );
+				}
+				else if( jump_distance[id] >= jump_level[jump_type[id]][0] )
+				{
+					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_PRO", name, jump_shortname[jump_type[id]], jump_distance[id] );
 				}
 				
 				if( jump_info_chat[0] )
