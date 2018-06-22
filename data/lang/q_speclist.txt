@@ -11,3 +11,10 @@ Q_SL_TOGGLE = Uključi listu posmatrača
 Q_SL_SETCOLOR = Postavi boju
 Q_SL_TOGGLEIMMUNITY = Uključi imunitet
 Q_SL_NOIMMUNITYPRIVILEGE = Nemate pristup ovoj komandi
+
+[tr]
+Q_SL_SPECLIST = İzleyici listesi
+Q_SL_TOGGLE = İzleyici listesini aç/kapat
+Q_SL_SETCOLOR = Rengi belirle
+Q_SL_TOGGLEIMMUNITY = Dokunulmazlığı aç/kapat
+Q_SL_NOIMMUNITYPRIVILEGE = Bu komuta erişim iznin yok

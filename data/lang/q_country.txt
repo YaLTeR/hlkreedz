@@ -9,3 +9,9 @@ QCNTR_ENTERGAME = "name" iz "country" je usao u igru.
 QCNTR_LEAVEGAME = "name" iz "country" je napustio igru.
 QCNTR_MENUTITLE = Države igrača
 QCNTR_UNKNOWNCNTR = Nepoznata drzava
+
+[tr]
+QCNTR_ENTERGAME = "name" "country" ülkesinden oyuna katıldı.
+QCNTR_LEAVEGAME = "name" "country" ülkesinden oyundan ayrıldı.
+QCNTR_MENUTITLE = Oyuncunun Ülkeleri
+QCNTR_UNKNOWNCNTR = Bilinmeyen Ülke

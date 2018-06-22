@@ -9,3 +9,9 @@ Q_MENU = Meni
 Q_MENU_NEXT = Još
 Q_MENU_BACK = Nazad
 Q_MENU_EXIT = Izlaz
+
+[tr]
+Q_MENU = Menü
+Q_MENU_NEXT = Daha fazla
+Q_MENU_BACK = Geri
+Q_MENU_EXIT = Çık
