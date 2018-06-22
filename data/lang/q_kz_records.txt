@@ -7,3 +7,8 @@ Q_KZ_RECORDS_MAP_RECORD = !g%COMMUNITY%!n record on !g%MAP%!n by !g%PLAYER%!n do
 Q_KZ_RECORDS_RECORD_ON = !g%COMMUNITY%!n rekord na !g%MAP%
 Q_KZ_RECORDS_WAY_RECORD = - !g[%WAY%]!n put uradio !g%PLAYER%!n za !g%TIME%
 Q_KZ_RECORDS_MAP_RECORD = !g%COMMUNITY%!n rekord na !g%MAP%!n uradio !g%PLAYER%!n za !g%TIME%
+
+[tr]
+Q_KZ_RECORDS_RECORD_ON = !g%COMMUNITY%!n rekor üzerinde !g%MAP%
+Q_KZ_RECORDS_WAY_RECORD = - !g[%WAY%]!n yol !g%PLAYER%!n tarafından !g%TIME% içinde bitirildi
+Q_KZ_RECORDS_MAP_RECORD = !g%COMMUNITY%!n rekor üzerinde !g%MAP%!n !g%PLAYER%!n tarafından !g%TIME% içinde bitirildi

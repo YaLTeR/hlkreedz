@@ -21,3 +21,15 @@ QKZHOOK_GIVEHOOKCVAR = Dodela kuke je moguća samo ako je q_kz_hook 2.
 QKZHOOK_GIVEHOOKON = Admin ti je uključio kuku
 QKZHOOK_GIVEHOOKOFF = Admin ti je isključio kuku
 QKZHOOK_TERMINATERUN = Tajmer je stopiran jer si iskoristio kuku!
+
+[tr]
+QKZHOOK_MENUTITLE = Kanca
+QKZHOOK_MENUSPEED = Kanca Hızı
+QKZHOOK_MENUCOLOR = Kanca Rengi
+QKZHOOK_WAIT = Kancayı kullanmadan önce 3 saniye bekleyin
+QKZHOOK_NOTAVAIL = Daha bir kancan yok
+QKZHOOK_GIVEHOOK = Kanca ver
+QKZHOOK_GIVEHOOKCVAR = Kanca ver komutu sadece q_kz_hook 2 ise çalışır
+QKZHOOK_GIVEHOOKON = Admin kancanı etkinleştirdi
+QKZHOOK_GIVEHOOKOFF = Admin kancanı devre dışı bıraktı
+QKZHOOK_TERMINATERUN = Zamanlayıcı kanca kullandığın için durdu!
