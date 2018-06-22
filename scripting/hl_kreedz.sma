@@ -18,10 +18,11 @@
 #include <fun>
 #include <hamsandwich>
 #include <hl>
+#include <hl_kreedz_util>
 
 #define PLUGIN "HL KreedZ Beta"
 #define PLUGIN_TAG "HLKZ"
-#define VERSION "0.30"
+#define VERSION "0.31"
 #define AUTHOR "KORD_12.7 & Lev & YaLTeR & naz"
 
 // Compilation options
@@ -211,6 +212,8 @@ new pcvar_kz_autoheal;
 new pcvar_kz_autoheal_hp;
 new pcvar_kz_spawn_mainmenu;
 new pcvar_kz_nostat;
+new pcvar_kz_top_records;
+new pcvar_kz_top_records_max;
 new pcvar_kz_pure_max_start_speed;
 new pcvar_kz_pure_allow_healthboost;
 new pcvar_kz_remove_func_friction;
@@ -265,11 +268,20 @@ public plugin_init()
 	pcvar_kz_autoheal = register_cvar("kz_autoheal", "0");
 	pcvar_kz_autoheal_hp = register_cvar("kz_autoheal_hp", "50");
 	pcvar_kz_nostat = register_cvar("kz_nostat", "0");		// Disable stats storing (use for tests or fun)
-	pcvar_kz_pure_max_start_speed = register_cvar("kz_pure_max_start_speed", "50"); // Maximum speed when starting the timer to be considered a pure run
+	pcvar_kz_top_records = register_cvar("kz_top_records", "15"); // show 15 records of a top
+	pcvar_kz_top_records_max = register_cvar("kz_top_records_max", "25"); // show max. 25 records even if player requests 100
+
+	// Maximum speed when starting the timer to be considered a pure run
+	pcvar_kz_pure_max_start_speed = register_cvar("kz_pure_max_start_speed", "50");
+
 	pcvar_kz_pure_allow_healthboost = register_cvar("kz_pure_allow_healthboost", "0");
 	pcvar_kz_remove_func_friction = register_cvar("kz_remove_func_friction", "0");
-	pcvar_kz_nightvision = register_cvar("kz_def_nightvision", "0"); // 0 = disabled, 1 = all nightvision types allowed, 2 = only flashlight-like nightvision allowed, 3 = only map-global nightvision allowed
-	pcvar_kz_slopefix = register_cvar("kz_slopefix", "1"); // 0 - slopebug/surfbug fix disabled, 1 - fix enabled, may want to disable it when you consistently get stuck in little slopes while sliding+wallstrafing
+
+	// 0 = disabled, 1 = all nightvision types allowed, 2 = only flashlight-like nightvision allowed, 3 = only map-global nightvision allowed
+	pcvar_kz_nightvision = register_cvar("kz_def_nightvision", "0");
+
+	// 0 - slopebug/surfbug fix disabled, 1 - fix enabled, may want to disable it when you consistently get stuck in little slopes while sliding+wallstrafing
+	pcvar_kz_slopefix = register_cvar("kz_slopefix", "1");
 
 	pcvar_allow_spectators = get_cvar_pointer("allow_spectators");
 
@@ -715,7 +727,7 @@ public client_putinserver(id)
 	g_ShowTimer[id] = get_pcvar_num(pcvar_kz_show_timer);
 	g_ShowKeys[id] = get_pcvar_num(pcvar_kz_show_keys);
 	g_ShowStartMsg[id] = get_pcvar_num(pcvar_kz_show_start_msg);
-	// FIXME: get default value from client, and then fall back to server if cleint doesn't have the command set
+	// FIXME: get default value from client, and then fall back to server if client doesn't have the command set
 	g_TimeDecimals[id] = get_pcvar_num(pcvar_kz_time_decimals);
 	g_Nightvision[id] = get_pcvar_num(pcvar_kz_nightvision);
 	g_Slopefix[id] = get_pcvar_num(pcvar_kz_slopefix);
@@ -821,7 +833,8 @@ public DisplayWelcomeMessage(id)
 {
 	id -= TASKID_WELCOME;
 	client_print(id, print_chat, "[%s] Welcome to %s", PLUGIN_TAG, PLUGIN);
-	client_print(id, print_chat, "[%s] Visit www.aghl.ru", PLUGIN_TAG);
+	client_print(id, print_chat, "[%s] Visit sourceruns.org & www.aghl.ru", PLUGIN_TAG);
+	client_print(id, print_chat, "[%s] You can say /kzhelp to see available commands", PLUGIN_TAG);
 
 	if (!get_pcvar_num(pcvar_kz_checkpoints))
 		client_print(id, print_chat, "[%s] Checkpoints are off", PLUGIN_TAG);
@@ -1035,7 +1048,7 @@ CmdHelp(id)
 	if (is_plugin_loaded("Enhanced Map Searching"))
 	{
 		len += formatex(motd[len], charsmax(motd) - len,
-			"/rockthevote /rtv - vote a random map (agmap command)\n");
+			"/rtv - vote a random map (agmap command)\n");
 	}
 
 	len += formatex(motd[len], charsmax(motd) - len,
@@ -1126,22 +1139,22 @@ public CmdSayHandler(id)
 	else if (equali(args[1], "slopefix"))
 		CmdSlopefix(id);
 
-	else if (contain(args[1], "dec") == 0/* || contain(args[1], "decimals") != -1*/)
+	else if (containi(args[1], "dec") == 0)
 		CmdTimeDecimals(id);
 
-	else if (contain(args[1], "nv") == 0 || contain(args[1], "nightvision") == 0)
+	else if (containi(args[1], "nv") == 0 || containi(args[1], "nightvision") == 0)
 		CmdNightvision(id);
 
-	else if (contain(args[1], "pure") == 0)
+	else if (containi(args[1], "pure") == 0)
 		ShowTopClimbers(id, g_szTops[0]);
 
-	else if (contain(args[1], "pro") == 0)
+	else if (containi(args[1], "pro") == 0)
 		ShowTopClimbers(id, g_szTops[1]);
 
-	else if (contain(args[1], "nub") == 0 || contain(args[1], "noob") == 0)
+	else if (containi(args[1], "nub") == 0 || containi(args[1], "noob") == 0)
 		ShowTopClimbers(id, g_szTops[2]);
 
-	else if (contain(args[1], "top") == 0)
+	else if (containi(args[1], "top") == 0)
 		DisplayKzMenu(id, 5);
 
 	else
@@ -2266,7 +2279,8 @@ public Fw_FmTouchPre(iEntity1, iEntity2)
 		xs_vec_add(player, feet, footOrigin);
 		GetNormalPlaneAtSideOfPlayer(iEntity1, footOrigin, footSideOrigin, footSideNormal);
 
-		new bool:bOnRamp = player[1] == belowOrigin[1] && belowNormal[1] != 0 && player[2] - belowOrigin[2] <= 50.0; // should be 36.0, but in some rare case it was more than 40, and most times it's between 34.9 and 35.0, and between 16.9 and 17.5 when crouched
+		new bool:bOnRamp = player[1] == belowOrigin[1] && belowNormal[1] != 0 && player[2] - belowOrigin[2] <= 50.0;
+		// that 50.0 should be 36.0, but in some rare case it was more than 40, and most times it's between 34.9 and 35.0, and between 16.9 and 17.5 when crouched
 
 		if (bOnRamp)
 			g_RampFrameCounter[iEntity1] = 125; // for the next 125 frames will continue checking slopebug
@@ -2790,38 +2804,6 @@ LoadMapSettings()
 	fclose(file);
 }
 
-GetNextNumber(buffer[], &pos)
-{
-	while ((buffer[pos] < '0' || buffer[pos] > '9') && buffer[pos] != '-' && buffer[pos] != 0)
-		pos++;
-	if (buffer[pos] == 0)
-		return 0;
-
-	new i = pos;
-	while (buffer[pos] >= '0' && buffer[pos] <= '9' || buffer[pos] == '-')
-		pos++;
-	buffer[pos] = 0;
-	pos++;
-
-	return str_to_num(buffer[i]);
-}
-
-Float:GetNextFloat(buffer[], &pos)
-{
-	while ((buffer[pos] < '0' || buffer[pos] > '9') && buffer[pos] != '-' && buffer[pos] != '.' && buffer[pos] != 0)
-		pos++;
-	if (buffer[pos] == 0)
-		return 0.0;
-
-	new i = pos;
-	while (buffer[pos] >= '0' && buffer[pos] <= '9' || buffer[pos] == '-' || buffer[pos] == '.')
-		pos++;
-	buffer[pos] = 0;
-	pos++;
-
-	return str_to_float(buffer[i]);
-}
-
 CreateGlobalHealer()
 {
 	new Float:health = get_pcvar_float(pcvar_kz_autoheal_hp) * 2.0;
@@ -2840,29 +2822,6 @@ CreateGlobalHealer()
 //* Records handling                                    *
 //*                                                     *
 //*******************************************************
-
-GetColorlessName(id, name[], len)
-{
-	get_user_name(id, name, len);
-
-	// Clear out color codes
-	new i, j;
-	while (name[i])
-	{
-		if (name[i] == '^' && name[i + 1] >= '0' && name[i + 1] <= '9')
-		{
-			i++;
-		}
-		else
-		{
-			if (j != i)
-				name[j] = name[i];
-			j++;
-		}
-		i++;
-	}
-	name[j] = 0;
-}
 
 GetUserUniqueId(id, uniqueid[], len)
 {
@@ -3144,7 +3103,7 @@ UpdateRecords(id, Float:kztime, szTopType[], szTopType2[]="")
 
 ShowTopClimbers(id, szTopType[])
 {
-	new buffer[2048], len;
+	new buffer[1536], len;
 	new stats[STATS], date[32], time[32], minutes, Float:seconds;
 	LoadRecords(szTopType);
 	new Array:arr;
@@ -3154,14 +3113,33 @@ ShowTopClimbers(id, szTopType[])
 		arr = g_ArrayStatsPro;
 	else
 		arr = g_ArrayStatsNub;
-	new size = min(ArraySize(arr), 15);
+
+	new cvarDefaultRecords = get_pcvar_num(pcvar_kz_top_records);
+	new cvarMaxRecords = get_pcvar_num(pcvar_kz_top_records_max);
+
+	// Get the info... from what record until what record we have to show
+	new topArgs[2];
+	GetRangeArg(topArgs); // e.g.: "say /pro 20-30" --> the '20' goes to topArgs[0] and '30' to topArgs[1]
+	new recMin = min(topArgs[0], topArgs[1]);
+	new recMax = max(topArgs[0], topArgs[1]);
+	if (!recMax)	recMax = cvarDefaultRecords;
+	if (recMin < 0) recMin = 0;
+	if (recMax < 0) recMax = 1;
+	if (recMin) 	recMin -= 1; // so that in "say /pro 1-20" it takes from 1 to 20 both inclusive
+	if (recMax > ArraySize(arr)) recMax = ArraySize(arr); // there may be less records than the player is requesting, limit it to that amount
+	if (recMax - cvarMaxRecords > recMin)
+	{
+		// limit max. records to show
+		recMax = recMin + cvarMaxRecords;
+		client_print(id, print_chat, "[%s] Sorry, not showing all the requested records because the server won't allow loading more than %d records at once", PLUGIN_TAG, cvarMaxRecords);
+	}
 
 	if (equali(szTopType, g_szTops[2]))
 		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time       CP  TP         Date\n\n");
 	else
 		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time              Date\n\n");
 
-	for (new i = 0; i < size && charsmax(buffer) - len > 0; i++)
+	for (new i = recMin; i < recMax && charsmax(buffer) - len > 0; i++)
 	{
 		ArrayGetArray(arr, i, stats);
 
@@ -3183,63 +3161,15 @@ ShowTopClimbers(id, szTopType[])
 	len += formatex(buffer[len], charsmax(buffer) - len, "\n%s %s", PLUGIN, VERSION);
 
 	new header[16];
-	formatex(header, charsmax(header), "%s15 Climbers", szTopType);
+	formatex(header, charsmax(header), "%s%d-%d Climbers", szTopType, min(topArgs[0], topArgs[1]), max(topArgs[0], topArgs[1]));
 	show_motd(id, buffer, header);
 
 	return PLUGIN_HANDLED;
 }
 
-// Get the normal of the plane that is in the given direction from the player
-GetNormalPlaneRelativeToPlayer(id, Float:start[3], Float:direction[3], Float:origin[3], Float:normal[3])
-{
-    static Float:dest[3];
-    // Make a vector that points to the given direction, and add it to the player position
-    xs_vec_add(start, direction, dest);
-
-    // Declare a handle for the traceline function and a variable to hold the distance
-    // between the player and the brush at the sides of them
-    static tr, Float:dist;
-    tr = create_tr2();
-    engfunc(EngFunc_TraceLine, start, dest, IGNORE_MONSTERS, id, tr);
-    // Put the endpoint, where we hit a brush, into the variable origin
-    get_tr2(tr, TR_vecEndPos, origin);
-    // Get the distance between the player and the endpoint
-    dist = get_distance_f(start, origin);
-
-    origin[0] -= (origin[0] - start[0])/dist;
-    origin[1] -= (origin[1] - start[1])/dist;
-    origin[2] -= (origin[2] - start[2])/dist;
-
-    // This returns the vector that is perpendicular to the surface in the given direction from the player
-    get_tr2(tr, TR_vecPlaneNormal, normal);
-    free_tr2(tr);
-}
-
-// Get the normal of the nearest plane at a side of the player,
-// (e.g.: player is surfing a slope, get that slope's plane the player is touching)
-GetNormalPlaneAtSideOfPlayer(id, Float:start[3], Float:origin[3], Float:normal[3])
-{
-	new Float:lfOrigin[3], Float:rtOrigin[3], Float:lfNormal[3], Float:rtNormal[3];
-	GetNormalPlaneRelativeToPlayer(id, start, Float:{-9999.0, 0.0, 0.0}, lfOrigin, lfNormal); // get plane at left
-	GetNormalPlaneRelativeToPlayer(id, start, Float:{9999.0, 0.0, 0.0}, rtOrigin, rtNormal); // get plane at right
-
-    new Float:px = start[0], Float:lfox = lfOrigin[0], Float:rtox = rtOrigin[0];
-
-	if (floatabs(px - lfox) <= floatabs(px - rtox)) // what if both planes are at the same distance
-	{
-		origin = lfOrigin;
-		normal = lfNormal;
-	}
-	else
-	{
-		origin = rtOrigin;
-		normal = rtNormal;
-	}
-}
-
 // Checks if the bounding box of the player has its nearest boundary to the wall inside that same wall
 // The nearest boundary is the one that is frontmost, known thanks to the velocity of the player
-IsPlayerInsideWall(id, Float:origin[3], Float:leadingBoundary[3], Float:collisionPoint[3])
+public IsPlayerInsideWall(id, Float:origin[3], Float:leadingBoundary[3], Float:collisionPoint[3])
 {
 	// Get the player boundary that will be colliding against a wall due to velocity going in that direction
 	new Float:x = float(xs_fsign(g_Velocity[id][0])); // 1 unit
@@ -3256,7 +3186,8 @@ IsPlayerInsideWall(id, Float:origin[3], Float:leadingBoundary[3], Float:collisio
 	xs_vec_add(origin, leadingBoundary, leadingBoundary);
 
 	new Float:direction[3];
-	direction[0] = x - 0.01; // a bit more to the side than straight in case it were to end in the corner between the ramp and the side wall, so it goes more towards the wall (I may have to think this better)
+	// a bit more to the side than straight in case it were to end in the corner between the ramp and the side wall, so it goes more towards the wall (I may have to think this better)
+	direction[0] = x - 0.01;
 	direction[1] = y;
 	direction[2] = 0.0; // the ray will go at the same height as the one defined for the boundary
 
@@ -3274,7 +3205,7 @@ IsPlayerInsideWall(id, Float:origin[3], Float:leadingBoundary[3], Float:collisio
 // Create a string that has the correct formating for seconds, that is a float
 // with a variable number of decimals per user configuration
 // This may actually be a silly thing due to my unknowledge about Pawn/AMXX
-GetVariableDecimalMessage(id, msg1[], msg2[])
+public GetVariableDecimalMessage(id, msg1[], msg2[])
 {
 	new sec[3]; // e.g.: number 6 in "%06.3f"
 	new dec[3]; // e.g.: number 3 in "%06.3f"
@@ -3291,47 +3222,3 @@ GetVariableDecimalMessage(id, msg1[], msg2[])
 	strcat(msg, msg2, charsmax(msg));
 	return msg;
 }
-
-// e.g.: say "/decimals 4" // get the '4'
-GetNumberArg()
-{
-	new cmdArg[32], numberPart[32];
-	read_args(cmdArg, charsmax(cmdArg));
-
-	new bool:prevWasDigit = false;
-    for (new i = 0; cmdArg[i]; i++) {
-        if (isdigit(cmdArg[i])) {
-            formatex(numberPart, charsmax(numberPart), "%s%s", numberPart, cmdArg[i]);
-            prevWasDigit = true;
-        }
-        else if (prevWasDigit)
-        	break; // e.g.: say "/top 42 some text and 123 numbers here" --> get out when parsing the '42'
-    }
-    return str_to_num(numberPart);
-}
-
-/*
-// e.g.: say "/pro 1-18" --> get the 1 and 18 in an array of 2 cells
-public GetRangeArg(range[2])
-{
-	new cmdArg[32], numberPart[2][32];
-	read_args(cmdArg, charsmax(cmdArg));
-
-	new bool:prevWasDigit = false;
-    for (new i = 0, j = 0; cmdArg[i] && j < 2; i++) {
-        if (isdigit(cmdArg[i])) {
-        	new aux[32];
-            formatex(aux, charsmax(aux), "%s%s", numberPart[j], cmdArg[i]);
-            numberPart[j] = aux;
-            prevWasDigit = true;
-        }
-        else if (prevWasDigit)
-        {
-        	prevWasDigit = false;
-        	j++; // e.g.: say "/top 15-30 some text and 123 numbers here" --> get out when parsing the '30', having also stored the previous number '15'
-        }
-    }
-    range[0] = str_to_num(numberPart[0]);
-    range[1] = str_to_num(numberPart[1]);
-}
-*/

@@ -235,19 +235,19 @@ reset_stats( id )
 public clcmd_ljstats( id )
 {
 	new menuBody[512], len;
-	new keys = MENU_KEY_0 | MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7;
+	new keys = MENU_KEY_0 | MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7 | MENU_KEY_8;
 
 	len = formatex(menuBody[len], charsmax(menuBody), "LJStats^n^n");
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Top 15 LongJump^n");
-	len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Display LongJump stats: %s^n", g_DisplayLJStats[id] ? "ON" : "OFF");
-	len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Display HighJump stats: %s^n", g_DisplayHJStats[id] ? "ON" : "OFF");
-	len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Display CountJump stats: %s^n", g_DisplayCJStats[id] ? "ON" : "OFF");
-	len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Display WeirdJump stats: %s^n", g_DisplayWJStats[id] ? "ON" : "OFF");
-	len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Display Bhop stats: %s^n", g_DisplayBhStats[id] ? "ON" : "OFF");
-	len += formatex(menuBody[len], charsmax(menuBody) - len, "7. Display Ladder stats: %s^n", g_DisplayLadderStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Top 15 CountJump^n");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Display LongJump stats: %s^n", g_DisplayLJStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Display HighJump stats: %s^n", g_DisplayHJStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Display CountJump stats: %s^n", g_DisplayCJStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Display WeirdJump stats: %s^n", g_DisplayWJStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "7. Display Bhop stats: %s^n", g_DisplayBhStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "8. Display Ladder stats: %s^n", g_DisplayLadderStats[id] ? "ON" : "OFF");
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "0. Exit");
 
-	//format(menuBody, 191, "LJStats^n^n1. Top 15 LongJump^n2. Display LongJump stats");
 	//player_show_stats[id] = !player_show_stats[id];
 	//player_show_stats_chat[id] = !player_show_stats_chat[id];
 	//client_print( id, print_chat, "LJStats: %s", player_show_stats[id] ? "ON" : "OFF" );
@@ -259,17 +259,17 @@ public clcmd_ljstats( id )
 public actions_ljstats(id, key)
 {
 	key++;
-	console_print(id, "pressed key is %d", key);
 	switch (key)
 	{
 		case 0, 10: return PLUGIN_HANDLED;
 		case 1: show_hudmessage(id, "Not implemented yet!");
-		case 2: g_DisplayLJStats[id] = !g_DisplayLJStats[id];
-		case 3: g_DisplayHJStats[id] = !g_DisplayHJStats[id];
-		case 4: g_DisplayCJStats[id] = !g_DisplayCJStats[id];
-		case 5: g_DisplayWJStats[id] = !g_DisplayWJStats[id];
-		case 6: g_DisplayBhStats[id] = !g_DisplayBhStats[id];
-		case 7: g_DisplayLadderStats[id] = !g_DisplayLadderStats[id];
+		case 2: show_hudmessage(id, "Not implemented yet!");
+		case 3: g_DisplayLJStats[id] = !g_DisplayLJStats[id];
+		case 4: g_DisplayHJStats[id] = !g_DisplayHJStats[id];
+		case 5: g_DisplayCJStats[id] = !g_DisplayCJStats[id];
+		case 6: g_DisplayWJStats[id] = !g_DisplayWJStats[id];
+		case 7: g_DisplayBhStats[id] = !g_DisplayBhStats[id];
+		case 8: g_DisplayLadderStats[id] = !g_DisplayLadderStats[id];
 	}
 
 	clcmd_ljstats(id);
