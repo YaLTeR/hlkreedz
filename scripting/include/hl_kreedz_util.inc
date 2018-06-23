@@ -44,10 +44,11 @@ GetColorlessName(id, name[], len)
 
 	// Clear out color codes
 	new i, j;
+	new const hat[3] = "^^";
 	while (name[i])
 	{
 		// ^ symbol is escaping the next ^ symbol
-		if (name[i] == '^' && name[i + 1] >= '0' && name[i + 1] <= '9')
+		if (name[i] == hat[0] && name[i + 1] >= '0' && name[i + 1] <= '9')
 		{
 			i++;
 		}
@@ -129,7 +130,7 @@ public GetNumberArg()
 }
 
 // e.g.: say "/pro 1-18" --> get the 1 and 18 in an array of 2 cells
-GetRangeArg(range[2])
+public GetRangeArg(range[2])
 {
 	new cmdArg[32], numberPart[2][32];
 	read_args(cmdArg, charsmax(cmdArg));

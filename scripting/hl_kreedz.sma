@@ -1025,7 +1025,7 @@ CmdRespawn(id)
 
 CmdHelp(id)
 {
-	new motd[1537], title[32], len;
+	new motd[1536], title[32], len;
 
 	len = formatex(motd[len], charsmax(motd) - len,
 		"Say commands:\n\
@@ -1033,7 +1033,7 @@ CmdHelp(id)
 		/cp - create control point\n\
 		/tp - teleport to last control point\n\
 		/top - show Top climbers\n\
-		/pure /pro /nub /noob - show specific tops\n\
+		/pure /pro /nub /noob <#>-<#> - show specific tops and records, e.g. /pro 20-50\n\
 		/unstuck - teleport to previous control point\n\
 		/pause - pause timer and freeze player\n\
 		/reset - reset timer and clear checkpoints\n");
