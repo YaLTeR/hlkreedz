@@ -14,6 +14,7 @@
 #include <fakemeta>
 #include <hamsandwich>
 #include <fun>
+#include <hl_kreedz_util>
 
 #include <q>
 #include <q_cookies>
@@ -27,6 +28,7 @@
 #define PLUGIN "Q::Jumpstats"
 #define VERSION "1.0"
 #define AUTHOR "Quaker"
+#define PLUGIN_TAG "LJStats"
 
 #define TASKID_SPEED 489273421
 
@@ -45,6 +47,24 @@ enum State
 	State_InLadderDrop,	// jump from ladder
 	State_InLadderFall	// slide out of ladder
 };
+
+enum _:JUMPSTATS
+{
+	JUMPSTATS_ID[32],
+	JUMPSTATS_NAME[32],
+	Float:JUMPSTATS_DISTANCE,
+	Float:JUMPSTATS_MAXSPEED,
+	Float:JUMPSTATS_PRESTRAFE,
+	JUMPSTATS_STRAFES,
+	JUMPSTATS_SYNC,
+	JUMPSTATS_TIMESTAMP,	// Date
+}
+
+new const configsSubDir[] = "/hl_kreedz";
+new Array:g_ArrayLJStats;
+new g_Map[64];
+new g_ConfigsDir[256];
+new g_StatsFileLJ[256];
 
 new const FL_ONGROUND2 = FL_ONGROUND | FL_PARTIALGROUND | FL_INWATER | FL_CONVEYOR | FL_FLOAT;
 
@@ -157,13 +177,15 @@ public plugin_init( )
 	TrieSetCell( illegal_touch_entity_classes, "func_rotating", 1 );
 	TrieSetCell( illegal_touch_entity_classes, "trigger_push", 1 );
 	TrieSetCell( illegal_touch_entity_classes, "trigger_teleport", 1 );
-	
+
 	register_clcmd( "say /ljstats", "clcmd_ljstats" );
 	register_clcmd( "say /jumpstats", "clcmd_ljstats" );
 	register_clcmd( "say /speed", "clcmd_speed" );
 	register_clcmd( "say /showpre", "clcmd_prestrafe" );
 	register_clcmd( "say /preshow", "clcmd_prestrafe" );
 	register_clcmd( "say /prestrafe", "clcmd_prestrafe" );
+	register_clcmd( "say /lj15", "show_lj_top" );
+	register_clcmd( "say /lj", "show_lj_top" );
 
 	register_menucmd(register_menuid(LJSTATS_MENU_ID), 1023, "actions_ljstats");
 	
@@ -181,6 +203,27 @@ public plugin_init( )
 	mfwd_jump_interrupt = CreateMultiForward( "q_js_jumpinterrupt", ET_IGNORE, FP_CELL );
 	
 	set_task( 0.1, "task_speed", TASKID_SPEED, _, _, "b" );
+
+	g_ArrayLJStats = ArrayCreate(JUMPSTATS);
+}
+
+public plugin_cfg()
+{
+	get_configsdir(g_ConfigsDir, charsmax(g_ConfigsDir));
+
+	// Dive into our custom directory
+	add(g_ConfigsDir, charsmax(g_ConfigsDir), configsSubDir);
+	if (!dir_exists(g_ConfigsDir))
+		mkdir(g_ConfigsDir);
+
+	// Load stats
+	formatex(g_StatsFileLJ, charsmax(g_StatsFileLJ), "%s/top_%s.dat", g_ConfigsDir, "lj");
+	load_lj_records();
+}
+
+public plugin_end()
+{
+	ArrayDestroy(g_ArrayLJStats);
 }
 
 public client_connect( id )
@@ -237,7 +280,7 @@ public clcmd_ljstats( id )
 	new menuBody[512], len;
 	new keys = MENU_KEY_0 | MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7 | MENU_KEY_8;
 
-	len = formatex(menuBody[len], charsmax(menuBody), "LJStats^n^n");
+	len = formatex(menuBody[len], charsmax(menuBody), "%s^n^n", PLUGIN_TAG);
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Top 15 LongJump^n");
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Top 15 CountJump^n");
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Display LongJump stats: %s^n", g_DisplayLJStats[id] ? "ON" : "OFF");
@@ -247,10 +290,6 @@ public clcmd_ljstats( id )
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "7. Display Bhop stats: %s^n", g_DisplayBhStats[id] ? "ON" : "OFF");
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "8. Display Ladder stats: %s^n", g_DisplayLadderStats[id] ? "ON" : "OFF");
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "0. Exit");
-
-	//player_show_stats[id] = !player_show_stats[id];
-	//player_show_stats_chat[id] = !player_show_stats_chat[id];
-	//client_print( id, print_chat, "LJStats: %s", player_show_stats[id] ? "ON" : "OFF" );
 
 	show_menu(id, keys, menuBody, -1, LJSTATS_MENU_ID);
 	return PLUGIN_HANDLED;
@@ -714,6 +753,7 @@ event_jump_end( id )
 		jump_distance[id] = floatmin( dist1, dist2 ) + 32.0;
 		
 		display_stats( id );
+		update_lj_records( id );
 	}
 	
 	new ret;
@@ -994,6 +1034,7 @@ display_stats( id, bool:failed = false )
 		jump_sync[id] * 100 / jump_frames[id]
 	);
 	
+	/*
 	static strafes_info[512];
 	static strafes_info_console[MAX_STRAFES][40];
 	if( jump_strafes[id] > 1 )
@@ -1011,6 +1052,7 @@ display_stats( id, bool:failed = false )
 			len += formatex( strafes_info[len], charsmax(strafes_info) - len, "%s^n", strafes_info_console[i] );
 		}
 	}
+	*/
 	
 	for( new i = 1, players = get_maxplayers( ); i <= players; ++i )
 	{
@@ -1022,15 +1064,17 @@ display_stats( id, bool:failed = false )
 				set_hudmessage( 255, 128, 0, -1.0, 0.7, 0, 0.0, 3.0, 0.0, 0.1, 1 );
 			show_hudmessage( i, "%s", jump_info );
 			
+			/*
 			if( failed )
 				set_hudmessage( 255, 0, 0, 0.7, -1.0, 0, 0.0, 3.0, 0.0, 0.1, 2 );
 			else
 				set_hudmessage( 255, 128, 0, 0.7, -1.0, 0, 0.0, 3.0, 0.0, 0.1, 2 );
 			show_hudmessage( i, "%s", strafes_info );
-			
+			*/
+
 			console_print( i, "%s", jump_info_console );
-			for( new j = 1; j <= jump_strafes[id]; ++j )
-				console_print( i, "%s", strafes_info_console[j] );
+			//for( new j = 1; j <= jump_strafes[id]; ++j )
+			//	console_print( i, "%s", strafes_info_console[j] );
 		}
 		
 		static jump_info_chat[192];
@@ -1086,4 +1130,168 @@ display_stats( id, bool:failed = false )
 			}
 		}
 	}
+}
+
+// TODO integrate LJ top in hl_kreedz plugin
+load_lj_records()
+{
+	new file = fopen(g_StatsFileLJ, "r");
+	if (!file) return;
+
+	new data[1024], stats[JUMPSTATS], uniqueid[32], name[32];
+	new distance[15], maxspeed[15], prestrafe[15], strafes[5], sync[4], timestamp[24];
+	ArrayClear(g_ArrayLJStats);
+
+	while (!feof(file))
+	{
+		fgets(file, data, charsmax(data));
+		if (!strlen(data))
+			continue;
+
+		parse(data, uniqueid, charsmax(uniqueid), name, charsmax(name),
+			distance, charsmax(distance), maxspeed, charsmax(maxspeed), prestrafe, charsmax(prestrafe), 
+			strafes, charsmax(strafes), sync, charsmax(sync), timestamp, charsmax(timestamp));
+
+		stats[JUMPSTATS_TIMESTAMP] = str_to_num(timestamp);
+
+		// Stale old records that are below specified amount, otherwise we use them to inform player about better/worse time and position
+		//if (current_time - stats[JUMPSTATS_TIMESTAMP] > staleStatTime &&
+		//	i > keepStatPlayers)
+		//	continue;
+
+		copy(stats[JUMPSTATS_ID], charsmax(stats[JUMPSTATS_ID]), uniqueid);
+		copy(stats[JUMPSTATS_NAME], charsmax(stats[JUMPSTATS_NAME]), name);
+		stats[JUMPSTATS_DISTANCE] = _:str_to_float(distance);
+		stats[JUMPSTATS_MAXSPEED] = _:str_to_float(maxspeed);
+		stats[JUMPSTATS_PRESTRAFE] = _:str_to_float(prestrafe);
+		stats[JUMPSTATS_STRAFES] = str_to_num(strafes);
+		stats[JUMPSTATS_SYNC] = str_to_num(sync);
+
+		ArrayPushArray(g_ArrayLJStats, stats);
+	}
+
+	fclose(file);
+}
+
+update_lj_records(id)
+{
+	new uniqueid[32], name[32], rank;
+	new stats[JUMPSTATS], insertItemId = -1, deleteItemId = -1;
+	load_lj_records();
+
+	get_user_authid(id, uniqueid, charsmax(uniqueid));
+	GetColorlessName(id, name, charsmax(name));
+
+	new result;
+	for (new i = 0; i < ArraySize(g_ArrayLJStats); i++)
+	{
+		ArrayGetArray(g_ArrayLJStats, i, stats);
+		result = floatcmp(jump_distance[id], stats[JUMPSTATS_DISTANCE]);
+
+		if (result == 1 && insertItemId == -1)
+			insertItemId = i;
+
+		if (!equal(stats[JUMPSTATS_ID], uniqueid))
+			continue;
+
+		if (result != 1)
+			return;
+
+		new Float:longer = jump_distance[id] - stats[JUMPSTATS_DISTANCE];
+		client_print(id, print_chat, "[%s] You improved your record by %.3f units", PLUGIN_TAG, longer);
+
+		deleteItemId = i;
+		break;
+	}
+
+	copy(stats[JUMPSTATS_ID], charsmax(stats[JUMPSTATS_ID]), uniqueid);
+	copy(stats[JUMPSTATS_NAME], charsmax(stats[JUMPSTATS_NAME]), name);
+	stats[JUMPSTATS_DISTANCE] = jump_distance[id];
+	stats[JUMPSTATS_MAXSPEED] = jump_maxspeed[id];
+	stats[JUMPSTATS_PRESTRAFE] = jump_prestrafe[id];
+	stats[JUMPSTATS_STRAFES] = jump_strafes[id];
+	stats[JUMPSTATS_SYNC] = jump_sync[id] * 100 / jump_frames[id];
+	stats[JUMPSTATS_TIMESTAMP] = get_systime();
+
+	if (insertItemId != -1)
+	{
+		rank = insertItemId;
+		ArrayInsertArrayBefore(g_ArrayLJStats, insertItemId, stats);
+	}
+	else
+	{
+		rank = ArraySize(g_ArrayLJStats);
+		ArrayPushArray(g_ArrayLJStats, stats);
+	}
+
+	if (deleteItemId != -1)
+		ArrayDeleteItem(g_ArrayLJStats, insertItemId != -1 ? deleteItemId + 1 : deleteItemId);
+
+	rank++;
+	if (rank <= 15)
+	{
+		client_cmd(0, "spk woop");
+		client_print(0, print_chat, "[%s] %s is now on place %d in LJ 15", PLUGIN_TAG, name, rank);
+	}
+	else
+		client_print(0, print_chat, "[%s] %s's rank is %d of %d among LJ players", PLUGIN_TAG, name, rank, ArraySize(g_ArrayLJStats));
+
+	save_lj_records();
+}
+
+save_lj_records()
+{
+	new file = fopen(g_StatsFileLJ, "w+");
+	if (!file) return;
+
+	new stats[JUMPSTATS];
+	for (new i; i < ArraySize(g_ArrayLJStats); i++)
+	{
+		ArrayGetArray(g_ArrayLJStats, i, stats);
+
+		fprintf(file, "^"%s^" ^"%s^" %.3f %.3f %.3f %d %d %i^n",
+			stats[JUMPSTATS_ID],
+			stats[JUMPSTATS_NAME],
+			stats[JUMPSTATS_DISTANCE],
+			stats[JUMPSTATS_MAXSPEED],
+			stats[JUMPSTATS_PRESTRAFE],
+			stats[JUMPSTATS_STRAFES],
+			stats[JUMPSTATS_SYNC],
+			stats[JUMPSTATS_TIMESTAMP]);
+	}
+
+	fclose(file);
+}
+
+public show_lj_top(id)
+{
+	new buffer[1536], len, stats[JUMPSTATS], date[32], dist[15], maxspeed[15], prestrafe[15], strafes[5], sync[4];
+	load_lj_records();
+	new size = min(ArraySize(g_ArrayLJStats), 15);
+
+  //len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time              Date\n\n");
+	len = formatex(buffer[len], charsmax(buffer) - len, "#   Player               Distance     Maxspeed    Prestrafe   Strafes Sync   Date^n^n");
+	
+	for (new i = 0; i < size && charsmax(buffer) - len > 0; i++)
+	{
+		ArrayGetArray(g_ArrayLJStats, i, stats);
+
+		// TODO: Solve UTF halfcut at the end
+		stats[JUMPSTATS_NAME][17] = EOS;
+
+		formatex(dist, charsmax(dist), "%.3f", stats[JUMPSTATS_DISTANCE]);
+		formatex(prestrafe, charsmax(prestrafe), "%.3f", stats[JUMPSTATS_MAXSPEED]);
+		formatex(maxspeed, charsmax(maxspeed), "%.3f", stats[JUMPSTATS_PRESTRAFE]);
+		formatex(strafes, charsmax(strafes), "%d", stats[JUMPSTATS_STRAFES]);
+		formatex(sync, charsmax(sync), "%d", stats[JUMPSTATS_SYNC]);
+		format_time(date, charsmax(date), "%d/%m/%Y", stats[JUMPSTATS_TIMESTAMP]);
+
+		len += formatex(buffer[len], charsmax(buffer) - len, "%-2d %-19s %11s %11s %11s %7s %5s   %s^n", i + 1, stats[JUMPSTATS_NAME], dist, maxspeed, prestrafe, strafes, sync, date);
+	}
+
+	len += formatex(buffer[len], charsmax(buffer) - len, "^n%s %s", PLUGIN, VERSION);
+
+	show_motd(id, buffer, "LJ15 Jumpers");
+
+	return PLUGIN_HANDLED;
 }
