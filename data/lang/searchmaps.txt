@@ -1,0 +1,104 @@
+[en]
+DISP_IN_MOTD = [AMXX] listmaps results are being displayed in a MOTD popup
+DISP_IN_CONS = [AMXX] listmaps results are being printed to your console
+DISP_CYCLE_MOTD = [AMXX] listcycle results are being displayed in a MOTD popup
+DISP_CYCLE_CONS = [AMXX] listcycle results are being printed to your console
+EJL_CUR_MAP = [AMXX] Current Map is: %s
+SRC_RES_HUD = We have %d maps.^nHere are search results,^nonly 1st 20 shown:
+NO_RES_SRC = No match to your search,^nbut we have %d maps.^n^nUsage:^nmapsearch map
+SRC_RES_LRIGHT = [AMXX] Map search results: See right side of screen.
+CONS_CYCLELISTING = MapCycle Listing
+CONS_MAPLISTING = Map Listing
+NO_MATCHES_SRC = No Matches for Your Search
+HIGHEST_ENTRY = Highest Entry: %d
+CONS_ENTRIES = Entries %d - %d of %d
+USE_FOR_MORE = Use '%s %s %d' for more
+USE_FOR_MORE2 = Use '%s %d' for more
+ALSO_LISTMAPS = ^nYou can also use ^"listmaps^" for a full map listing
+ALSO_LISTCYCLE = ^nYou can also use ^"listcycle^" to list the current mapcycle
+USAGE_LISTCYCLE = Usage: listcyclem [search] [start] - Lists/Searches current mapcycle in MOTD popup
+USAGE_LISTMAPS = Usage: listmapsm [search] [start] - Lists/Searches available maps in MOTD popup
+
+[de]
+DISP_IN_MOTD = [AMXX] Die listmaps-Ergebnisse werden in einem MOTD Popup gezeigt.
+DISP_IN_CONS = [AMXX] Die listmaps-Ergebnisse werden auf der Konsole gezeigt.
+DISP_CYCLE_MOTD = [AMXX] Die listcycle-Ergebnisse werden in einem MOTD Popup gezeigt.
+DISP_CYCLE_CONS = [AMXX] Die listcycle-Ergebnisse werden auf der Konsole gezeigt.
+EJL_CUR_MAP = [AMXX] Die aktuelle Map ist: %s
+SRC_RES_HUD = Wir haben %d Maps.^nHier sind die Ergebnisse,^nnur die ersten 20 werden gezeigt:
+NO_RES_SRC = Die Suche brachte keine Uebereinstimmung,^naber wir haben %d Maps.^n^nBenutzung:^nmapsearch map
+SRC_RES_LRIGHT = [AMXX] Mapsuchergebnisse: Schau auf die rechte Schirmseite.
+CONS_CYCLELISTING = MapCycle Liste
+CONS_MAPLISTING = Map Liste
+NO_MATCHES_SRC = Keine Uebereinstimmung mit deiner Suche.
+HIGHEST_ENTRY = Hoechster Eintrag: %d
+CONS_ENTRIES = Eintraege %d - %d von %d
+USE_FOR_MORE = Schreibe '%s %s %d' um mehr anzuzeigen.
+USE_FOR_MORE2 = Schreibe '%s %d' um mehr anzuzeigen.
+ALSO_LISTMAPS = ^nDu kannst auch ^"listmaps^" fuer eine komplette Mapliste benutzen.
+ALSO_LISTCYCLE = ^nDu kannst auch ^"listcycle^" benutzen, um den aktuellen Mapcycle zu sehen.
+USAGE_LISTCYCLE = Benutzung: listcyclem [Suchwort] [start] - Listet/Durchsucht den aktuellen Mapcycle in einem MOTD Popup.
+USAGE_LISTMAPS = Benutzung: listmapsm [Suchwort] [start] - Listet/Durchsucht die verfuegbaren Maps in einem MOTD Popup.
+
+[fr]
+DISP_IN_MOTD = [AMXX] Les resultats de listmaps seront affiche dans un popup MOTD.
+DISP_IN_CONS = [AMXX] Les resultats de listmaps seront affiche dans la console.
+DISP_CYCLE_MOTD = [AMXX] Les resultats de listcycle seront affiche dans un popup MOTD.
+DISP_CYCLE_CONS = [AMXX] Les resultats de listcycle seront affiche dans la console.
+EJL_CUR_MAP = [AMXX] Carte actuelle: %s
+SRC_RES_HUD = Nous avons %d cartes.^nVoila les resultats de recherche,^nles 20 premiers seront affiche:
+NO_RES_SRC = Pas de correspondance avec ta recherche,^nmais nous avons %d cartes.^n^nUtilisation:^nmapsearch carte
+SRC_RES_LRIGHT = [AMXX] Resultats de recherche: Regarde la droite de ton ecran.
+CONS_CYCLELISTING = MapCycle liste
+CONS_MAPLISTING = Map liste
+NO_MATCHES_SRC = Pas de correspondance avec ta recherche.
+HIGHEST_ENTRY = Plus grand resultat: %d
+CONS_ENTRIES = Entrees %d - %d sur %d
+USE_FOR_MORE = Utilise '%s %s %d' pour voir plus.
+USE_FOR_MORE2 = Utilise '%s %d' pour voir plus.
+ALSO_LISTMAPS = ^nEssaie aussi ^"listmaps^" pour voir une liste de tous nos cartes.
+ALSO_LISTCYCLE = ^nEssaie aussi ^"listcycle^" pour voir notre cycle de cartes.
+USAGE_LISTCYCLE = Utilisation: listcyclem [recherche] [start] - Affiche/fouille cycle de carte current dans un popup MOTD.
+USAGE_LISTMAPS = Utilisation: listmapsm [recherche] [start] - Affiche/fouille tous nos cartes dans un popup MOTD.
+
+[tr]
+DISP_IN_MOTD = [AMXX] mapliste secenekleri MOTD de gorulebilir
+DISP_IN_CONS = [AMXX] mapliste sonuclari konsolunuza kopyalanmisdir
+DISP_CYCLE_MOTD = [AMXX] map cevrimi secenekleri MOTD de gorulebilir
+DISP_CYCLE_CONS = [AMXX] map cevrimi sonuclari konsolunuza kopyalanmisdir
+EJL_CUR_MAP = [AMXX] Su anki map: %s
+SRC_RES_HUD = Secenek %d map.^nTarama sonuclari,^nsadece 1den20e kadar:
+NO_RES_SRC = Aradiginiz secenek yok,^ndiger %d map.^n^nKullanim:^nmapsearch map
+SRC_RES_LRIGHT = [AMXX] Map arama sonuclari: Ekranin sagina bakin.
+CONS_CYCLELISTING = Map cevrimi listesi
+CONS_MAPLISTING = Map listesi
+NO_MATCHES_SRC = Aramaniz sonuc getirmedi
+HIGHEST_ENTRY = En yuksek giris: %d
+CONS_ENTRIES = Girisler %d - %d of %d
+USE_FOR_MORE = Kullanim '%s %s %d' Dahasi icin
+USE_FOR_MORE2 = Kullan '%s %d' Dahasi icin
+ALSO_LISTMAPS = ^nKullanim secenegi ^"listmaps^" tum mapleri goruntuleyebilmek icin
+ALSO_LISTCYCLE = ^nKullanim secenegi ^"listcycle^" Tum cevrimi goruntulebilmek icin
+USAGE_LISTCYCLE = Kullanim: listcyclem [arama] [basla] - Listele/Su an arama neticesinde olan map cevrimini MOTDde gorebilirsiniz
+USAGE_LISTMAPS = Kullanim: listmapsm [arama] [basla] - Listele/Su an arama neticesinde olan maplistesini MOTDde gorebilirsiniz
+
+[es]
+DISP_IN_MOTD = [AMXX] Los resultados de listmaps se han mostrado en una ventana MOTD
+DISP_IN_CONS = [AMXX] Los resultados de listmaps se han mostrado en tu consola
+DISP_CYCLE_MOTD = [AMXX] Los resultados de listcycle se han mostrado en una ventana MOTD
+DISP_CYCLE_CONS = [AMXX] Los resultados de listcycle se han mostrado en tu consola
+EJL_CUR_MAP = [AMXX] Mapa Actual: %s
+SRC_RES_HUD = Tenemos %d mapas.^nEstos son los resultados,^nsolo se muestran los primeros 20:
+NO_RES_SRC = No hay resultados para tu busqueda,^nsin embargo tenemos %d mapas.^n^nUso:^nmapsearch mapa
+SRC_RES_LRIGHT = [AMXX] Resultados de la busqueda: Mira en la parte derecha de tu pantalla.
+CONS_CYCLELISTING = Lista del Ciclo de Mapas
+CONS_MAPLISTING = Lista de Mapas
+NO_MATCHES_SRC = No hay coincidencias para tu busqueda
+HIGHEST_ENTRY = Entrada mas alta: %d
+CONS_ENTRIES = Entradas %d - %d de %d
+USE_FOR_MORE = Escribe '%s %s %d' para mostrar mas
+USE_FOR_MORE2 = Escribe '%s %d' para mostrar mas
+ALSO_LISTMAPS = ^nTambien puedes usar ^"listmaps^" para una ver una lista completa de los mapas
+ALSO_LISTCYCLE = ^nTambien puedes usar ^"listcycle^" para ver el ciclo de los mapas actuales
+USAGE_LISTCYCLE = Uso: listcyclem [busqueda] [comienzo] - Lista/Busca el ciclo de los mapas actuales en una ventana MOTD
+USAGE_LISTMAPS = Uso: listmapsm [busqueda] [comienzo] - Lista/Busca los mapas disponibles en una ventana MOTD

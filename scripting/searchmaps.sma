@@ -131,7 +131,6 @@
 ***************************************************************************/
 
 #include <amxmodx>
-#include <amxconst>
 #include <amxmisc>
 
 #define MAX_MAPS 6144	// Max number of maps the plugin will handle
@@ -174,9 +173,11 @@ new totalmapsc
 new T_LCycle[MAX_CYCLE_MAPS][32]
 #endif
 
+new pcvar_searchmaps_sort
+
 public plugin_init() {
 	register_plugin("Enhanced Map Searching","1.6","EJL/JTP10181")
-	register_dictionary("amx_ejl_searchmaps.txt")
+	register_dictionary("searchmaps.txt")
 	register_clcmd("say","HandleSay")
 	register_clcmd("mapsearch","admin_mapsearch",0,"<search> - Lists available maps in HUD with search target in their name")
 	register_concmd("listmaps","admin_listmaps",0,"[search] [start] - Lists/Searches available maps in console")
@@ -187,8 +188,11 @@ public plugin_init() {
 	#endif
 	register_clcmd("say listmaps","say_listmaps",0,"[search] [start] - Lists/Searches available maps in console")
 
+	pcvar_searchmaps_sort = register_cvar("searchmaps_sort", "1")
+
 	get_listing()
-	sort_maps()
+	if (get_pcvar_num(pcvar_searchmaps_sort))
+		sort_maps()
 }
 
 public HandleSay(id) {
@@ -611,6 +615,7 @@ sort_maps() {
 	}
 }
 
+// AdrenalineGamer-only
 vote_random_map(id)
 {
 	if (T_LMaps[0][0]) {
