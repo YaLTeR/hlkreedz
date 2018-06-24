@@ -1,5 +1,6 @@
 #include <amxmodx>
 #include <fakemeta>
+#include <hl_kreedz_util>
 
 #pragma semicolon 1
 
@@ -67,7 +68,7 @@ public tskShowSpec()
 	}
 	
 	static szHud[1280];
-	static szName[34];
+	static szName[33];
 	static bool:send;
 	
 	// FRUITLOOOOOOOOOOOOPS!
@@ -83,7 +84,7 @@ public tskShowSpec()
 		
 		sendTo[alive] = true;
 		
-		get_user_name(alive, szName, 32);
+		GetColorlessName(alive, szName, charsmax(szName));
 		format(szHud, 45, "Spectating %s:^n", szName);
 		
 		for( new dead = 1; dead <= gMaxPlayers; dead++ )
