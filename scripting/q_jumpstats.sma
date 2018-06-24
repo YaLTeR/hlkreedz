@@ -14,6 +14,7 @@
 #include <fakemeta>
 #include <hamsandwich>
 #include <fun>
+#include <engine>
 #include <hl_kreedz_util>
 
 #include <q>
@@ -168,6 +169,8 @@ public plugin_init( )
 	register_forward( FM_PlayerPreThink, "forward_PlayerPreThink" );
 	RegisterHam( Ham_Spawn, "player", "forward_PlayerSpawn" );
 	RegisterHam( Ham_Touch, "player", "forward_PlayerTouch", 1 );
+	register_touch("trigger_push", "player", "forward_PushTouch");
+	register_touch("trigger_teleport", "player", "forward_TeleportTouch");
 	
 	illegal_touch_entity_classes = TrieCreate( );
 	TrieSetCell( illegal_touch_entity_classes, "func_train", 1 );
@@ -376,6 +379,18 @@ public forward_PlayerTouch( id, other )
 	{
 		air_touch[id] = true;
 	}
+}
+
+public forward_PushTouch ( ent, id )
+{
+	if (is_user_alive( id ))
+		event_jump_illegal( id );
+}
+
+public forward_TeleportTouch ( ent, id )
+{
+	if (is_user_alive( id ))
+		event_jump_illegal( id );
 }
 
 public forward_PlayerPreThink( id )
@@ -1249,7 +1264,7 @@ save_lj_records()
 	{
 		ArrayGetArray(g_ArrayLJStats, i, stats);
 
-		fprintf(file, "^"%s^" ^"%s^" %.3f %.3f %.3f %d %d %i^n",
+		fprintf(file, "^"%s^" ^"%s^" %.6f %.6f %.6f %d %d %i^n",
 			stats[JUMPSTATS_ID],
 			stats[JUMPSTATS_NAME],
 			stats[JUMPSTATS_DISTANCE],
