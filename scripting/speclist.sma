@@ -6,7 +6,6 @@
 #define RED 64
 #define GREEN 64
 #define BLUE 64
-#define UPDATEINTERVAL 1.0
 
 // Comment below if you do not want /speclist showing up on chat
 #define ECHOCMD
@@ -21,6 +20,7 @@ new const AUTHOR[] = "FatalisDK";
 new gMaxPlayers;
 new gCvarOn;
 new gCvarImmunity;
+new gCvarRefreshInterval;
 new bool:gOnOff[33] = { true, ... };
 
 public plugin_init()
@@ -30,12 +30,13 @@ public plugin_init()
 	register_cvar(PLUGIN, VERSION, FCVAR_SERVER, 0.0);
 	gCvarOn = register_cvar("amx_speclist", "1", 0, 0.0);
 	gCvarImmunity = register_cvar("amx_speclist_immunity", "1", 0, 0.0);
-	
+	gCvarRefreshInterval = register_cvar("amx_speclist_refresh_interval", "1");
+
 	register_clcmd("say /speclist", "cmdSpecList", -1, "");
-	
+
 	gMaxPlayers = get_maxplayers();
 	
-	set_task(UPDATEINTERVAL, "tskShowSpec", 123094, "", 0, "b", 0);
+	set_task(get_pcvar_float(gCvarRefreshInterval), "tskShowSpec", 123094, "", 0, "b", 0);
 }
 
 public cmdSpecList(id)
@@ -101,7 +102,7 @@ public tskShowSpec()
 					{
 						get_user_name(dead, szName, 32);
 						add(szName, 33, "^n", 0);
-						add(szHud, 1101, szName, 0);
+						add(szHud, 1279, szName, 0);
 						send = true;
 					}
 
@@ -119,7 +120,7 @@ public tskShowSpec()
 				&& gOnOff[i] == true )
 				{
 					set_hudmessage(RED, GREEN, BLUE,
-						0.75, 0.15, 0, 0.0, UPDATEINTERVAL + 0.1, 0.0, 0.0, -1);
+						0.75, 0.15, 0, 0.0, get_pcvar_float(gCvarRefreshInterval) + 0.1, 0.0, 0.0, -1);
 					
 					show_hudmessage(i, szHud);
 				}
