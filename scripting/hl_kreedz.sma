@@ -2847,7 +2847,7 @@ LoadRecords(szTopType[])
 		file = fopen(g_StatsFileNub, "r");
 	if (!file) return;
 
-	new data[1024], stats[STATS], uniqueid[32], name[32], cp[24], tp[24], i;
+	new data[1024], stats[STATS], uniqueid[32], name[32], cp[24], tp[24];
 	new kztime[24], timestamp[24];
 	new current_time = get_systime();
 	new Array:arr;
@@ -2870,10 +2870,12 @@ LoadRecords(szTopType[])
 
 		stats[STATS_TIMESTAMP] = str_to_num(timestamp);
 
+		/*
 		// Stale old records that are below specified amount, otherwise we use them to inform player about better/worse time and position
 		if (current_time - stats[STATS_TIMESTAMP] > staleStatTime &&
 			i > keepStatPlayers)
 			continue;
+		*/
 
 		copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
 		copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
@@ -2882,7 +2884,7 @@ LoadRecords(szTopType[])
 		stats[STATS_TIME] = _:str_to_float(kztime);
 
 		ArrayPushArray(arr, stats);
-		i++;
+		//i++;
 	}
 
 	fclose(file);
@@ -2990,20 +2992,30 @@ UpdateRecords(id, Float:kztime, szTopType[], szTopType2[]="")
 
 	if (equali(szTopType2, g_szTops[1]))
 	{
+		server_print("pro array is: %d", arr2);
 		for (new i = 0; i < ArraySize(arr2); i++)
 		{
 			ArrayGetArray(arr2, i, stats2);
 			result2 = floatcmp(kztime, stats2[STATS_TIME]);
+			server_print("i = %d, result2 = %d, insertItemId2 = %d, stats2ID = %s, uniqueid = %s",
+				i, result2, insertItemId2, stats2[STATS_ID], uniqueid);
 
 			if (result2 == -1 && insertItemId2 == -1)
+			{
 				insertItemId2 = i;
+				server_print("insertItemId2 is now %d", insertItemId2);
+			}
 
 			if (!equal(stats2[STATS_ID], uniqueid))
+			{
+				server_print("names are different, continuing to next position");
 				continue;
+			}
 
 			if (result2 != -1)
 			{
 				skipResult2 = true;
+				server_print("breaking loop... skipResult2 is now %d", skipResult2);
 				break; // their pure time is worse than their pro time
 			}
 
@@ -3014,6 +3026,7 @@ UpdateRecords(id, Float:kztime, szTopType[], szTopType2[]="")
 				PLUGIN_TAG, g_szTops[1], minutes, seconds);
 
 			deleteItemId2 = i;
+			server_print("deleteItemId2 is now %d", deleteItemId2);
 			break;
 		}
 	}
