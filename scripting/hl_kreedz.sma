@@ -1642,7 +1642,9 @@ FinishClimb(id)
 
 StartTimer(id)
 {
-	new Float:speed = GetPlayerSpeed(id);
+	new Float:velocity[3];
+	pev(id, pev_velocity, velocity);
+	new Float:speed = vector_length(velocity);
 
 	set_bit(g_baIsClimbing, id);
 	if (speed <= get_pcvar_float(pcvar_kz_pure_max_start_speed))
