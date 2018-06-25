@@ -1382,8 +1382,6 @@ TeleportAfterRespawn(id)
 		// Teleport player to last checkpoint
 		if (CanTeleport(id, CP_TYPE_CURRENT, false))
 			Teleport(id, CP_TYPE_CURRENT);
-		else if (CanTeleport(id, CP_TYPE_CUSTOM_START, false))
-			Teleport(id, CP_TYPE_CUSTOM_START);
 		else if (CanTeleport(id, CP_TYPE_START, false))
 			Teleport(id, CP_TYPE_START);
 	}
@@ -2068,7 +2066,7 @@ public Fw_HamKilledPlayerPre(victim, killer, shouldgib)
 
 public Fw_HamKilledPlayerPost(victim, killer, shouldgib)
 {
-	// Even frags to mantain frags equals to teleports
+	// Even frags to mantain frags equal to teleports
 	if (IsPlayer(killer))
 		ExecuteHamB(Ham_AddPoints, killer, -(g_CpCounters[killer][COUNTER_TP] + pev(killer, pev_frags)), true);
 	if (IsPlayer(victim))
