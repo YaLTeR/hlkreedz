@@ -163,6 +163,7 @@ new g_DisplayCJStats[33];
 new g_DisplayWJStats[33];
 new g_DisplayBhStats[33];
 new g_DisplayLadderStats[33];
+new g_MuteJumpMessages[33];
 
 new Trie:illegal_touch_entity_classes;
 
@@ -197,6 +198,12 @@ public plugin_init( )
 	register_clcmd( "say /lj", "show_lj_top" );
 	register_clcmd( "say /hj15", "show_lj_top" );
 	register_clcmd( "say /hj", "show_lj_top" );
+
+	register_clcmd("+hook", "clcmd_cheat");
+	register_clcmd("-hook", "clcmd_cheat");
+	register_clcmd("+rope", "clcmd_cheat");
+	register_clcmd("-rope", "clcmd_cheat");
+	register_clcmd("spectate", "clcmd_spec");
 
 	register_menucmd(register_menuid(LJSTATS_MENU_ID), 1023, "actions_ljstats");
 	
@@ -254,6 +261,12 @@ public client_connect( id )
 	g_DisplayWJStats[id] = false;
 	g_DisplayBhStats[id] = false;
 	g_DisplayLadderStats[id] = false;
+	g_MuteJumpMessages[id] = false;
+}
+
+public hlkz_cheating( id )
+{
+	event_jump_illegal( id );
 }
 
 reset_state( id )
@@ -297,7 +310,7 @@ reset_stats( id )
 public clcmd_ljstats( id )
 {
 	new menuBody[512], len;
-	new keys = MENU_KEY_0 | MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7 | MENU_KEY_8;
+	new keys = MENU_KEY_0 | MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7 | MENU_KEY_8 | MENU_KEY_9;
 
 	len = formatex(menuBody[len], charsmax(menuBody), "%s^n^n", PLUGIN_TAG);
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Top 15 Longjump / Highjump^n");
@@ -308,6 +321,7 @@ public clcmd_ljstats( id )
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Display Weirdjump stats: %s^n", g_DisplayWJStats[id] ? "ON" : "OFF");
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "7. Display Bhop stats: %s^n", g_DisplayBhStats[id] ? "ON" : "OFF");
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "8. Display Ladder stats: %s^n", g_DisplayLadderStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "9. Mute LJStats jump messages of others: %s^n", g_MuteJumpMessages[id] ? "ON" : "OFF");
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "0. Exit");
 
 	show_menu(id, keys, menuBody, -1, LJSTATS_MENU_ID);
@@ -328,6 +342,7 @@ public actions_ljstats(id, key)
 		case 6: g_DisplayWJStats[id] = !g_DisplayWJStats[id];
 		case 7: g_DisplayBhStats[id] = !g_DisplayBhStats[id];
 		case 8: g_DisplayLadderStats[id] = !g_DisplayLadderStats[id];
+		case 9: g_MuteJumpMessages[id] = !g_MuteJumpMessages[id];
 	}
 
 	clcmd_ljstats(id);
@@ -348,6 +363,18 @@ public clcmd_prestrafe( id, level, cid )
 	client_print( id, print_chat, "Prestrafe: %s", player_show_prestrafe[id] ? "ON" : "OFF" );
 	
 	return PLUGIN_HANDLED;
+}
+
+public clcmd_cheat( id )
+{
+	event_jump_failed( id );
+	return PLUGIN_CONTINUE;
+}
+
+public clcmd_spec ( id )
+{
+	console_print(id, "spectatin");
+	return PLUGIN_CONTINUE;
 }
 
 public task_speed( )
@@ -1166,7 +1193,7 @@ display_stats( id, bool:failed = false )
 		jump_info_chat[0] = 0;
 		if( !failed )
 		{
-			if( player_show_stats[i] && player_show_stats_chat[i] )
+			if( player_show_stats[i] && player_show_stats_chat[i] && ( !g_MuteJumpMessages[i] || id == i ) )
 			{
 				new name[32];
 				get_user_name( id, name, charsmax(name) );

@@ -59,8 +59,8 @@
 new const configsSubDir[] = "/hl_kreedz";
 new const pluginCfgFileName[] = "hl_kreedz.cfg";
 
-new const staleStatTime = 30 * 24 * 60 * 60;	// Keep old stat for this amount of time
-new const keepStatPlayers = 100;				// Keep this amount of players in stat even if stale
+//new const staleStatTime = 30 * 24 * 60 * 60;	// Keep old stat for this amount of time
+//new const keepStatPlayers = 100;				// Keep this amount of players in stat even if stale
 
 new const g_szStarts[][] =
 {
@@ -224,6 +224,8 @@ new g_FwLightStyle;
 
 new pcvar_sv_ag_match_running;
 
+new mfwd_hlkz_cheating;
+
 new Array:g_ArrayStatsNub;
 new Array:g_ArrayStatsPro;
 new Array:g_ArrayStatsPure;
@@ -334,6 +336,8 @@ public plugin_init()
 	register_touch("trigger_teleport", "player", "Fw_FmPlayerTouchTeleport");
 	register_touch("trigger_push", "player", "Fw_FmPlayerTouchPush");
 	register_touch("trigger_multiple", "player", "Fw_FmPlayerTouchHealthBooster");
+
+	mfwd_hlkz_cheating = CreateMultiForward( "hlkz_cheating", ET_IGNORE, FP_CELL );
 
 	register_message(get_user_msgid("Health"), "Fw_MsgHealth");
 	register_message(SVC_TEMPENTITY, "Fw_MsgTempEntity");
@@ -1186,6 +1190,9 @@ public CheatCmdHandler(id)
 			return PLUGIN_CONTINUE;
 		g_CheatCommandsGuard[id] &= ~bit;
 	}
+
+	new ret;
+	ExecuteForward( mfwd_hlkz_cheating, ret, id );
 
 	if (get_bit(g_baIsClimbing, id))
 		ResetPlayer(id, false, true);
@@ -2849,7 +2856,7 @@ LoadRecords(szTopType[])
 
 	new data[1024], stats[STATS], uniqueid[32], name[32], cp[24], tp[24];
 	new kztime[24], timestamp[24];
-	new current_time = get_systime();
+	//new current_time = get_systime();
 	new Array:arr;
 	if (equali(szTopType, g_szTops[0]))
 		arr = g_ArrayStatsPure;
