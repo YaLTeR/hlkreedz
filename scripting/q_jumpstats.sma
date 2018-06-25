@@ -195,6 +195,8 @@ public plugin_init( )
 	register_clcmd( "say /prestrafe", "clcmd_prestrafe" );
 	register_clcmd( "say /lj15", "show_lj_top" );
 	register_clcmd( "say /lj", "show_lj_top" );
+	register_clcmd( "say /hj15", "show_lj_top" );
+	register_clcmd( "say /hj", "show_lj_top" );
 
 	register_menucmd(register_menuid(LJSTATS_MENU_ID), 1023, "actions_ljstats");
 	
@@ -298,12 +300,12 @@ public clcmd_ljstats( id )
 	new keys = MENU_KEY_0 | MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7 | MENU_KEY_8;
 
 	len = formatex(menuBody[len], charsmax(menuBody), "%s^n^n", PLUGIN_TAG);
-	len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Top 15 LongJump^n");
-	len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Top 15 CountJump^n");
-	len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Display LongJump stats: %s^n", g_DisplayLJStats[id] ? "ON" : "OFF");
-	len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Display HighJump stats: %s^n", g_DisplayHJStats[id] ? "ON" : "OFF");
-	len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Display CountJump stats: %s^n", g_DisplayCJStats[id] ? "ON" : "OFF");
-	len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Display WeirdJump stats: %s^n", g_DisplayWJStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Top 15 Longjump / Highjump^n");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Top 15 Countjump^n");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Display Longjump stats: %s^n", g_DisplayLJStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Display Highjump stats: %s^n", g_DisplayHJStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Display Countjump stats: %s^n", g_DisplayCJStats[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Display Weirdjump stats: %s^n", g_DisplayWJStats[id] ? "ON" : "OFF");
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "7. Display Bhop stats: %s^n", g_DisplayBhStats[id] ? "ON" : "OFF");
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "8. Display Ladder stats: %s^n", g_DisplayLadderStats[id] ? "ON" : "OFF");
 	len += formatex(menuBody[len], charsmax(menuBody) - len, "0. Exit");
@@ -836,7 +838,8 @@ event_jump_end( id )
 		jump_distance[id] = floatmin( dist1, dist2 ) + 32.0;
 		
 		display_stats( id );
-		update_lj_records( id );
+		if (JumpType_LJ == jump_type[id] || JumpType_HJ == jump_type[id])
+			update_lj_records( id );
 	}
 	
 	new ret;
@@ -1090,8 +1093,6 @@ JumpType:get_jump_type( id )
 		else
 			return JumpType_LJ;
 	}
-
-	return JumpType_WJ;
 }
 
 display_stats( id, bool:failed = false )
@@ -1281,11 +1282,13 @@ update_lj_records(id)
 		if (result != 1)
 			return;
 
+		/*
 		if (!(equali("ag_longjump", g_Map) || equali("ag_longjump2", g_Map)))
 		{
 			client_print(id, print_chat, "[%s] Sorry, you can only do new LJ records in ag_longjump(2) due to a bug.", PLUGIN_TAG);
 			return;
 		}
+		*/
 		new Float:longer = jump_distance[id] - stats[JUMPSTATS_DISTANCE];
 		client_print(id, print_chat, "[%s] You improved your record by %.3f units", PLUGIN_TAG, longer);
 
@@ -1320,10 +1323,10 @@ update_lj_records(id)
 	if (rank <= 15)
 	{
 		client_cmd(0, "spk woop");
-		client_print(0, print_chat, "[%s] %s is now on place %d in LJ 15", PLUGIN_TAG, name, rank);
+		client_print(0, print_chat, "[%s] %s is now on place %d in LJ/HJ 15", PLUGIN_TAG, name, rank);
 	}
 	else
-		client_print(0, print_chat, "[%s] %s's rank is %d of %d among LJ players", PLUGIN_TAG, name, rank, ArraySize(g_ArrayLJStats));
+		client_print(0, print_chat, "[%s] %s's rank is %d of %d among LJ/HJ players", PLUGIN_TAG, name, rank, ArraySize(g_ArrayLJStats));
 
 	save_lj_records();
 }
