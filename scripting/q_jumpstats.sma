@@ -199,12 +199,6 @@ public plugin_init( )
 	register_clcmd( "say /hj15", "show_lj_top" );
 	register_clcmd( "say /hj", "show_lj_top" );
 
-	register_clcmd("+hook", "clcmd_cheat");
-	register_clcmd("-hook", "clcmd_cheat");
-	register_clcmd("+rope", "clcmd_cheat");
-	register_clcmd("-rope", "clcmd_cheat");
-	register_clcmd("spectate", "clcmd_spec");
-
 	register_menucmd(register_menuid(LJSTATS_MENU_ID), 1023, "actions_ljstats");
 	
 	sv_airaccelerate = get_cvar_pointer( "sv_airaccelerate" );
@@ -363,18 +357,6 @@ public clcmd_prestrafe( id, level, cid )
 	client_print( id, print_chat, "Prestrafe: %s", player_show_prestrafe[id] ? "ON" : "OFF" );
 	
 	return PLUGIN_HANDLED;
-}
-
-public clcmd_cheat( id )
-{
-	event_jump_failed( id );
-	return PLUGIN_CONTINUE;
-}
-
-public clcmd_spec ( id )
-{
-	console_print(id, "spectatin");
-	return PLUGIN_CONTINUE;
 }
 
 public task_speed( )

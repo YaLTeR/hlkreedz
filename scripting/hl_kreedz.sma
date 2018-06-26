@@ -1677,19 +1677,25 @@ FinishTimer(id)
 	client_cmd(0, "spk fvox/bell");
 
 	get_user_name(id, name, charsmax(name));
-	client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s finished in %02d:%", "f (CPs: %d | TPs: %d) %s"),
+	client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s finished in %02d:%", "(CPs: %d | TPs: %d) %s"),
 		PLUGIN_TAG, name, minutes, seconds, g_CpCounters[id][COUNTER_CP], g_CpCounters[id][COUNTER_TP], pureRun);
 
 	if (!get_pcvar_num(pcvar_kz_nostat))
 		if (!g_CpCounters[id][COUNTER_CP] && !g_CpCounters[id][COUNTER_TP])
 		{
 			if (get_bit(g_baIsPureRunning, id))
-				UpdateRecords(id, kztime, g_szTops[0], g_szTops[1]);
+			{
+				log_amx(" ----- Checking records after Pure Run end ------");
+				log_amx("Checking Pure top... ");
+				UpdateRecords(id, kztime, g_szTops[0]);
+				log_amx("Checking Pro top... ");
+				UpdateRecords(id, kztime, g_szTops[1]);
+			}
 			else
-				UpdateRecords(id, kztime, g_szTops[1], _);
+				UpdateRecords(id, kztime, g_szTops[1]);
 		}
 		else
-			UpdateRecords(id, kztime, g_szTops[2], _);
+			UpdateRecords(id, kztime, g_szTops[2]);
 
 	clr_bit(g_baIsClimbing, id);
 	clr_bit(g_baIsPureRunning, id);
@@ -2936,24 +2942,16 @@ SaveRecords(szTopType[])
 // Refactor if somehow more than 2 tops have to be passed
 // The second top is only in case you do a Pure that is
 // better than your Pro record, so it gets updated in both
-UpdateRecords(id, Float:kztime, szTopType[], szTopType2[]="")
+UpdateRecords(id, Float:kztime, szTopType[])
 {
-	new uniqueid[32], name[32], rank, rank2;
+	new uniqueid[32], name[32], rank;
 	new stats[STATS], insertItemId = -1, deleteItemId = -1;
-	new stats2[STATS], insertItemId2 = -1, deleteItemId2 = -1;
 	new minutes, Float:seconds, Float:slower, Float:faster;
 	LoadRecords(szTopType);
-	new Array:arr, Array:arr2;
-	if (equali(szTopType, g_szTops[0]))
-	{
-		arr = g_ArrayStatsPure;
-		if (equali(szTopType2, g_szTops[1]))
-		{
-			LoadRecords(szTopType2);
-			arr2 = g_ArrayStatsPro;
-		}
 
-	}
+	new Array:arr;
+	if (equali(szTopType, g_szTops[0]))
+		arr = g_ArrayStatsPure;
 	else if (equali(szTopType, g_szTops[1]))
 		arr = g_ArrayStatsPro;
 	else
@@ -2962,162 +2960,96 @@ UpdateRecords(id, Float:kztime, szTopType[], szTopType2[]="")
 	GetUserUniqueId(id, uniqueid, charsmax(uniqueid));
 	GetColorlessName(id, name, charsmax(name));
 
-	new result, result2, bool:skipResult = false, bool:skipResult2 = false;
+	new result, bool:skipResult = false;
 
+	log_amx("uniqueid = %s, name = %s", uniqueid, name);
+
+	log_amx("-- Entering records loop. Array size: %d", ArraySize(arr));
 	for (new i = 0; i < ArraySize(arr); i++)
 	{
 		ArrayGetArray(arr, i, stats);
 		result = floatcmp(kztime, stats[STATS_TIME]);
+		log_amx("comparing current run's time (%.2f) to best #%d time (%.2f); result = %d", kztime, i+1, stats[STATS_TIME], result);
 
 		if (result == -1 && insertItemId == -1)
+		{
 			insertItemId = i;
+			log_amx("insertItemId = %d", insertItemId);
+		}
 
+		log_amx("comparing %s to current runner ID (%s)", stats[STATS_ID], uniqueid);
 		if (!equal(stats[STATS_ID], uniqueid))
+		{
+			log_amx("not equal, continue finding the current runner's position...");
 			continue;
+		}
+		log_amx("equal, this is the record that we want to check...");
 
 		if (result != -1)
 		{
 			slower = kztime - stats[STATS_TIME];
 			minutes = floatround(slower, floatround_floor) / 60;
 			seconds = slower - (60 * minutes);
-			client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You failed your time by %02d:%", "f"),
-				PLUGIN_TAG, minutes, seconds);
-
-			skipResult = true;
-			break;
+			client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You failed your %s time by %02d:%"),
+				PLUGIN_TAG, szTopType, minutes, seconds);
+			log_amx(GetVariableDecimalMessage(id, "%s failed their %s time by %02d:%", ", nothing to update here!"),
+				name, szTopType, minutes, seconds);
+		
+			return;
 		}
 
 		faster = stats[STATS_TIME] - kztime;
 		minutes = floatround(faster, floatround_floor) / 60;
 		seconds = faster - (60 * minutes);
-		client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You improved your time by %02d:%", "f"),
-			PLUGIN_TAG, minutes, seconds);
+		client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You improved your %s time by %02d:%"),
+			PLUGIN_TAG, szTopType, minutes, seconds);
+		log_amx(GetVariableDecimalMessage(id, "%s improved their %s time by %02d:%", "f"),
+			name, szTopType, minutes, seconds);
 
 		deleteItemId = i;
+		log_amx("deleteItemId = %d", deleteItemId);
+
 		break;
 	}
+	log_amx("-- Records loop finished. State of variables:");
+	log_amx("uniqueid = %s, name = %s", uniqueid, name);
+	log_amx("current run's time = %.2f", kztime);
+	log_amx("result = %d", result);
+	log_amx("insertItemId = %d", insertItemId);
+	log_amx("deleteItemId = %d", deleteItemId);
 
-	if (equali(szTopType2, g_szTops[1]))
+	copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
+	copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
+	stats[STATS_CP] = g_CpCounters[id][COUNTER_CP];
+	stats[STATS_TP] = g_CpCounters[id][COUNTER_TP];
+	stats[STATS_TIME] = _:kztime;
+	stats[STATS_TIMESTAMP] = get_systime();
+
+	if (insertItemId != -1)
 	{
-		server_print("pro array is: %d", arr2);
-		for (new i = 0; i < ArraySize(arr2); i++)
-		{
-			ArrayGetArray(arr2, i, stats2);
-			result2 = floatcmp(kztime, stats2[STATS_TIME]);
-			server_print("i = %d, result2 = %d, insertItemId2 = %d, stats2ID = %s, uniqueid = %s",
-				i, result2, insertItemId2, stats2[STATS_ID], uniqueid);
-
-			if (result2 == -1 && insertItemId2 == -1)
-			{
-				insertItemId2 = i;
-				server_print("insertItemId2 is now %d", insertItemId2);
-			}
-
-			if (!equal(stats2[STATS_ID], uniqueid))
-			{
-				server_print("names are different, continuing to next position");
-				continue;
-			}
-
-			if (result2 != -1)
-			{
-				skipResult2 = true;
-				server_print("breaking loop... skipResult2 is now %d", skipResult2);
-				break; // their pure time is worse than their pro time
-			}
-
-			faster = stats2[STATS_TIME] - kztime;
-			minutes = floatround(faster, floatround_floor) / 60;
-			seconds = faster - (60 * minutes);
-			client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You also improved your %s time by %02d:%", "f"),
-				PLUGIN_TAG, g_szTops[1], minutes, seconds);
-
-			deleteItemId2 = i;
-			server_print("deleteItemId2 is now %d", deleteItemId2);
-			break;
-		}
+		rank = insertItemId;
+		ArrayInsertArrayBefore(arr, insertItemId, stats);
+	}
+	else
+	{
+		rank = ArraySize(arr);
+		ArrayPushArray(arr, stats);
 	}
 
-	server_print("uniqueid = %s, name = %s", uniqueid, name);
-	server_print("result 1 = %d", result);
-	server_print("result 2 = %d", result2);
-	server_print("skipResult 1 = %d", skipResult);
-	server_print("skipResult 2 = %d", skipResult2);
-	server_print("insertItemId 1 = %d", insertItemId);
-	server_print("insertItemId 2 = %d", insertItemId2);
-	server_print("deleteItemId 1 = %d", deleteItemId);
-	server_print("deleteItemId 2 = %d", deleteItemId2);
+	if (deleteItemId != -1)
+		ArrayDeleteItem(arr, insertItemId != -1 ? deleteItemId + 1 : deleteItemId);
 
-	// If it gets here it's because it's a new PB
-	if (!skipResult)
+	rank++;
+	log_amx("checking rank... rank = %d", rank);
+	if (rank <= get_pcvar_num(pcvar_kz_top_records))
 	{
-		copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
-		copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
-		stats[STATS_CP] = g_CpCounters[id][COUNTER_CP];
-		stats[STATS_TP] = g_CpCounters[id][COUNTER_TP];
-		stats[STATS_TIME] = _:kztime;
-		stats[STATS_TIMESTAMP] = get_systime();
-
-		if (insertItemId != -1)
-		{
-			rank = insertItemId;
-			ArrayInsertArrayBefore(arr, insertItemId, stats);
-		}
-		else
-		{
-			rank = ArraySize(arr);
-			ArrayPushArray(arr, stats);
-		}
-
-		if (deleteItemId != -1)
-			ArrayDeleteItem(arr, insertItemId != -1 ? deleteItemId + 1 : deleteItemId);
-
-		rank++;
-		if (rank <= 15)
-		{
-			client_cmd(0, "spk woop");
-			client_print(0, print_chat, "[%s] %s is now on place %d in %s 15", PLUGIN_TAG, name, rank, szTopType);
-		}
-		else
-			client_print(0, print_chat, "[%s] %s's rank is %d of %d among %s players", PLUGIN_TAG, name, rank, ArraySize(arr), szTopType);
-
-		SaveRecords(szTopType);
+		client_cmd(0, "spk woop");
+		client_print(0, print_chat, "[%s] %s is now on place %d in %s 15", PLUGIN_TAG, name, rank, szTopType);
 	}
+	else
+		client_print(0, print_chat, "[%s] %s's rank is %d of %d among %s players", PLUGIN_TAG, name, rank, ArraySize(arr), szTopType);
 
-	if (equali(szTopType2, g_szTops[1]) && !skipResult2)
-	{
-		copy(stats2[STATS_ID], charsmax(stats2[STATS_ID]), uniqueid);
-		copy(stats2[STATS_NAME], charsmax(stats2[STATS_NAME]), name);
-		stats2[STATS_CP] = g_CpCounters[id][COUNTER_CP];
-		stats2[STATS_TP] = g_CpCounters[id][COUNTER_TP];
-		stats2[STATS_TIME] = _:kztime;
-		stats2[STATS_TIMESTAMP] = get_systime();
-
-		if (insertItemId2 != -1)
-		{
-			rank2 = insertItemId2;
-			ArrayInsertArrayBefore(arr2, insertItemId2, stats2);
-		}
-		else
-		{
-			rank2 = ArraySize(arr2);
-			ArrayPushArray(arr2, stats2);
-		}
-
-		if (deleteItemId2 != -1)
-			ArrayDeleteItem(arr2, insertItemId2 != -1 ? deleteItemId2 + 1 : deleteItemId2);
-
-		rank2++;
-		if (rank2 <= 15)
-		{
-			client_cmd(0, "spk woop");
-			client_print(0, print_chat, "[%s] %s is now on place %d in %s 15", PLUGIN_TAG, name, rank2, szTopType2);
-		}
-		else
-			client_print(0, print_chat, "[%s] %s's rank is %d of %d among %s players", PLUGIN_TAG, name, rank2, ArraySize(arr2), szTopType2);
-
-		SaveRecords(szTopType2);
-	}
+	SaveRecords(szTopType);
 
 }
 
@@ -3142,10 +3074,12 @@ ShowTopClimbers(id, szTopType[])
 	GetRangeArg(topArgs); // e.g.: "say /pro 20-30" --> the '20' goes to topArgs[0] and '30' to topArgs[1]
 	new recMin = min(topArgs[0], topArgs[1]);
 	new recMax = max(topArgs[0], topArgs[1]);
+	if (recMax > ArraySize(arr)) ShowMessage(id, "There are less records than requested");
 	if (!recMax)	recMax = cvarDefaultRecords;
 	if (recMin < 0) recMin = 0;
 	if (recMax < 0) recMax = 1;
 	if (recMin) 	recMin -= 1; // so that in "say /pro 1-20" it takes from 1 to 20 both inclusive
+	// yeah this one below is duplicated, because recMax may have changed in the previous checks and the first check is only to notify the player
 	if (recMax > ArraySize(arr)) recMax = ArraySize(arr); // there may be less records than the player is requesting, limit it to that amount
 	if (recMax - cvarMaxRecords > recMin)
 	{
@@ -3169,7 +3103,7 @@ ShowTopClimbers(id, szTopType[])
 		minutes = floatround(stats[STATS_TIME], floatround_floor) / 60;
 		seconds = stats[STATS_TIME] - (60 * minutes);
 
-		formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%", "f"), minutes, seconds);
+		formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%"), minutes, seconds);
 		format_time(date, charsmax(date), "%d/%m/%Y", stats[STATS_TIMESTAMP]);
 
 		if (equali(szTopType, g_szTops[2]))
@@ -3180,8 +3114,8 @@ ShowTopClimbers(id, szTopType[])
 
 	len += formatex(buffer[len], charsmax(buffer) - len, "\n%s %s", PLUGIN, VERSION);
 
-	new header[16];
-	formatex(header, charsmax(header), "%s%d-%d Climbers", szTopType, min(topArgs[0], topArgs[1]), max(topArgs[0], topArgs[1]));
+	new header[24];
+	formatex(header, charsmax(header), "%s %d-%d Climbers", szTopType, recMin ? recMin : 1, recMax);
 	show_motd(id, buffer, header);
 
 	return PLUGIN_HANDLED;
@@ -3225,7 +3159,7 @@ public IsPlayerInsideWall(id, Float:origin[3], Float:leadingBoundary[3], Float:c
 // Create a string that has the correct formating for seconds, that is a float
 // with a variable number of decimals per user configuration
 // This may actually be a silly thing due to my unknowledge about Pawn/AMXX
-public GetVariableDecimalMessage(id, msg1[], msg2[])
+GetVariableDecimalMessage(id, msg1[], msg2[] = "")
 {
 	new sec[3]; // e.g.: number 6 in "%06.3f"
 	new dec[3]; // e.g.: number 3 in "%06.3f"
@@ -3239,6 +3173,7 @@ public GetVariableDecimalMessage(id, msg1[], msg2[])
 	strcat(msg, sec, charsmax(msg));
 	strcat(msg, ".", charsmax(msg));
 	strcat(msg, dec, charsmax(msg));
+	strcat(msg, "f ", charsmax(msg));
 	strcat(msg, msg2, charsmax(msg));
 	return msg;
 }
