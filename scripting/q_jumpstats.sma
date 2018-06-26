@@ -380,23 +380,19 @@ public clcmd_spec ( id )
 public task_speed( )
 {
 	set_hudmessage( 255, 128, 0, -1.0, 0.7, 0, 0.0, 1.0, 0.0, 0.1, 1 );
-	for( new id = 1, players = get_maxplayers( ), Float:gametime = get_gametime( ); id < players; ++id )
+	for( new id = 1, players = get_maxplayers( ); id < players; ++id )
 	{
 		if( is_user_connected( id ) && player_show_speed[id] )
 		{
 			if( is_user_alive( id ) )
-			{
-				if( ( gametime - jump_start_time[id] ) > 3.7 )
-					show_hudmessage( id, "%.2f", floatsqroot( velocity[id][0] * velocity[id][0] + velocity[id][1] * velocity[id][1] ) );
-			}
+				show_hudmessage( id, "%.2f", floatsqroot( velocity[id][0] * velocity[id][0] + velocity[id][1] * velocity[id][1] ) );
 			else
 			{
 				new specmode = pev( id, pev_iuser1 );
 				if( specmode == 2 || specmode == 4 )
 				{
 					new t = pev( id, pev_iuser2 );
-					if( ( gametime - jump_start_time[t] ) > 3.7 )
-						show_hudmessage( id, "%.2f", floatsqroot( velocity[t][0] * velocity[t][0] + velocity[t][1] * velocity[t][1] ) );
+					show_hudmessage( id, "%.2f", floatsqroot( velocity[t][0] * velocity[t][0] + velocity[t][1] * velocity[t][1] ) );
 				}
 			}
 		}
