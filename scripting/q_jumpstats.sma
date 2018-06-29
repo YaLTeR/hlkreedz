@@ -118,6 +118,8 @@ new Float:jump_end_time[33];
 new injump_started_downward[33];
 new injump_frame[33];
 new inertia_frames[33];
+new obbo[33];
+new Float:pre_obbo_velocity[33][3];
 
 new Float:jump_first_origin[33][3];
 new Float:jump_first_velocity[33][3];
@@ -178,6 +180,8 @@ public plugin_init( )
 	register_forward( FM_PlayerPreThink, "forward_PlayerPreThink" );
 	RegisterHam( Ham_Spawn, "player", "forward_PlayerSpawn" );
 	RegisterHam( Ham_Touch, "player", "forward_PlayerTouch", 1 );
+	RegisterHam(Ham_Use, "func_pushable", "forward_Pre_UsePushable");
+	RegisterHam(Ham_Use, "func_pushable", "forward_Post_UsePushable", 1);
 	register_touch("trigger_push", "player", "forward_PushTouch");
 	register_touch("trigger_teleport", "player", "forward_TeleportTouch");
 	
@@ -648,7 +652,7 @@ state_injump( id )
 
 		if( ( ( origin[id][2] + 18.0 ) < jump_start_origin[id][2] )
 			|| ( ( flags[id] & FL_ONGROUND2 ) && ( h2 < jump_start_origin[id][2] ) )
-			|| hl_get_user_longjump(id) || has_illegal_weapon(id) )
+			|| hl_get_user_longjump(id) || has_illegal_weapon(id) || obbo[id])
 		{
 			event_jump_failed( id );
 			
@@ -663,6 +667,7 @@ state_injump( id )
 			if (has_illegal_weapon(id))
 				show_hudmessage(id, "Stats for this jump are disabled 'cos you're carrying a boost weapon");
 			
+			obbo[id] = false;
 			return;
 		}
 
@@ -1392,3 +1397,27 @@ Float:get_player_hspeed(id)
 	pev(id, pev_velocity, velocity);
 	return floatsqroot(floatpower(velocity[0], 2.0) + floatpower(velocity[1], 2.0));
 }
+
+public forward_Pre_UsePushable(ent, id)
+{
+	if (!(1 <= id <= get_maxplayers()))
+		return HAM_IGNORED;
+
+	pev(id, pev_velocity, pre_obbo_velocity[id]);
+
+	return HAM_IGNORED;
+}
+
+public forward_Post_UsePushable(ent, id)
+{
+	if (!(1 <= id <= get_maxplayers()))
+		return HAM_IGNORED;
+
+	new Float:preObboHSpeed = floatsqroot(floatpower(pre_obbo_velocity[id][0], 2.0) + floatpower(pre_obbo_velocity[id][1], 2.0));
+	new Float:postObboHSpeed = get_player_hspeed(id);
+	if (preObboHSpeed * 1.1 < postObboHSpeed && postObboHSpeed > 450.0)
+		obbo[id] = true;
+
+	return HAM_IGNORED;
+}
+
