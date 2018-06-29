@@ -1192,7 +1192,7 @@ public CheatCmdHandler(id)
 	}
 
 	new ret;
-	ExecuteForward( mfwd_hlkz_cheating, ret, id );
+	ExecuteForward(mfwd_hlkz_cheating, ret, id);
 
 	if (get_bit(g_baIsClimbing, id))
 		ResetPlayer(id, false, true);
@@ -2367,6 +2367,9 @@ CheckHealthBoost(id)
 				g_RunType[id] = "Pro run";
 
 			g_HBFrameCounter[id] = 0;
+
+			new ret;
+			ExecuteForward(mfwd_hlkz_cheating, ret, id);
 		}
 	}
 }
@@ -3003,7 +3006,7 @@ UpdateRecords(id, Float:kztime, szTopType[])
 		seconds = faster - (60 * minutes);
 		client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You improved your %s time by %02d:%"),
 			PLUGIN_TAG, szTopType, minutes, seconds);
-		log_amx(GetVariableDecimalMessage(id, "%s improved their %s time by %02d:%", "f"),
+		log_amx(GetVariableDecimalMessage(id, "%s improved their %s time by %02d:%"),
 			name, szTopType, minutes, seconds);
 
 		deleteItemId = i;
