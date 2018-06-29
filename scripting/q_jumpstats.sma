@@ -15,6 +15,7 @@
 #include <hamsandwich>
 #include <fun>
 #include <engine>
+#include <hl>
 #include <hl_kreedz_util>
 
 #include <q>
@@ -116,6 +117,7 @@ new Float:jump_end_time[33];
 
 new injump_started_downward[33];
 new injump_frame[33];
+new inertia_frames[33];
 
 new Float:jump_first_origin[33][3];
 new Float:jump_first_velocity[33][3];
@@ -429,14 +431,21 @@ public forward_PlayerPreThink( id )
 	oldDucking[id] = ducking[id];
 	ducking[id] = !( ( absmin[2] + 64.0 ) < absmax[2] );
 	
-	// Maxspeed is somehow always 0 in Adrenaline Gamer, I think in CS 1.6 depends on weapon, ie. knife 250.0 maxspeed
-	//static Float:maxspeed;
-	//pev( id, pev_maxspeed, maxspeed );
-	
 	static Float:gravity;
 	pev( id, pev_gravity, gravity );
+
+	if (get_player_hspeed(id) <= 450.0)
+		inertia_frames[id] = 0;
+	if (old_player_state[id] > 1 && player_state[id] == State_Initial && get_player_hspeed(id) > 450.0)
+		inertia_frames[id]++;
+	else if (inertia_frames[id] > 0 && old_player_state[id] == State_Initial
+			&& (player_state[id] == State_Initial || player_state[id] == State_InJump_FirstFrame))
+		inertia_frames[id]++;
+	else
+		inertia_frames[id] = 0;
+
 	old_player_state[id] = player_state[id];
-	
+
 	new Float:someMeasurement = floatsqroot(
 		( origin[id][0] - oldorigin[id][0] ) * ( origin[id][0] - oldorigin[id][0] ) +
 		( origin[id][1] - oldorigin[id][1] ) * ( origin[id][1] - oldorigin[id][1] ) );
@@ -446,12 +455,10 @@ public forward_PlayerPreThink( id )
 		
 		if( !( flags[id] & FL_ONGROUND2 ) && !( oldflags[id] & FL_ONGROUND2 ) )
 		{
-			//console_print(id, "illegal. FL_ONGROUND2: true");
 			event_jump_illegal( id );
 		}
 	}
-	else if( /*maxspeed != 250.0
-	||*/ gravity != 1.0
+	else if( gravity != 1.0
 	|| ( pev( id, pev_waterlevel ) != 0 )
 	|| ( ( movetype[id] != MOVETYPE_WALK ) && ( movetype[id] != MOVETYPE_FLY ) )
 	|| ( someMeasurement > 20.0 )
@@ -459,7 +466,6 @@ public forward_PlayerPreThink( id )
 	|| ( get_pcvar_num( sv_airaccelerate ) != 10 )
 	)
 	{
-		//console_print(id, "illegal. g: %.2f, mt: %d, sm: %.2f", gravity, movetype[id], someMeasurement);
 		event_jump_illegal( id );
 	}
 	else
@@ -469,12 +475,10 @@ public forward_PlayerPreThink( id )
 		{
 			case State_Initial:
 			{
-				//console_print(id, "player_state[id] = State_Initial");
 				state_initial( id );
 			}
 			case State_InJump_FirstFrame:
 			{
-				//console_print(id, "player_state[id] = State_InJump_FirstFrame");
 				state_injump_firstframe( id );
 			}
 			case State_InJump:
@@ -483,37 +487,30 @@ public forward_PlayerPreThink( id )
 			}
 			case State_InDD_FirstFrame:
 			{
-				//console_print(id, "player_state[id] = State_InDD_FirstFrame");
 				state_indd_firstframe( id );
 			}
 			case State_InDD:
 			{
-				//console_print(id, "player_state[id] = State_InDD");
 				state_indd( id );
 			}
 			case State_InDrop:
 			{
-				//console_print(id, "player_state[id] = State_InDrop");
 				state_indrop( id );
 			}
 			case State_InFall:
 			{
-				//console_print(id, "player_state[id] = State_InFall");
 				state_infall( id );
 			}
 			case State_OnLadder:
 			{
-				//console_print(id, "player_state[id] = State_OnLadder");
 				state_onladder( id );
 			}
 			case State_InLadderDrop:
 			{
-				//console_print(id, "player_state[id] = State_InLadderDrop");
 				state_inladderdrop( id );
 			}
 			default:
 			{
-				//console_print(id, "player_state[id] = reset_state");
 				// this shouldn't happen
 				reset_state( id );
 			}
@@ -530,35 +527,27 @@ state_initial( id )
 {
 	if( movetype[id] == MOVETYPE_WALK )
 	{
-		//console_print(id, "state_initial1 :: movetype WALK");
 		if( flags[id] & FL_ONGROUND2 )
 		{
-			//console_print(id, "state_initial2 :: ON GROUND");
-			//if( ( buttons[id] & IN_JUMP ) && ( oldbuttons[id] & IN_JUMP ) )
-			//	console_print(id, "state_initial3 :: IN JUMP and previously too");
 			if( ( buttons[id] & IN_JUMP ) && !( oldbuttons[id] & IN_JUMP ) )
 			{
-				//console_print(id, "state_initial3 :: IN JUMP now but not before");
 				event_jump_begin( id );
 				player_state[id] = State_InJump_FirstFrame;
 			}
 			else if( !( buttons[id] & IN_DUCK ) && ( oldbuttons[id] & IN_DUCK ) )
 			{
-				//console_print(id, "state_initial3 :: IN DUCK now but not before");
 				event_dd_begin( id );
 				player_state[id] = State_InDD_FirstFrame;
 			}
 		}
 		else
 		{
-			//console_print(id, "state_initial2 :: FALLING");
 			player_state[id] = State_InFall;
 			state_infall( id );
 		}
 	}
 	else // if it's not movetype_walk, it must be movetype_fly (see the prethink function)
 	{
-		//console_print(id, "state_initial1 :: movetype NOT WALK");
 		player_state[id] = State_OnLadder;
 		state_onladder( id );
 	}
@@ -568,7 +557,6 @@ event_jump_begin( id )
 {
 	jump_start_ducking[id] = ducking[id];
 	jump_start_origin[id] = origin[id];
-	//console_print(id, "event_jump_begin, %.2f", jump_start_origin[id][2]);
 	jump_start_velocity[id] = velocity[id];
 	jump_start_time[id] = get_gametime( );
 	jump_prestrafe[id] = floatsqroot( jump_start_velocity[id][0] * jump_start_velocity[id][0] + jump_start_velocity[id][1] * jump_start_velocity[id][1] );
@@ -584,7 +572,6 @@ state_injump_firstframe( id )
 {
 	if( movetype[id] == MOVETYPE_WALK )
 	{
-		//console_print(id, "state_injump_firstframe, movetype %d: WALK", movetype[id]);
 		// TODO: tidy up this code -- begin
 		new bool:bJumpTypeDisabled = false;
 		jump_type[id] = get_jump_type( id );
@@ -598,6 +585,12 @@ state_injump_firstframe( id )
 			case JumpType_LadderBJ: if (!g_DisplayLadderStats[id]) bJumpTypeDisabled = true;
 			default: bJumpTypeDisabled = false;
 		}
+
+		if (inertia_frames[id] && (get_player_hspeed(id) > 400.0 || velocity[id][2] > 400.0)
+				&& (jump_type[id] == JumpType_LJ || jump_type[id] == JumpType_HJ))
+			bJumpTypeDisabled = true;
+		else
+			inertia_frames[id] = 0;
 		// TODO: tidy up this code -- end
 
 		if( (flags[id] & FL_ONGROUND2) || bJumpTypeDisabled )
@@ -628,7 +621,6 @@ state_injump_firstframe( id )
 	}
 	else
 	{
-		//console_print(id, "state_injump_firstframe, movetype %d: NOT WALK", movetype[id]);
 		new ret;
 		ExecuteForward( mfwd_jump_interrupt, ret, id );
 		
@@ -639,7 +631,6 @@ state_injump_firstframe( id )
 
 state_injump( id )
 {
-	//console_print(id, "state_injump");
 	if( movetype[id] == MOVETYPE_WALK )
 	{
 		static Float:h1;
@@ -654,12 +645,10 @@ state_injump( id )
 			correct_old_h2 = old_h2_injump[id] - 18.0;
 		else
 			correct_old_h2 = old_h2_injump[id];
-/*
-		console_print(id, "st_injump :: oldDuck = %d, duck = %d, stDown = %d, currState = %d, oldState = %d, h1 = %.2f, oldh2 = %.2f, h2 = %.2f",
-			oldDucking[id], ducking[id], injump_started_downward[id], player_state[id], old_player_state[id], h1, correct_old_h2, h2);
-*/
+
 		if( ( ( origin[id][2] + 18.0 ) < jump_start_origin[id][2] )
-			|| ( ( flags[id] & FL_ONGROUND2 ) && ( h2 < jump_start_origin[id][2] ) ) )
+			|| ( ( flags[id] & FL_ONGROUND2 ) && ( h2 < jump_start_origin[id][2] ) )
+			|| hl_get_user_longjump(id) || has_illegal_weapon(id) )
 		{
 			event_jump_failed( id );
 			
@@ -667,11 +656,17 @@ state_injump( id )
 			state_indrop( id );
 
 			old_h2_injump[id] = h2;
+
+			if (hl_get_user_longjump(id))
+				show_hudmessage(id, "Stats for this jump are disabled 'cos you have a longjump module");
+
+			if (has_illegal_weapon(id))
+				show_hudmessage(id, "Stats for this jump are disabled 'cos you're carrying a boost weapon");
 			
 			return;
 		}
 
-		if (( ( correct_old_h2 < h2 ) && old_player_state[id] == player_state[id] && injump_started_downward[id] ))
+		if ( ( correct_old_h2 < h2 ) && old_player_state[id] == player_state[id] && injump_started_downward[id] )
 		{
 			// this check is because the plugin doesn't realize when the player started another jump when doing perfect autojumping,
 			// like FL_ONGROUND is not set when touching the ground for start the next jump
@@ -798,7 +793,8 @@ event_jump_failed( id )
 	
 	jump_distance[id] = floatsqroot( distance_x * distance_x + distance_y * distance_y ) + 32.0;
 	
-	display_stats( id, true );
+	if (jump_frames[id])
+		display_stats( id, true );
 	
 	new ret;
 	ExecuteForward( mfwd_jump_fail, ret, id );
@@ -808,7 +804,6 @@ event_jump_failed( id )
 
 event_jump_end( id )
 {
-	//console_print(id, "event_jump_end");
 	jump_end_ducking[id] = ducking[id];
 	jump_end_origin[id] = origin[id];
 	jump_end_time[id] = get_gametime( );
@@ -816,8 +811,6 @@ event_jump_end( id )
 	new Float:h1 = ( jump_start_ducking[id] ? jump_start_origin[id][2] + 18.0 : jump_start_origin[id][2] );
 	new Float:h2 = ( jump_end_ducking[id] ? jump_end_origin[id][2] + 18.0 : jump_end_origin[id][2] );
 	
-	//console_print(id, "jump_end::h1 = %.2f", h1);
-	//console_print(id, "jump_end::h2 = %.2f", h2);
 	if( h1 == h2 )
 	{
 		static Float:dist1;
@@ -849,7 +842,6 @@ event_jump_end( id )
 	
 	new ret;
 	ExecuteForward( mfwd_jump_end, ret, id );
-	
 	reset_stats( id );
 }
 
@@ -862,7 +854,6 @@ event_jump_illegal( id )
 
 event_dd_begin( id )
 {
-	//console_print(id, "event_dd_begin");
 	if( ( dd_start_origin[id][2] == dd_end_origin[id][2] ) && ( dd_end_origin[id][2] == origin[id][2] ) && ( get_gametime( ) - dd_end_time[id] < 0.1 ) )
 	{
 		++dd_count[id];
@@ -892,7 +883,6 @@ event_dd_begin( id )
 
 state_indd_firstframe( id )
 {
-	//console_print(id, "state_indd_firstframe");
 	if( movetype[id] == MOVETYPE_WALK )
 	{
 		if( flags[id] & FL_ONGROUND2 )
@@ -921,7 +911,6 @@ state_indd_firstframe( id )
 
 state_indd( id )
 {
-	//console_print(id, "state_indd");
 	if( movetype[id] == MOVETYPE_WALK )
 	{
 		if( flags[id] & FL_ONGROUND2 )
@@ -1092,7 +1081,6 @@ JumpType:get_jump_type( id )
 		static Float:fraction;
 		global_get( glb_trace_fraction, fraction );
 		
-		//console_print(0, "fraction is %.2f", fraction);
 		if( !( fraction < 1.0 ) )
 			return JumpType_HJ;
 		else
@@ -1244,11 +1232,6 @@ load_lj_records()
 
 		stats[JUMPSTATS_TIMESTAMP] = str_to_num(timestamp);
 
-		// Stale old records that are below specified amount, otherwise we use them to inform player about better/worse time and position
-		//if (current_time - stats[JUMPSTATS_TIMESTAMP] > staleStatTime &&
-		//	i > keepStatPlayers)
-		//	continue;
-
 		copy(stats[JUMPSTATS_ID], charsmax(stats[JUMPSTATS_ID]), uniqueid);
 		copy(stats[JUMPSTATS_NAME], charsmax(stats[JUMPSTATS_NAME]), name);
 		stats[JUMPSTATS_DISTANCE] = _:str_to_float(distance);
@@ -1391,4 +1374,21 @@ public show_lj_top(id)
 	show_motd(id, buffer, "LJ15 Jumpers");
 
 	return PLUGIN_HANDLED;
+}
+
+bool:has_illegal_weapon(id)
+{
+	new weapon = get_user_weapon(id);
+	switch(weapon)
+	{
+		case HLW_NONE, HLW_CROWBAR, HLW_GLOCK, HLW_PYTHON, HLW_SHOTGUN, HLW_HORNETGUN: return false;
+	}
+	return true;
+}
+
+Float:get_player_hspeed(id)
+{
+	new Float:velocity[3];
+	pev(id, pev_velocity, velocity);
+	return floatsqroot(floatpower(velocity[0], 2.0) + floatpower(velocity[1], 2.0));
 }
