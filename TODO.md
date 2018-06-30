@@ -1,0 +1,37 @@
+HLKreedz TODO:
+- [ ] Append ^0 to nicknames in plugin messages, so the color of the text after the nickname isn't messed up. Make a cvar for this as the plugin may be running in vanilla HL without AG mini.
+- [ ] Make flickering HUD texts (e.g.: spectator list from /speclist) not flicker.
+- [ ] Make searchmaps commands follow the same pattern as others preprending a symbol to the say command.
+- [ ] Make searchmaps list all the maps in a file (allmaps.txt) if doesn't exist.
+- [ ] Implement a lazier load of listmaps (current method takes 2 seconds on every map change).
+- [ ] Implement communication with Discord via cURL and webhook. 
+- [ ] Implement map autochange when timeleft is higher than 30 minutes and no player has been playing in the last hour for at least 3 minutes (all customizable).
+- [ ] Make /ljstats tops. Take into account cl_yawspeed (prohibited as it modifies side speed?).
+- [ ] Add jump count and max speed to leaderboards (maybe not to be displayed yet, or pure/pro-only because in noob cp/tp columns already take too much space).
+- [ ] Make /rtv display instructions on how to vote (for new AG players). Display a message saying that X player have just created a vote to change map immediately.
+- [ ] Add fireworks on new WR at end button position.
+- [ ] Fix spectator mode. When a player teleports to start, the spectators watching him will see him as frozen where he was before teleporting.
+- [ ] Implement a tournament mode in HL KreedZ. See #7 for details.
+- [ ] Make spectator speed customizable per player (e.g.: /specspeed 500).
+- [ ] Implement commands to show tops of any other map.
+- [ ] Implement cookies to store client preferences.
+- [ ] Implement achievements and ranks (ie. Diamond rank if you finish 5 classic maps in 1st-3rd position... Platinum, Gold, Silver, Bronze...).
+- [ ] Implement replay bot, so players can see how worldrecords or other records are done.
+- [ ] Add an admin command for record removal, which updates the tops in real-time for all players.
+- [ ] Add an admin MOTD showing all connected players' variable states (e.g.: naz - LJStats ON, Speed OFF, NV mode 2, speclist OFF, etc.).
+- [ ] Custom training stages for HLDM maps like crossfire, boot_camp, stalkyard, etc. In these maps, a special menu pops up to enable a specific training area (e.g.: crossfire from mp5 balcony to crossbow balcony to gauss), so it teleports the player to the specific start button and disables the other buttons in the map while that training area is selected.
+- [ ] Add database support, so we can have data organized and easily display through web, discord, telegram, etc.
+- [ ] Implement a command to see personal stats (un/played maps, how many 1st positions, etc.) when SQL is implemented.
+- [ ] Implement map staging:
+	- [ ] Add an ingame editor to place trigger_multiple blocks that start/end a stage, so different stages of a map can be measured when running (like can be seen when watching a HL speedrun in Twitch).
+	- [ ] Make some HUD messages visible to the runner and spectators watching him, that show the runner's time in different stages and diff against the PB.
+	- [ ] Save stage records to another file or to the same top15 table if SQL is already implemented.
+- [ ] Make a script to change mapcycle automatically by combining some classic maps and some unknown maps (with no records or a few).
+- [ ] Make a coop mode. Players of the same team have full clipping and the first who makes a record sets the record for their whole team. Teams can make strategies to make human ladders, etc.
+- [ ] Improve surfbug fix.
+- [ ] Add a nice style to all MOTDs. This requires a modification in the OpenAG client.
+
+Other weird ideas:
+- [ ] Add a Tag game (chase other players running, with a crowbar to hit them).
+- [ ] Add a Backwards top (runs from end button to start button).
+- [ ] Add a Scriptless top (check cl_autojump).
