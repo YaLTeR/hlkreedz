@@ -1,4 +1,5 @@
 HLKreedz TODO:
+- [ ] Check /speclist as it may be not going off when toggling it.
 - [ ] Append ^0 to nicknames in plugin messages, so the color of the text after the nickname isn't messed up. Make a cvar for this as the plugin may be running in vanilla HL without AG mini.
 - [ ] Make flickering HUD texts (e.g.: spectator list from /speclist) not flicker.
 - [ ] Make searchmaps commands follow the same pattern as others preprending a symbol to the say command.
