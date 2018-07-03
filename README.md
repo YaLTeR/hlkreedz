@@ -31,7 +31,7 @@ And the Discord webhook token with this cvar:
 `kz_discord_webhook "https://ptb.discordapp.com/api/webhooks/some_number/some_token"`
 
 For the plugin to work, it's also necessary to enable the curl module, writing *curl* in an empty line of the *config/modules.ini* file.
-The service is the *hlkz_service/discord.php* file, which should be public (you a PHP processor and a web server such as nginx that serves the file, and point to the URL of the file with the cvar).
+The service is the *hlkz_service/discord.php* file, which should be public in your server (you need a PHP processor and a web server such as nginx that serves the file, and then point to the URL of the service file with the cvar).
 
 
 TODO: explain all the available commands for admins and players
