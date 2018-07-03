@@ -24,11 +24,11 @@ speclist provides a command to toggle a list of spectators watching you
 
 hl_kreedz_discord can send info about new WRs to a service (not directly to the webhook as this AMXX cURL doesn't support SSL yet), in the format of a JSON that a Discord webhook can understand so that a Discord bot posts that info to a chat. Requires setting the URL of the service with this cvar:
 
-`kz_discord_service "http://example.domain/whatever/some_service_name.php"**`
+`kz_discord_service "http://example.domain/whatever/some_service_name.php"`
 
 And the Discord webhook token with this cvar:
 
-`kz_discord_webhook "https://ptb.discordapp.com/api/webhooks/some_number/some_token"**`
+`kz_discord_webhook "https://ptb.discordapp.com/api/webhooks/some_number/some_token"`
 
 For the plugin to work, it's also necessary to enable the curl module, writing *curl* in an empty line of the *config/modules.ini* file.
 The service is the *hlkz_service/discord.php* file, which should be public (you a PHP processor and a web server such as nginx that serves the file, and point to the URL of the file with the cvar).
