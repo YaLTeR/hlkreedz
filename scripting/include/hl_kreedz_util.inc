@@ -6,6 +6,16 @@
 #include <fakemeta>
 #include <xs>
 
+enum _:STATS
+{
+	STATS_ID[32],
+	STATS_NAME[32],
+	STATS_CP,
+	STATS_TP,
+	Float:STATS_TIME,	// Timer value
+	STATS_TIMESTAMP,	// Date
+}
+
 public GetNextNumber(buffer[], &pos)
 {
 	while ((buffer[pos] < '0' || buffer[pos] > '9') && buffer[pos] != '-' && buffer[pos] != 0)

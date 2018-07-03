@@ -20,5 +20,12 @@ Doing `cd` into your _ag/maps_ folder and executing `ls *.bsp >> ../addons/amxmo
 
 speclist provides a command to toggle a list of spectators watching you
 
+## hl_kreedz_discord
+
+hl_kreedz_discord can send info about new WRs to a service (not directly to the webhook as this AMXX cURL doesn't support SSL yet), in the format of a JSON that a Discord webhook can understand so that a Discord bot posts that info to a chat. Requires setting the URL of the service with this cvar:
+kz_discord_service "http://example.domain/whatever/some_service_name.php"
+And the Discord webhook token with this cvar:
+kz_discord_webhook "https://ptb.discordapp.com/api/webhooks/some_number/some_token"
+
 
 TODO: explain all the available commands for admins and players

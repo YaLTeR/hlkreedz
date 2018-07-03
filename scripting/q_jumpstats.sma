@@ -1354,7 +1354,6 @@ public show_lj_top(id)
 	load_lj_records();
 	new size = min(ArraySize(g_ArrayLJStats), 15);
 
-  //len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time              Date\n\n");
 	len = formatex(buffer[len], charsmax(buffer) - len, "#   Player               Distance     Maxspeed    Prestrafe   Strafes Sync   Date^n^n");
 	
 	for (new i = 0; i < size && charsmax(buffer) - len > 0; i++)

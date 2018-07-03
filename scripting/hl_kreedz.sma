@@ -108,16 +108,6 @@ enum _:COUNTERS
 	COUNTER_SP,
 }
 
-enum _:STATS
-{
-	STATS_ID[32],
-	STATS_NAME[32],
-	STATS_CP,
-	STATS_TP,
-	Float:STATS_TIME,	// Timer value
-	STATS_TIMESTAMP,	// Date
-}
-
 enum BUTTON_TYPE
 {
 	BUTTON_START,
@@ -225,12 +215,11 @@ new g_FwLightStyle;
 new pcvar_sv_ag_match_running;
 
 new mfwd_hlkz_cheating;
+new mfwd_hlkz_worldrecord;
 
 new Array:g_ArrayStatsNub;
 new Array:g_ArrayStatsPro;
 new Array:g_ArrayStatsPure;
-
-
 
 
 public plugin_precache()
@@ -337,7 +326,8 @@ public plugin_init()
 	register_touch("trigger_push", "player", "Fw_FmPlayerTouchPush");
 	register_touch("trigger_multiple", "player", "Fw_FmPlayerTouchHealthBooster");
 
-	mfwd_hlkz_cheating = CreateMultiForward( "hlkz_cheating", ET_IGNORE, FP_CELL );
+	mfwd_hlkz_cheating = CreateMultiForward("hlkz_cheating", ET_IGNORE, FP_CELL);
+	mfwd_hlkz_worldrecord = CreateMultiForward("hlkz_worldrecord", ET_IGNORE, FP_CELL, FP_FLOAT, FP_CELL, FP_CELL);
 
 	register_message(get_user_msgid("Health"), "Fw_MsgHealth");
 	register_message(SVC_TEMPENTITY, "Fw_MsgTempEntity");
@@ -1685,10 +1675,10 @@ FinishTimer(id)
 		{
 			if (get_bit(g_baIsPureRunning, id))
 			{
-				log_amx(" ----- Checking records after Pure Run end ------");
-				log_amx("Checking Pure top... ");
+				//log_amx(" ----- Checking records after Pure Run end ------");
+				//log_amx("Checking Pure top... ");
 				UpdateRecords(id, kztime, g_szTops[0]);
-				log_amx("Checking Pro top... ");
+				//log_amx("Checking Pro top... ");
 				UpdateRecords(id, kztime, g_szTops[1]);
 			}
 			else
@@ -2865,7 +2855,7 @@ LoadRecords(szTopType[])
 
 	new data[1024], stats[STATS], uniqueid[32], name[32], cp[24], tp[24];
 	new kztime[24], timestamp[24];
-	//new current_time = get_systime();
+
 	new Array:arr;
 	if (equali(szTopType, g_szTops[0]))
 		arr = g_ArrayStatsPure;
@@ -2886,13 +2876,6 @@ LoadRecords(szTopType[])
 
 		stats[STATS_TIMESTAMP] = str_to_num(timestamp);
 
-		/*
-		// Stale old records that are below specified amount, otherwise we use them to inform player about better/worse time and position
-		if (current_time - stats[STATS_TIMESTAMP] > staleStatTime &&
-			i > keepStatPlayers)
-			continue;
-		*/
-
 		copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
 		copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
 		stats[STATS_CP] = str_to_num(cp);
@@ -2900,7 +2883,6 @@ LoadRecords(szTopType[])
 		stats[STATS_TIME] = _:str_to_float(kztime);
 
 		ArrayPushArray(arr, stats);
-		//i++;
 	}
 
 	fclose(file);
@@ -2952,51 +2934,65 @@ UpdateRecords(id, Float:kztime, szTopType[])
 	new minutes, Float:seconds, Float:slower, Float:faster;
 	LoadRecords(szTopType);
 
-	new Array:arr;
+	new Array:arr, type;
 	if (equali(szTopType, g_szTops[0]))
+	{
 		arr = g_ArrayStatsPure;
+		type = 0;
+	}
 	else if (equali(szTopType, g_szTops[1]))
+	{
 		arr = g_ArrayStatsPro;
+		type = 1;
+	}
 	else
+	{
 		arr = g_ArrayStatsNub;
+		type = 2;
+	}
 
 	GetUserUniqueId(id, uniqueid, charsmax(uniqueid));
 	GetColorlessName(id, name, charsmax(name));
 
-	new result, bool:skipResult = false;
+	new result;
 
-	log_amx("uniqueid = %s, name = %s", uniqueid, name);
+	//log_amx("uniqueid = %s, name = %s", uniqueid, name);
 
-	log_amx("-- Entering records loop. Array size: %d", ArraySize(arr));
+	//log_amx("-- Entering records loop. Array size: %d", ArraySize(arr));
 	for (new i = 0; i < ArraySize(arr); i++)
 	{
 		ArrayGetArray(arr, i, stats);
 		result = floatcmp(kztime, stats[STATS_TIME]);
-		log_amx("comparing current run's time (%.2f) to best #%d time (%.2f); result = %d", kztime, i+1, stats[STATS_TIME], result);
+		//log_amx("comparing current run's time (%.2f) to best #%d time (%.2f); result = %d", kztime, i+1, stats[STATS_TIME], result);
 
 		if (result == -1 && insertItemId == -1)
 		{
 			insertItemId = i;
-			log_amx("insertItemId = %d", insertItemId);
+			//log_amx("insertItemId = %d", insertItemId);
 		}
 
-		log_amx("comparing %s to current runner ID (%s)", stats[STATS_ID], uniqueid);
+		//log_amx("comparing %s to current runner ID (%s)", stats[STATS_ID], uniqueid);
 		if (!equal(stats[STATS_ID], uniqueid))
 		{
-			log_amx("not equal, continue finding the current runner's position...");
+			//log_amx("not equal, continue finding the current runner's position...");
 			continue;
 		}
-		log_amx("equal, this is the record that we want to check...");
+		//log_amx("equal, this is the record that we want to check...");
 
 		if (result != -1)
 		{
 			slower = kztime - stats[STATS_TIME];
 			minutes = floatround(slower, floatround_floor) / 60;
 			seconds = slower - (60 * minutes);
-			client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You failed your %s time by %02d:%"),
-				PLUGIN_TAG, szTopType, minutes, seconds);
+			if (get_bit(g_baIsPureRunning, id))
+			{
+				client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You failed your %s time by %02d:%"),
+					PLUGIN_TAG, szTopType, minutes, seconds);
+			}
+			/*
 			log_amx(GetVariableDecimalMessage(id, "%s failed their %s time by %02d:%", ", nothing to update here!"),
 				name, szTopType, minutes, seconds);
+			*/
 		
 			return;
 		}
@@ -3006,20 +3002,22 @@ UpdateRecords(id, Float:kztime, szTopType[])
 		seconds = faster - (60 * minutes);
 		client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You improved your %s time by %02d:%"),
 			PLUGIN_TAG, szTopType, minutes, seconds);
+		/*
 		log_amx(GetVariableDecimalMessage(id, "%s improved their %s time by %02d:%"),
 			name, szTopType, minutes, seconds);
+		*/
 
 		deleteItemId = i;
-		log_amx("deleteItemId = %d", deleteItemId);
+		//log_amx("deleteItemId = %d", deleteItemId);
 
 		break;
 	}
-	log_amx("-- Records loop finished. State of variables:");
-	log_amx("uniqueid = %s, name = %s", uniqueid, name);
-	log_amx("current run's time = %.2f", kztime);
-	log_amx("result = %d", result);
-	log_amx("insertItemId = %d", insertItemId);
-	log_amx("deleteItemId = %d", deleteItemId);
+	//log_amx("-- Records loop finished. State of variables:");
+	//log_amx("uniqueid = %s, name = %s", uniqueid, name);
+	//log_amx("current run's time = %.2f", kztime);
+	//log_amx("result = %d", result);
+	//log_amx("insertItemId = %d", insertItemId);
+	//log_amx("deleteItemId = %d", deleteItemId);
 
 	copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
 	copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
@@ -3043,7 +3041,7 @@ UpdateRecords(id, Float:kztime, szTopType[])
 		ArrayDeleteItem(arr, insertItemId != -1 ? deleteItemId + 1 : deleteItemId);
 
 	rank++;
-	log_amx("checking rank... rank = %d", rank);
+	//log_amx("checking rank... rank = %d", rank);
 	if (rank <= get_pcvar_num(pcvar_kz_top_records))
 	{
 		client_cmd(0, "spk woop");
@@ -3054,6 +3052,12 @@ UpdateRecords(id, Float:kztime, szTopType[])
 
 	SaveRecords(szTopType);
 
+	if (rank == 1)
+	{
+		new ret;
+		//new iArrayPass = PrepareArray(arr, ArraySize(arr));
+		ExecuteForward(mfwd_hlkz_worldrecord, ret, id, kztime, type, arr);
+	}
 }
 
 ShowTopClimbers(id, szTopType[])
