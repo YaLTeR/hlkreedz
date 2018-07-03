@@ -7,6 +7,7 @@ HLKreedz TODO:
 - [ ] Implement a lazier load of listmaps (current method takes 2 seconds on every map change).
 - [ ] Implement communication with Discord via cURL and webhook. 
 - [ ] Implement map autochange when timeleft is higher than 30 minutes and no player has been playing in the last hour for at least 3 minutes (all customizable).
+- [ ] Implement recovery of last map on crash, maybe with the same timeleft that was remaining. It should do the changelevel automatically even before than any player reconnects after restart (around 15 seconds).
 - [ ] Make /ljstats tops. Take into account cl_yawspeed (prohibited as it modifies side speed?).
 - [ ] Add jump count and max speed to leaderboards (maybe not to be displayed yet, or pure/pro-only because in noob cp/tp columns already take too much space).
 - [ ] Make /rtv display instructions on how to vote (for new AG players). Display a message saying that X player have just created a vote to change map immediately.
