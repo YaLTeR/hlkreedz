@@ -2984,7 +2984,7 @@ UpdateRecords(id, Float:kztime, szTopType[])
 			slower = kztime - stats[STATS_TIME];
 			minutes = floatround(slower, floatround_floor) / 60;
 			seconds = slower - (60 * minutes);
-			if (get_bit(g_baIsPureRunning, id))
+			if (!(get_bit(g_baIsPureRunning, id) && type == 1))
 			{
 				client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You failed your %s time by %02d:%"),
 					PLUGIN_TAG, szTopType, minutes, seconds);
