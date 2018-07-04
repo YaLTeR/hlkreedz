@@ -32,6 +32,7 @@ HLKreedz TODO:
 - [ ] Make a coop mode. Players of the same team have full clipping and the first who makes a record sets the record for their whole team. Teams can make strategies to make human ladders, etc.
 - [ ] Improve surfbug fix.
 - [ ] Add a nice style to all MOTDs. This requires a modification in the OpenAG client.
+- [ ] Add noclip (requested by *Muty*)
 
 Other weird ideas:
 - [ ] Add a Tag game (chase other players running, with a crowbar to hit them).
