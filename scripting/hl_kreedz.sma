@@ -140,6 +140,7 @@ new g_ShowStartMsg[MAX_PLAYERS + 1];
 new g_TimeDecimals[MAX_PLAYERS + 1];
 new g_Nightvision[MAX_PLAYERS + 1];
 new g_Slopefix[MAX_PLAYERS + 1];
+new Float:g_Speedcap[MAX_PLAYERS + 1];
 
 new g_FrameTime[MAX_PLAYERS + 1][2];
 new Float:g_FrameTimeInMsec[MAX_PLAYERS + 1];
@@ -209,6 +210,7 @@ new pcvar_kz_pure_allow_healthboost;
 new pcvar_kz_remove_func_friction;
 new pcvar_kz_nightvision;
 new pcvar_kz_slopefix;
+new pcvar_kz_speedcap;
 
 new g_FwLightStyle;
 
@@ -273,6 +275,8 @@ public plugin_init()
 
 	// 0 - slopebug/surfbug fix disabled, 1 - fix enabled, may want to disable it when you consistently get stuck in little slopes while sliding+wallstrafing
 	pcvar_kz_slopefix = register_cvar("kz_slopefix", "1");
+
+	pcvar_kz_speedcap = register_cvar("kz_speedcap", "0"); // 0 means the player can set the speedcap at the horizontal speed they want
 
 	pcvar_allow_spectators = get_cvar_pointer("allow_spectators");
 
@@ -732,6 +736,8 @@ public client_putinserver(id)
 	else if (g_Nightvision[id] == 1)
 		g_Nightvision[id] = 2;
 
+	g_Speedcap[id] = get_pcvar_float(pcvar_kz_speedcap);
+
 	//query_client_cvar(id, "kz_nightvision", "ClCmdNightvision"); // TODO save user variables in a file and retrieve them when they connect to server
 
 	g_ControlPoints[id][CP_TYPE_START] = g_MapDefaultStart;
@@ -1027,7 +1033,7 @@ CmdHelp(id)
 		/cp - create control point\n\
 		/tp - teleport to last control point\n\
 		/top - show Top climbers\n\
-		/pure /pro /nub /noob <#>-<#> - show specific tops and records, e.g. /pro 20-50\n\
+		/pure /pro /nub <#>-<#> - show specific tops and records, e.g. /pro 20-50\n\
 		/unstuck - teleport to previous control point\n\
 		/pause - pause timer and freeze player\n\
 		/reset - reset timer and clear checkpoints\n");
@@ -1035,7 +1041,8 @@ CmdHelp(id)
 	if (is_plugin_loaded("Q::Jumpstats"))
 	{
 		len += formatex(motd[len], charsmax(motd) - len,
-			"/ljstats /jumpstats - toggle showing different jump distances\n\
+			"/lj - show LJ top\n\
+			/ljstats - toggle showing different jump distances\n\
 			/speed - toggle showing your horizontal speed\n\
 			/prestrafe - toggle showing prestrafe speed\n");
 	}
@@ -1059,6 +1066,7 @@ CmdHelp(id)
 		/dec <1-6> - number of decimals in times\n\
 		/nv <0-2> - nightvision mode, 0=off, 1=flashlight, 2=global\n\
 		/slopefix - toggle slopebug/surfbug fix, if you get stuck in little slopes disable it\n\
+		/speedcap <#> - set your horizontal speed limit\n\
 		/kzhelp - this motd\n");
 
 	formatex(motd[len], charsmax(motd) - len,
@@ -1132,6 +1140,9 @@ public CmdSayHandler(id)
 
 	else if (equali(args[1], "slopefix"))
 		CmdSlopefix(id);
+
+	else if (containi(args[1], "speedcap") == 0)
+		CmdSpeedcap(id);
 
 	else if (containi(args[1], "dec") == 0)
 		CmdTimeDecimals(id);
@@ -2372,13 +2383,14 @@ public Fw_FmPlayerTouchHealthBooster(hb, id)
 
 public Fw_FmPlayerPostThinkPre(id)
 {
+	new Float:currVelocity[3];
+	pev(id, pev_velocity, currVelocity);
+	new Float:endSpeed = floatsqroot(floatpower(currVelocity[0], 2.0) + floatpower(currVelocity[1], 2.0));
 	if (g_Slopefix[id])
 	{
-		new Float:currOrigin[3], Float:futureOrigin[3], Float:currVelocity[3], Float:futureVelocity[3];
+		new Float:currOrigin[3], Float:futureOrigin[3], Float:futureVelocity[3];
 		pev(id, pev_origin, currOrigin);
-		pev(id, pev_velocity, currVelocity);
 		new Float:startSpeed = floatsqroot(floatpower(g_Velocity[id][0], 2.0) + floatpower(g_Velocity[id][1], 2.0));
-		new Float:endSpeed = floatsqroot(floatpower(currVelocity[0], 2.0) + floatpower(currVelocity[1], 2.0));
 
 		new Float:svGravity = get_cvar_float("sv_gravity");
 		new Float:pGravity;
@@ -2454,6 +2466,16 @@ public Fw_FmPlayerPostThinkPre(id)
 
 	if (g_HBFrameCounter[id] > 0)
 		CheckHealthBoost(id);
+
+	if (g_Speedcap[id] && endSpeed > g_Speedcap[id])
+	{
+		new Float:m = (endSpeed / g_Speedcap[id]) * 1.000001;
+		new Float:cappedVelocity[3];
+		cappedVelocity[0] = currVelocity[0] / m;
+		cappedVelocity[1] = currVelocity[1] / m;
+		cappedVelocity[2] = currVelocity[2];
+		set_pev(id, pev_velocity, cappedVelocity);
+	}
 
 	if (!g_RestoreSolidStates)
 		return;
@@ -2733,6 +2755,24 @@ public CmdTimeDecimals(id)
  	return PLUGIN_HANDLED;
 }
 
+CmdSpeedcap(id)
+{
+	new Float:allowed_speedcap = get_pcvar_float(pcvar_kz_speedcap);
+	new Float:speedcap = GetFloatArg();
+	//console_print(id, "allowed_speedcap = %.2f; speedcap = %.2f", allowed_speedcap, speedcap);
+
+	if (allowed_speedcap && speedcap > allowed_speedcap)
+	{
+		g_Speedcap[id] = speedcap;
+		ShowMessage(id, "Server doesn't allow a higher speedcap than %.2f", allowed_speedcap);
+	} else {
+		g_Speedcap[id] = speedcap;
+	}
+
+	ShowMessage(id, "Your horizontal speedcap is now: %.2f", g_Speedcap[id]);
+	return PLUGIN_HANDLED;
+}
+
 public CmdNightvision(id)
 {
 	new cvar_nightvision = get_pcvar_num(pcvar_kz_nightvision);
@@ -2750,7 +2790,7 @@ public CmdNightvision(id)
 	}
 	else if (mode == 1 && cvar_nightvision == 3)
 	{
-		ShowMessage(id, "Only nightvision mode 2 is allowerd by server");
+		ShowMessage(id, "Only nightvision mode 2 is allowed by server");
 		return PLUGIN_HANDLED;
 	}
 

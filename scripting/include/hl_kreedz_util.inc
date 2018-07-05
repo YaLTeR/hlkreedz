@@ -139,6 +139,28 @@ public GetNumberArg()
     return str_to_num(numberPart);
 }
 
+// e.g.: say "/speedcap 499.5" // get the '499.5'
+public Float:GetFloatArg()
+{
+	new cmdArg[32], numberPart[32];
+	read_args(cmdArg, charsmax(cmdArg));
+
+	new bool:prevWasDigit = false;
+    for (new i = 0; cmdArg[i]; i++) {
+        if (isdigit(cmdArg[i])) {
+            formatex(numberPart, charsmax(numberPart), "%s%s", numberPart, cmdArg[i]);
+            prevWasDigit = true;
+        }
+        else if (prevWasDigit) {
+        	if (equal(cmdArg[i], "."))
+        		formatex(numberPart, charsmax(numberPart), "%s.", numberPart);
+        	else
+        		break; // e.g.: say "/speedcap 499.5 some text and 123 numbers here" --> get out when parsing the '499.5'
+        }
+    }
+    return str_to_float(numberPart);
+}
+
 // e.g.: say "/pro 1-18" --> get the 1 and 18 in an array of 2 cells
 public GetRangeArg(range[2])
 {
