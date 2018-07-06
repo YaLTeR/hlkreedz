@@ -9,6 +9,7 @@ hl_kreedz provides essential functionality such as start and stop buttons, timer
 ## q_jumpstats
 
 q_jumpstats monitors and records players' high scores in various types of jumps.
+Credits: this is Quaker's ([@skyrim](https://github.com/skyrim)) [plugin](https://github.com/skyrim/qmxx) adapted to HL/AG.
 
 ## searchmaps
 
