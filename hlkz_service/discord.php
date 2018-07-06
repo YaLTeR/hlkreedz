@@ -4,6 +4,10 @@
     $json = file_get_contents('php://input');
     $obj = json_decode($json, true);
 
+    $handle = fopen("post.json", "w") or die("Unable to open file!");
+    fwrite($handle, json_encode($obj));
+    fclose($handle);
+
     if (!empty($obj) && isset($obj["holder"]) && isset($obj["map"]) && isset($obj["type"]) && isset($obj["time"]) && isset($obj["webhook"])) {
         include 'discord_hook_lib.php';
 
@@ -13,7 +17,9 @@
         $runType = ucfirst($obj["type"]);
         $runTime = $obj["time"];
         $top = 5;
-        
+
+        $botName = "HL KreedZ";
+        $avatarURL = "http://212.71.238.124/hlkz/hlkz.png";
         $msg = "[HLKZ] **$runner** has now the $runType WR for **$runMap**! Finished in **$runTime**\n\n";
         $title = "**Top $top $runType [$runMap]**\n";
         $desc = "```diff\n";
@@ -50,7 +56,7 @@
 
         $msg .= $title . $desc;
 
-        DiscordHook::send(new Message(new User($webhook, "SourceRuns"), $msg));
+        DiscordHook::send(new Message(new User($webhook, $botName, $avatarURL), $msg));
     }
 
     function mb_str_pad( $input, $pad_length, $pad_string = ' ', $pad_type = STR_PAD_RIGHT, $encoding="UTF-8") {
