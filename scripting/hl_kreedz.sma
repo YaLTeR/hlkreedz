@@ -141,6 +141,7 @@ new g_TimeDecimals[MAX_PLAYERS + 1];
 new g_Nightvision[MAX_PLAYERS + 1];
 new g_Slopefix[MAX_PLAYERS + 1];
 new Float:g_Speedcap[MAX_PLAYERS + 1];
+new g_ShowSpeed[MAX_PLAYERS + 1];
 
 new g_FrameTime[MAX_PLAYERS + 1][2];
 new Float:g_FrameTimeInMsec[MAX_PLAYERS + 1];
@@ -165,6 +166,7 @@ new g_SyncHudMessage;
 new g_SyncHudKeys;
 new g_SyncHudHealth;
 new g_SyncHudShowStartMsg;
+new g_SyncHudSpeedometer;
 new g_MaxPlayers;
 new g_PauseSprite;
 new g_TaskEnt;
@@ -353,6 +355,7 @@ public plugin_init()
 	g_SyncHudKeys = CreateHudSyncObj();
 	g_SyncHudHealth = CreateHudSyncObj();
 	g_SyncHudShowStartMsg = CreateHudSyncObj();
+	g_SyncHudSpeedometer = CreateHudSyncObj();
 
 	g_ArrayStatsNub = ArrayCreate(STATS);
 	g_ArrayStatsPro = ArrayCreate(STATS);
@@ -738,6 +741,8 @@ public client_putinserver(id)
 
 	g_Speedcap[id] = get_pcvar_float(pcvar_kz_speedcap);
 
+	g_ShowSpeed[id] = false;
+
 	//query_client_cvar(id, "kz_nightvision", "ClCmdNightvision"); // TODO save user variables in a file and retrieve them when they connect to server
 
 	g_ControlPoints[id][CP_TYPE_START] = g_MapDefaultStart;
@@ -1036,14 +1041,14 @@ CmdHelp(id)
 		/pure /pro /nub <#>-<#> - show specific tops and records, e.g. /pro 20-50\n\
 		/unstuck - teleport to previous control point\n\
 		/pause - pause timer and freeze player\n\
-		/reset - reset timer and clear checkpoints\n");
+		/reset - reset timer and clear checkpoints\n\
+		/speed - toggle showing your horizontal speed\n");
 
 	if (is_plugin_loaded("Q::Jumpstats"))
 	{
 		len += formatex(motd[len], charsmax(motd) - len,
 			"/lj - show LJ top\n\
 			/ljstats - toggle showing different jump distances\n\
-			/speed - toggle showing your horizontal speed\n\
 			/prestrafe - toggle showing prestrafe speed\n");
 	}
 	if (is_plugin_loaded("Enhanced Map Searching"))
@@ -1140,6 +1145,9 @@ public CmdSayHandler(id)
 
 	else if (equali(args[1], "slopefix"))
 		CmdSlopefix(id);
+
+	else if (equali(args[1], "speed"))
+		CmdSpeed(id);
 
 	else if (containi(args[1], "speedcap") == 0)
 		CmdSpeedcap(id);
@@ -1869,6 +1877,7 @@ UpdateHud(Float:currentGameTime)
 			ClearSyncHud(id, g_SyncHudTimer);
 			ClearSyncHud(id, g_SyncHudKeys);
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
+			ClearSyncHud(id, g_SyncHudSpeedometer);
 		}
 		if (g_LastTarget[id] != targetId)
 		{
@@ -1877,6 +1886,7 @@ UpdateHud(Float:currentGameTime)
 			ClearSyncHud(id, g_SyncHudTimer);
 			ClearSyncHud(id, g_SyncHudKeys);
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
+			ClearSyncHud(id, g_SyncHudSpeedometer);
 		}
 
 		HudShowPressedKeys(id, mode, targetId);
@@ -1918,13 +1928,32 @@ UpdateHud(Float:currentGameTime)
 
 			switch (g_ShowTimer[id])
 			{
-			case 1: client_print(id, print_center, "%s | Time: %02d:%02d | CPs: %d | TPs: %d %s",
-						g_RunType[id], min, sec, g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP], get_bit(g_baIsPaused, targetId) ? "| *Paused*" : "");
+			case 1:
+				{
+					client_print(id, print_center, "%s | Time: %02d:%02d | CPs: %d | TPs: %d %s",
+							g_RunType[id], min, sec, g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP], get_bit(g_baIsPaused, targetId) ? "| *Paused*" : "");
+				}
 			case 2:
 				{
 					set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, 0.10, 0, 0.0, 999999.0, 0.0, 0.0, -1);
 					ShowSyncHudMsg(id, g_SyncHudTimer, "%s | Time: %02d:%02d | CPs: %d | TPs: %d %s",
 						g_RunType[id], min, sec, g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP], get_bit(g_baIsPaused, targetId) ? "| *Paused*" : "");
+				}
+			}
+		}
+
+		if (g_ShowSpeed[id])
+		{
+			set_hudmessage( g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, 0.7, 0, 0.0, 999999.0, 0.0, 0.0, -1);
+			if( is_user_alive( id ) )
+				ShowSyncHudMsg( id, g_SyncHudSpeedometer, "%.2f", floatsqroot( g_Velocity[id][0] * g_Velocity[id][0] + g_Velocity[id][1] * g_Velocity[id][1] ) );
+			else
+			{
+				new specmode = pev( id, pev_iuser1 );
+				if( specmode == 2 || specmode == 4 )
+				{
+					new t = pev( id, pev_iuser2 );
+					ShowSyncHudMsg( id, g_SyncHudSpeedometer, "%.2f", floatsqroot( g_Velocity[t][0] * g_Velocity[t][0] + g_Velocity[t][1] * g_Velocity[t][1] ) );
 				}
 			}
 		}
@@ -2753,6 +2782,15 @@ public CmdTimeDecimals(id)
  	g_TimeDecimals[id] = decimals;
 
  	return PLUGIN_HANDLED;
+}
+
+CmdSpeed(id)
+{
+	ClearSyncHud( id, g_SyncHudSpeedometer );
+	g_ShowSpeed[id] = !g_ShowSpeed[id];
+	client_print( id, print_chat, "Speed: %s", g_ShowSpeed[id] ? "ON" : "OFF" );
+
+	return PLUGIN_HANDLED;
 }
 
 CmdSpeedcap(id)

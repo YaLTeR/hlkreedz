@@ -196,7 +196,6 @@ public plugin_init( )
 
 	register_clcmd( "say /ljstats", "clcmd_ljstats" );
 	register_clcmd( "say /jumpstats", "clcmd_ljstats" );
-	register_clcmd( "say /speed", "clcmd_speed" );
 	register_clcmd( "say /showpre", "clcmd_prestrafe" );
 	register_clcmd( "say /preshow", "clcmd_prestrafe" );
 	register_clcmd( "say /prestrafe", "clcmd_prestrafe" );
@@ -220,9 +219,10 @@ public plugin_init( )
 	mfwd_jump_illegal = CreateMultiForward( "q_js_jumpillegal", ET_IGNORE, FP_CELL );
 	mfwd_jump_interrupt = CreateMultiForward( "q_js_jumpinterrupt", ET_IGNORE, FP_CELL );
 	
-	set_task( 0.1, "task_speed", TASKID_SPEED, _, _, "b" );
+	//set_task( 0.1, "task_speed", TASKID_SPEED, _, _, "b" );
 
 	g_ArrayLJStats = ArrayCreate(JUMPSTATS);
+
 }
 
 public plugin_cfg()
@@ -349,42 +349,12 @@ public actions_ljstats(id, key)
 	return PLUGIN_HANDLED;
 }
 
-public clcmd_speed( id, level, cid )
-{
-	player_show_speed[id] = !player_show_speed[id];
-	client_print( id, print_chat, "Speed: %s", player_show_speed[id] ? "ON" : "OFF" );
-	
-	return PLUGIN_HANDLED;
-}
-
 public clcmd_prestrafe( id, level, cid )
 {
 	player_show_prestrafe[id] = !player_show_prestrafe[id];
 	client_print( id, print_chat, "Prestrafe: %s", player_show_prestrafe[id] ? "ON" : "OFF" );
 	
 	return PLUGIN_HANDLED;
-}
-
-public task_speed( )
-{
-	set_hudmessage( 255, 128, 0, -1.0, 0.7, 0, 0.0, 1.0, 0.0, 0.1, 1 );
-	for( new id = 1, players = get_maxplayers( ); id < players; ++id )
-	{
-		if( is_user_connected( id ) && player_show_speed[id] )
-		{
-			if( is_user_alive( id ) )
-				show_hudmessage( id, "%.2f", floatsqroot( velocity[id][0] * velocity[id][0] + velocity[id][1] * velocity[id][1] ) );
-			else
-			{
-				new specmode = pev( id, pev_iuser1 );
-				if( specmode == 2 || specmode == 4 )
-				{
-					new t = pev( id, pev_iuser2 );
-					show_hudmessage( id, "%.2f", floatsqroot( velocity[t][0] * velocity[t][0] + velocity[t][1] * velocity[t][1] ) );
-				}
-			}
-		}
-	}
 }
 
 public forward_PlayerSpawn( id )
