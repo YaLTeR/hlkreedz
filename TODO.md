@@ -1,10 +1,10 @@
 HLKreedz TODO:
 - [ ] Append ^0 to nicknames in plugin messages, so the color of the text after the nickname isn't messed up. Make a cvar for this as the plugin may be running in vanilla HL without AG mini.
-- [ ] Make flickering HUD texts (e.g.: spectator list from /speclist) not flicker.
+- [x] Make flickering HUD texts (e.g.: spectator list from /speclist) not flicker.
 - [ ] Make searchmaps commands follow the same pattern as others preprending a symbol to the say command.
 - [ ] Make searchmaps list all the maps in a file (allmaps.txt) if doesn't exist.
 - [ ] Implement a lazier load of listmaps (current method takes 2 seconds on every map change).
-- [ ] Implement communication with Discord via cURL and webhook. 
+- [x] Implement communication with Discord via cURL and webhook. 
 - [ ] Implement map autochange when timeleft is higher than 30 minutes and no player has been playing in the last hour for at least 3 minutes (all customizable).
 - [ ] Make /ljstats tops. Take into account cl_yawspeed (prohibited as it modifies side speed?).
 - [ ] Add jump count and max speed to leaderboards (maybe not to be displayed yet, or pure/pro-only because in noob cp/tp columns already take too much space).
