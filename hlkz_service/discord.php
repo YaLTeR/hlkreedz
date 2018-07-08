@@ -12,10 +12,11 @@
         include 'discord_hook_lib.php';
 
         $webhook = $obj["webhook"];
-        $runner = $obj["holder"];
-        $runMap = $obj["map"];
-        $runType = ucfirst($obj["type"]);
-        $runTime = $obj["time"];
+        // Escape Markdown characters in everything that could go in the message
+        $runner = escape_chars("*_`~", "\\", $obj["holder"]);
+        $runMap = escape_chars("*_`~", "\\", $obj["map"]);
+        $runType = ucfirst(escape_chars("*_`~", "\\", $obj["type"]));
+        $runTime = escape_chars("*_`~", "\\", $obj["time"]);
         $top = 5;
 
         $botName = "HL KreedZ";
@@ -40,19 +41,19 @@
             else if ($j == 2) $desc .= "**- ";
             else if ($j == 1) $desc .= "--+ ";
             else if ($j == 0) $desc .= "++- ";
-            $desc .= ($j+1) . "    ";
+            $desc .= ($j+1) . " ";
 
             foreach ($rec[$j] as $key => $value) {
                 if ($key == "name") {
                     $desc .= mb_str_pad(rtrim($value), $maxLength);
-                } else {
+                } else if ($key != "date") {
                     $desc .= $value;
                 }
-                $desc .=  "    ";
+                $desc .=  " ";
             }
             $desc .= "\n";
         }
-        $desc .= "  \n```";
+        $desc .= " \n```";
 
         $msg .= $title . $desc;
 
@@ -62,5 +63,13 @@
     function mb_str_pad( $input, $pad_length, $pad_string = ' ', $pad_type = STR_PAD_RIGHT, $encoding="UTF-8") {
             $diff = strlen($input) - mb_strlen($input, $encoding);
             return str_pad($input, $pad_length + $diff, $pad_string, $pad_type);
+    }
+
+    function escape_chars($charsToEscape, $escapeSeq, $string)
+    {
+        $charsToEscape = preg_quote($charsToEscape, '/');
+        $regexSafeEscapeSeq = preg_quote($escapeSeq, '/');
+        $escapeSeq = preg_replace('/([$\\\\])/', '\\\$1', $escapeSeq);
+        return(preg_replace('/(?<!'.$regexSafeEscapeSeq.')(['.$charsToEscape.'])/', $escapeSeq.'$1', $string));
     }
 ?>
