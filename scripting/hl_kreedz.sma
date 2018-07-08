@@ -22,7 +22,7 @@
 
 #define PLUGIN "HL KreedZ Beta"
 #define PLUGIN_TAG "HLKZ"
-#define VERSION "0.31"
+#define VERSION "0.32"
 #define AUTHOR "KORD_12.7 & Lev & YaLTeR & naz"
 
 // Compilation options
@@ -142,6 +142,7 @@ new g_Nightvision[MAX_PLAYERS + 1];
 new g_Slopefix[MAX_PLAYERS + 1];
 new Float:g_Speedcap[MAX_PLAYERS + 1];
 new g_ShowSpeed[MAX_PLAYERS + 1];
+new g_ShowSpecList[MAX_PLAYERS + 1];
 
 new g_FrameTime[MAX_PLAYERS + 1][2];
 new Float:g_FrameTimeInMsec[MAX_PLAYERS + 1];
@@ -167,6 +168,7 @@ new g_SyncHudKeys;
 new g_SyncHudHealth;
 new g_SyncHudShowStartMsg;
 new g_SyncHudSpeedometer;
+new g_SyncHudSpecList;
 new g_MaxPlayers;
 new g_PauseSprite;
 new g_TaskEnt;
@@ -213,6 +215,8 @@ new pcvar_kz_remove_func_friction;
 new pcvar_kz_nightvision;
 new pcvar_kz_slopefix;
 new pcvar_kz_speedcap;
+new pcvar_kz_speclist;
+new pcvar_kz_speclist_admin_invis;
 
 new g_FwLightStyle;
 
@@ -277,8 +281,9 @@ public plugin_init()
 
 	// 0 - slopebug/surfbug fix disabled, 1 - fix enabled, may want to disable it when you consistently get stuck in little slopes while sliding+wallstrafing
 	pcvar_kz_slopefix = register_cvar("kz_slopefix", "1");
-
 	pcvar_kz_speedcap = register_cvar("kz_speedcap", "0"); // 0 means the player can set the speedcap at the horizontal speed they want
+	pcvar_kz_speclist = register_cvar("kz_speclist", "1");
+	pcvar_kz_speclist_admin_invis = register_cvar("kz_speclist_admin_invis", "0");
 
 	pcvar_allow_spectators = get_cvar_pointer("allow_spectators");
 
@@ -356,6 +361,7 @@ public plugin_init()
 	g_SyncHudHealth = CreateHudSyncObj();
 	g_SyncHudShowStartMsg = CreateHudSyncObj();
 	g_SyncHudSpeedometer = CreateHudSyncObj();
+	g_SyncHudSpecList = CreateHudSyncObj();
 
 	g_ArrayStatsNub = ArrayCreate(STATS);
 	g_ArrayStatsPro = ArrayCreate(STATS);
@@ -653,7 +659,7 @@ DisplayKzMenu(id, mode)
 
 public ActionKzMenu(id, key)
 {
-	key ++;
+	key++;
 
 	if (key == 9) DisplayKzMenu(id, 0);
 	if (key == 10) return PLUGIN_HANDLED;
@@ -742,6 +748,7 @@ public client_putinserver(id)
 	g_Speedcap[id] = get_pcvar_float(pcvar_kz_speedcap);
 
 	g_ShowSpeed[id] = false;
+	g_ShowSpecList[id] = true;
 
 	//query_client_cvar(id, "kz_nightvision", "ClCmdNightvision"); // TODO save user variables in a file and retrieve them when they connect to server
 
@@ -900,6 +907,19 @@ CmdReset(id)
 		ResetPlayer(id, false, false);
 }
 
+CmdSpecList(id)
+{
+	//console_print(id, "pev_iuser1 is %s", pev(id, pev_iuser1) ? "set" : "NOT set"); // happens when you're in spectator mode
+	//console_print(id, "pev_iuser2 is %s", pev(id, pev_iuser2) ? "set" : "NOT set"); // happens when you're spectating a player (not in Free mode)
+	if (!get_pcvar_num(pcvar_kz_speclist))
+	{
+		ShowMessage(id, "Toggling the spectator list is disabled by server");
+		return;
+	}
+	g_ShowSpecList[id] = !g_ShowSpecList[id];
+	client_print(id, print_chat, "[%s] Spectator list is now %s", PLUGIN_TAG, g_ShowSpecList[id] ? "visible" : "hidden");
+}
+
 CmdSpec(id)
 {
 	client_cmd(id, "spectate");	// CanSpectate is called inside of command hook handler
@@ -917,7 +937,6 @@ CmdInvis(id)
 		set_bit(g_bit_invis, id);
 		client_print(id, print_chat, "[%s] All players hidden", PLUGIN_TAG);
 	}
-	return PLUGIN_CONTINUE;
 }
 
 CmdWaterInvis(id)
@@ -932,7 +951,6 @@ CmdWaterInvis(id)
 		set_bit(g_bit_waterinvis, id);
 		client_print(id, print_chat, "[%s] Liquids are now hidden", PLUGIN_TAG);
 	}
-	return PLUGIN_CONTINUE;
 }
 
 CmdTimer(id)
@@ -1061,6 +1079,7 @@ CmdHelp(id)
 		"/start - go to start button\n\
 		/respawn - go to spawn point\n\
 		/spec - go to spectate mode or exit from it\n\
+		/speclist - show players watching you\n\
 		/ss - set custom start position\n\
 		/cs - clear custom start position\n\
 		/invis - make other players invisible to you\n\
@@ -1112,6 +1131,9 @@ public CmdSayHandler(id)
 
 	else if (equali(args[1], "timer"))
 		CmdTimer(id);
+
+	else if (equali(args[1], "speclist"))
+		CmdSpecList(id);
 
 	else if (equali(args[1], "spectate") || equali(args[1], "spec"))
 		CmdSpec(id);
@@ -1857,15 +1879,17 @@ public Fw_FmThinkPre(ent)
 UpdateHud(Float:currentGameTime)
 {
 	static Float:kztime, min, sec, mode, targetId, ent, body;
-	static players[MAX_PLAYERS], num, id, i;
+	static players[MAX_PLAYERS], num, id, i, playerName[33];
 
 	get_players(players, num);
 	for (i = 0; i < num; i++)
 	{
+		new specs = 0, specsTotal = 0;
 		id = players[i];
+		GetColorlessName(id, playerName, charsmax(playerName));
 		//if (IsBot(id) || IsHltv(id)) continue;
 
-		// Select traget from whom to take timer and pressed keys
+		// Select target from whom to take timer and pressed keys
 		mode = pev(id, pev_iuser1);
 		targetId = mode == OBS_CHASE_LOCKED || mode == OBS_CHASE_FREE || mode == OBS_IN_EYE || mode == OBS_MAP_CHASE ? pev(id, pev_iuser2) : id;
 		if (!is_user_connected(targetId)) continue;
@@ -1878,6 +1902,7 @@ UpdateHud(Float:currentGameTime)
 			ClearSyncHud(id, g_SyncHudKeys);
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
 			ClearSyncHud(id, g_SyncHudSpeedometer);
+			ClearSyncHud(id, g_SyncHudSpecList);
 		}
 		if (g_LastTarget[id] != targetId)
 		{
@@ -1887,6 +1912,42 @@ UpdateHud(Float:currentGameTime)
 			ClearSyncHud(id, g_SyncHudKeys);
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
 			ClearSyncHud(id, g_SyncHudSpeedometer);
+			ClearSyncHud(id, g_SyncHudSpecList);
+		}
+
+		new msgSpecList[1280];
+
+		for (new id2; id2 < num; id2++)
+		{
+			if (!is_user_connected(id2)) continue;
+
+			new spectatedPlayer = pev(id2, pev_iuser2);
+			if (spectatedPlayer)
+			{
+				if (!(get_pcvar_num(pcvar_kz_speclist_admin_invis) && get_user_flags(id2, 0) & ADMIN_IMMUNITY))
+				{
+					specsTotal++;
+					if (pev(id2, pev_iuser2) == targetId)
+					{ // This guy is watching you or the same player as you're watching
+						new spectatorName[33];
+						GetColorlessName(id2, spectatorName, charsmax(spectatorName));
+						add(spectatorName, charsmax(spectatorName) + 2, "^n");
+						add(msgSpecList, charsmax(msgSpecList), spectatorName);
+						specs++;
+					}
+				}
+			}
+		}
+
+		if (specs && g_ShowSpecList[id])
+		{
+			set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], 0.75, 0.15, 0, 0.0, 999999.0, 0.0, 0.0, -1);
+			if (pev(id, pev_iuser2))
+				formatex(msgSpecList, charsmax(msgSpecList), "Also spectating %s: (%d/%d)^n%s", playerName, specs, specsTotal, msgSpecList);
+			else
+				formatex(msgSpecList, charsmax(msgSpecList), "Spectating you: (%d/%d)^n%s", specs, specsTotal, msgSpecList);
+
+			ShowSyncHudMsg(id, g_SyncHudSpecList, msgSpecList);
 		}
 
 		HudShowPressedKeys(id, mode, targetId);
@@ -1944,7 +2005,7 @@ UpdateHud(Float:currentGameTime)
 
 		if (g_ShowSpeed[id])
 		{
-			set_hudmessage( g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, 0.7, 0, 0.0, 999999.0, 0.0, 0.0, -1);
+			set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, 0.7, 0, 0.0, 999999.0, 0.0, 0.0, -1);
 			if( is_user_alive( id ) )
 				ShowSyncHudMsg( id, g_SyncHudSpeedometer, "%.2f", floatsqroot( g_Velocity[id][0] * g_Velocity[id][0] + g_Velocity[id][1] * g_Velocity[id][1] ) );
 			else
