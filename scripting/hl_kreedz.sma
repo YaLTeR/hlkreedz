@@ -1879,7 +1879,7 @@ public Fw_FmThinkPre(ent)
 UpdateHud(Float:currentGameTime)
 {
 	static Float:kztime, min, sec, mode, targetId, ent, body;
-	static players[MAX_PLAYERS], num, id, i, playerName[33];
+	static players[MAX_PLAYERS], num, id, id2, i, j, playerName[33];
 
 	get_players(players, num);
 	for (i = 0; i < num; i++)
@@ -1916,26 +1916,23 @@ UpdateHud(Float:currentGameTime)
 		}
 
 		new msgSpecList[1280];
-
-		for (new id2; id2 < num; id2++)
+		for (j = 0; j < num; j++)
 		{
+			id2 = players[j];
 			if (!is_user_connected(id2)) continue;
 
+			if (pev(id2, pev_iuser1))
+				specsTotal++;
+
 			new spectatedPlayer = pev(id2, pev_iuser2);
-			if (spectatedPlayer)
-			{
-				if (!(get_pcvar_num(pcvar_kz_speclist_admin_invis) && get_user_flags(id2, 0) & ADMIN_IMMUNITY))
-				{
-					specsTotal++;
-					if (pev(id2, pev_iuser2) == targetId)
-					{ // This guy is watching you or the same player as you're watching
-						new spectatorName[33];
-						GetColorlessName(id2, spectatorName, charsmax(spectatorName));
-						add(spectatorName, charsmax(spectatorName) + 2, "^n");
-						add(msgSpecList, charsmax(msgSpecList), spectatorName);
-						specs++;
-					}
-				}
+			if (spectatedPlayer && pev(id2, pev_iuser2) == targetId
+				&& !(get_pcvar_num(pcvar_kz_speclist_admin_invis) && get_user_flags(id2, 0) & ADMIN_IMMUNITY))
+			{ // This guy is watching you or the same player as you're watching
+				new spectatorName[33];
+				GetColorlessName(id2, spectatorName, charsmax(spectatorName));
+				add(spectatorName, charsmax(spectatorName) + 2, "^n");
+				add(msgSpecList, charsmax(msgSpecList), spectatorName);
+				specs++;
 			}
 		}
 
