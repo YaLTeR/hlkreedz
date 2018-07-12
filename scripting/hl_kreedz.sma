@@ -20,6 +20,7 @@
 #include <hl>
 #include <hl_kreedz_util>
 
+
 #define PLUGIN "HL KreedZ Beta"
 #define PLUGIN_TAG "HLKZ"
 #define VERSION "0.32"
@@ -115,6 +116,9 @@ enum BUTTON_TYPE
 	BUTTON_NOT,
 }
 
+new const NPC_IdleAnimations[] = { 0, 1, 2, 3, 11, 12, 18, 21, 39, 63, 65 };
+new botIds[MAX_PLAYERS];
+
 new g_bit_is_connected, g_bit_is_alive, g_bit_invis, g_bit_waterinvis;
 new g_bit_is_hltv, g_bit_is_bot;
 new g_baIsClimbing, g_baIsPaused, g_baIsFirstSpawn, g_baIsPureRunning;
@@ -143,6 +147,7 @@ new g_Slopefix[MAX_PLAYERS + 1];
 new Float:g_Speedcap[MAX_PLAYERS + 1];
 new g_ShowSpeed[MAX_PLAYERS + 1];
 new g_ShowSpecList[MAX_PLAYERS + 1];
+new Float:g_PlayerTASed[MAX_PLAYERS + 1];
 
 new g_FrameTime[MAX_PLAYERS + 1][2];
 new Float:g_FrameTimeInMsec[MAX_PLAYERS + 1];
@@ -234,6 +239,9 @@ public plugin_precache()
 {
 	g_FwLightStyle = register_forward(FM_LightStyle, "Fw_FmLightStyle");
 	g_PauseSprite = precache_model("sprites/pause_icon.spr");
+    precache_model("models/player/robo/robo.mdl");
+    precache_model("models/player/gordon/gordon.mdl");
+    precache_model("models/p_shotgun.mdl");
 }
 
 public plugin_init()
@@ -310,6 +318,10 @@ public plugin_init()
 	register_clcmd("-hook", "CheatCmdHandler");
 	register_clcmd("+rope", "CheatCmdHandler");
 	register_clcmd("-rope", "CheatCmdHandler");
+	register_clcmd("+tas_perfectstrafe", "TASCmdHandler");
+	register_clcmd("-tas_perfectstrafe", "TASCmdHandler");
+	register_clcmd("+tas_autostrafe", "TASCmdHandler");
+	register_clcmd("-tas_autostrafe", "TASCmdHandler");
 
 	register_menucmd(register_menuid(MAIN_MENU_ID), 1023, "ActionKzMenu");
 	register_menucmd(register_menuid(TELE_MENU_ID), 1023, "ActionTeleportMenu");
@@ -326,6 +338,7 @@ public plugin_init()
 	register_forward(FM_ClientKill,"Fw_FmClientKillPre");
 	register_forward(FM_ClientCommand, "Fw_FmClientCommandPost", 1);
 	register_forward(FM_Think, "Fw_FmThinkPre");
+	register_forward(FM_PlayerPreThink, "Fw_FmPlayerPreThinkPre");
 	register_forward(FM_PlayerPreThink, "Fw_FmPlayerPreThinkPost", 1);
 	register_forward(FM_PlayerPostThink, "Fw_FmPlayerPostThinkPre");
 	register_forward(FM_AddToFullPack, "Fw_FmAddToFullPackPost", 1);
@@ -975,6 +988,54 @@ CmdTimer(id)
 	}
 }
 
+CmdSpawnBot(id)
+{
+    if (get_playersnum(1) < get_maxplayers() - 4) // leave at least 4 slots available
+    {
+	    new botName[9];
+	    botName = "Bot ";
+		for (new i = 0; i < 4; i++)
+		{
+			new str[2];
+	    	num_to_str(random_num(0, 9), str, charsmax(str));
+	    	add(botName, charsmax(botName), str);
+		}
+	    new bot_id, ptr[128], ip[64], Float:botOrigin[3];
+	    bot_id = engfunc(EngFunc_CreateFakeClient, botName);
+		get_cvar_string("ip", ip, charsmax(ip));
+	    console_print(id, "bot_id: %d; ip: %s", bot_id, ip);
+	    dllfunc(DLLFunc_ClientConnect, bot_id, botName, ip, ptr);
+	    console_print(id, "ptr d: %d;", ptr);
+	    dllfunc(DLLFunc_ClientPutInServer, bot_id);
+	    hl_set_user_model(bot_id, "robo");
+	    dllfunc(DLLFunc_Spawn, bot_id);
+	    //set_pev(bot_id, pev_effects, (pev(bot_id, pev_effects) | 128));
+	    //set_pev(bot_id, pev_solid, 0);
+	    //new bot_userid = get_user_userid(bot_id);
+	    get_user_origin(id, botOrigin);
+	    set_user_origin(bot_id, botOrigin);
+
+		static classname[32];
+		pev(bot_id, pev_classname, classname, charsmax(classname));
+		console_print(id, "classname: %s", classname);
+
+	    entity_set_float(bot_id, EV_FL_takedamage, 1.0);
+	    entity_set_float(bot_id, EV_FL_health, 100.0);
+
+        entity_set_float(bot_id, EV_FL_animtime, 2.0);
+	    entity_set_float(bot_id, EV_FL_framerate, 1.0);
+	    entity_set_int(bot_id, EV_INT_sequence, 1);
+    }
+
+    static players[MAX_PLAYERS], num;
+	get_players(players, num);
+	for (new i = 0; i < num; i++)
+	{
+		new id2 = players[i];
+		console_print(id, "players[%d] = %d, isBot(%d) = %s", i, id2, id2, IsBot(id2) ? "yes" : "no");
+	}
+}
+
 CmdShowkeys(id)
 {
 	if (!get_pcvar_num(pcvar_kz_show_keys))
@@ -1132,6 +1193,9 @@ public CmdSayHandler(id)
 	else if (equali(args[1], "timer"))
 		CmdTimer(id);
 
+	else if (equali(args[1], "bot"))
+		CmdSpawnBot(id);
+
 	else if (equali(args[1], "speclist"))
 		CmdSpecList(id);
 
@@ -1222,16 +1286,52 @@ public CheatCmdHandler(id)
 		g_CheatCommandsGuard[id] &= ~bit;
 	}
 
-	new ret;
-	ExecuteForward(mfwd_hlkz_cheating, ret, id);
-
 	if (get_bit(g_baIsClimbing, id))
 		ResetPlayer(id, false, true);
+
+	new ret;
+	ExecuteForward(mfwd_hlkz_cheating, ret, id);
 
 	return PLUGIN_CONTINUE;
 }
 
+// refactor to get this into the CheatCmdHandler function,
+// it isn't already inside it 'cos wasn't working properly at first try
+public TASCmdHandler(id)
+{
+	new cmd[32];
+	read_argv(0, cmd, charsmax(cmd));
 
+	if (cmd[0] == '+')
+		g_CheatCommandsGuard[id] |= (1 << 2);
+	else
+	{
+		// Skip timer reset if hook isn't used, the case when console opened/closed with bind to command (it sends -command)
+		if (!(g_CheatCommandsGuard[id] & (1 << 2)))
+			return PLUGIN_CONTINUE;
+		g_CheatCommandsGuard[id] &= ~(1 << 2);
+	}
+
+	if (get_bit(g_baIsClimbing, id))
+		ResetPlayer(id, false, true);
+
+	if (cmd[0] == '+')
+	{
+		if (!g_PlayerTASed[id] || (get_gametime() - g_PlayerTASed[id]) > 10.0)
+		{
+			new name[32], uniqueid[32];
+			GetColorlessName(id, name, charsmax(name));
+			get_user_authid(id, uniqueid, charsmax(uniqueid));
+			log_amx("%s <%s> has used a TAS command! Command: %s", name, uniqueid, cmd);
+			g_PlayerTASed[id] = get_gametime();
+		}
+	}
+	
+	new ret;
+	ExecuteForward(mfwd_hlkz_cheating, ret, id);
+
+	return PLUGIN_CONTINUE;
+}
 
 
 //*******************************************************
@@ -1475,7 +1575,8 @@ bool:CanSpectate(id, bool:showMessages = true)
 
 public CmdSpectateHandler(id)
 {
-	if (IsHltv(id) || IsBot(id))
+	//if (IsHltv(id) || IsBot(id))
+	if (IsHltv(id))
 		return PLUGIN_CONTINUE;
 
 	return ClientCommandSpectatePre(id);
@@ -1483,7 +1584,8 @@ public CmdSpectateHandler(id)
 
 public Fw_FmClientCommandPost(id)
 {
-	if (IsHltv(id) || IsBot(id))
+	//if (IsHltv(id) || IsBot(id))
+	if (IsHltv(id))
 		return FMRES_IGNORED;
 
 	new cmd[32];
@@ -1879,7 +1981,7 @@ public Fw_FmThinkPre(ent)
 UpdateHud(Float:currentGameTime)
 {
 	static Float:kztime, min, sec, mode, targetId, ent, body;
-	static players[MAX_PLAYERS], num, id, id2, i, j, playerName[33];
+	static players[MAX_PLAYERS], num, id, id2, i, j, playerName[32];
 
 	get_players(players, num);
 	for (i = 0; i < num; i++)
@@ -1903,6 +2005,7 @@ UpdateHud(Float:currentGameTime)
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
 			ClearSyncHud(id, g_SyncHudSpeedometer);
 			ClearSyncHud(id, g_SyncHudSpecList);
+			ClearSyncHud(targetId, g_SyncHudSpecList);
 		}
 		if (g_LastTarget[id] != targetId)
 		{
@@ -1913,9 +2016,11 @@ UpdateHud(Float:currentGameTime)
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
 			ClearSyncHud(id, g_SyncHudSpeedometer);
 			ClearSyncHud(id, g_SyncHudSpecList);
+			ClearSyncHud(targetId, g_SyncHudSpecList);
 		}
 
-		new msgSpecList[1280];
+		// Drawing spectator list
+		new msgSpectators[1216];
 		for (j = 0; j < num; j++)
 		{
 			id2 = players[j];
@@ -1930,8 +2035,8 @@ UpdateHud(Float:currentGameTime)
 			{ // This guy is watching you or the same player as you're watching
 				new spectatorName[33];
 				GetColorlessName(id2, spectatorName, charsmax(spectatorName));
-				add(spectatorName, charsmax(spectatorName) + 2, "^n");
-				add(msgSpecList, charsmax(msgSpecList), spectatorName);
+				add(spectatorName, charsmax(spectatorName) + 2, "\n");
+				add(msgSpectators, charsmax(msgSpectators), spectatorName);
 				specs++;
 			}
 		}
@@ -1939,14 +2044,22 @@ UpdateHud(Float:currentGameTime)
 		if (specs && g_ShowSpecList[id])
 		{
 			set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], 0.75, 0.15, 0, 0.0, 999999.0, 0.0, 0.0, -1);
+			new msgSpecHeader[64];
+			new msgSpecList[1280];
 			if (pev(id, pev_iuser2))
-				formatex(msgSpecList, charsmax(msgSpecList), "Also spectating %s: (%d/%d)^n%s", playerName, specs, specsTotal, msgSpecList);
+				if (specs > 1)
+					formatex(msgSpecHeader, charsmax(msgSpecHeader), "Spectating %s: (%d/%d)\n", playerName, specs, specsTotal);
 			else
-				formatex(msgSpecList, charsmax(msgSpecList), "Spectating you: (%d/%d)^n%s", specs, specsTotal, msgSpecList);
+				formatex(msgSpecHeader, charsmax(msgSpecHeader), "Spectating you: (%d/%d)\n", specs, specsTotal);
 
-			ShowSyncHudMsg(id, g_SyncHudSpecList, msgSpecList);
+			if (msgSpecHeader[0])
+			{
+				formatex(msgSpecList, charsmax(msgSpecList), "%s%s", msgSpecHeader, msgSpectators);
+				ShowSyncHudMsg(id, g_SyncHudSpecList, msgSpecList);
+			}
 		}
 
+		// Drawing pressed keys
 		HudShowPressedKeys(id, mode, targetId);
 
 		// Show information about start/stop entities
@@ -2308,6 +2421,12 @@ public Fw_MsgTempEntity()
 //*                                                     *
 //*******************************************************
 
+public Fw_FmPlayerPrethinkPre(id)
+{
+	Util_PlayAnimation(id, NPC_IdleAnimations[random(sizeof NPC_IdleAnimations)]);
+	console_print(0, "animating id %d", id);
+}
+
 public Fw_FmPlayerPreThinkPost(id)
 {
 	g_bWasSurfing[id] = g_bIsSurfing[id];
@@ -2326,6 +2445,16 @@ public Fw_FmPlayerPreThinkPost(id)
 	}
 	pev(id, pev_velocity, g_Velocity[id]);
 	pev(id, pev_origin, g_Origin[id]);
+
+	//for (new j = 0; j < sizeof(botIds); j++)
+	//{
+		//if (botIds[j] == id)
+	//if (IsBot(id))
+	//{
+		// Animate bot
+		//set_pev(id, pev_sequence, NPC_IdleAnimations[random(sizeof NPC_IdleAnimations)]);
+	//}
+	//}
 
 	// Store pressed keys here, cos HUD updating is called not so frequently
 	HudStorePressedKeys(id);
@@ -2348,6 +2477,7 @@ public Fw_FmPlayerPreThinkPost(id)
 	}
 
 	g_RestoreSolidStates = true;
+
 }
 
 public Fw_FmTouchPre(iEntity1, iEntity2)
@@ -3319,4 +3449,24 @@ GetVariableDecimalMessage(id, msg1[], msg2[] = "")
 	strcat(msg, "f ", charsmax(msg));
 	strcat(msg, msg2, charsmax(msg));
 	return msg;
+}
+
+public give_weapon(ent)
+{
+        new entWeapon = create_entity("info_target");
+
+        entity_set_string(entWeapon, EV_SZ_classname, "npc_weapon");
+
+        entity_set_int(entWeapon, EV_INT_movetype, MOVETYPE_FOLLOW);
+        entity_set_int(entWeapon, EV_INT_solid, SOLID_NOT);
+        entity_set_edict(entWeapon, EV_ENT_aiment, ent);
+        entity_set_model(entWeapon, "models/p_shotgun.mdl");
+}
+
+stock Util_PlayAnimation(index, sequence, Float: framerate = 1.0) 
+{ 
+    entity_set_float(index, EV_FL_animtime, get_gametime()); 
+    entity_set_float(index, EV_FL_framerate,  framerate); 
+    entity_set_float(index, EV_FL_frame, 0.0); 
+    entity_set_int(index, EV_INT_sequence, sequence); 
 }
