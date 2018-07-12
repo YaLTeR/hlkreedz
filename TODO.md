@@ -16,6 +16,7 @@ HLKreedz TODO:
 - [ ] Implement commands to show tops of any other map.
 - [ ] Implement cookies to store client preferences.
 - [ ] Implement achievements and ranks (ie. Diamond rank if you finish 5 classic maps in 1st-3rd position... Platinum, Gold, Silver, Bronze...).
+- [ ] Implement a small tool to measure distances ingame (by aiming position, etc.).
 - [ ] Implement replay bot, so players can see how worldrecords or other records are done.
 - [ ] Add an admin command for record removal, which updates the tops in real-time for all players.
 - [ ] Add an admin MOTD showing all connected players' variable states (e.g.: naz - LJStats ON, Speed OFF, NV mode 2, speclist OFF, etc.).
