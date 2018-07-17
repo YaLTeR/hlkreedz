@@ -23,7 +23,7 @@
 
 #define PLUGIN "HL KreedZ Beta"
 #define PLUGIN_TAG "HLKZ"
-#define VERSION "0.32"
+#define VERSION "0.33"
 #define AUTHOR "KORD_12.7 & Lev & YaLTeR & naz"
 
 // Compilation options
@@ -80,6 +80,14 @@ new const g_szTops[][] =
 	"Pure", "Pro", "Noob"
 };
 
+enum _:REPLAY
+{
+	Float:RP_TIME,
+	Float:RP_ORIGIN[3],
+	Float:RP_ANGLES[3],
+	RP_BUTTONS
+}
+
 enum _:CP_TYPES
 {
 	CP_TYPE_SPEC,
@@ -116,9 +124,6 @@ enum BUTTON_TYPE
 	BUTTON_NOT,
 }
 
-new const NPC_IdleAnimations[] = { 0, 1, 2, 3, 11, 12, 18, 21, 39, 63, 65 };
-new botIds[MAX_PLAYERS];
-
 new g_bit_is_connected, g_bit_is_alive, g_bit_invis, g_bit_waterinvis;
 new g_bit_is_hltv, g_bit_is_bot;
 new g_baIsClimbing, g_baIsPaused, g_baIsFirstSpawn, g_baIsPureRunning;
@@ -149,6 +154,16 @@ new g_ShowSpeed[MAX_PLAYERS + 1];
 new g_ShowSpecList[MAX_PLAYERS + 1];
 new Float:g_PlayerTASed[MAX_PLAYERS + 1];
 
+new g_BotOwner[MAX_PLAYERS + 1];
+new g_BotEntity[MAX_PLAYERS + 1];
+new g_RecordRun[MAX_PLAYERS + 1];
+// Each player has all the frames of their run stored here, the frames are arrays containing the info formatted like the REPLAY enum
+new Array:g_RunFrames[MAX_PLAYERS + 1]; // current run frames, being stored here while the run is going on
+new Array:g_ReplayFrames[MAX_PLAYERS + 1]; // frames to be replayed
+new g_ReplayFramesIdx[MAX_PLAYERS + 1]; // How many frames have been replayed
+new g_ReplayFile[MAX_PLAYERS + 1][256];
+new g_ReplayNum; // How many replays are running
+
 new g_FrameTime[MAX_PLAYERS + 1][2];
 new Float:g_FrameTimeInMsec[MAX_PLAYERS + 1];
 
@@ -157,6 +172,10 @@ new g_CpCounters[MAX_PLAYERS + 1][COUNTERS];
 new g_RunType[MAX_PLAYERS + 1][9];
 new Float:g_Velocity[MAX_PLAYERS + 1][3];
 new Float:g_Origin[MAX_PLAYERS + 1][3];
+new Float:g_Angles[MAX_PLAYERS + 1][3];
+new Float:g_ViewOfs[MAX_PLAYERS + 1][3];
+new g_Impulses[MAX_PLAYERS + 1];
+new g_Buttons[MAX_PLAYERS + 1];
 new bool:g_bIsSurfing[MAX_PLAYERS + 1];
 new bool:g_bWasSurfing[MAX_PLAYERS + 1];
 new bool:g_bIsSurfingWithFeet[MAX_PLAYERS + 1];
@@ -180,6 +199,7 @@ new g_TaskEnt;
 
 new g_Map[64];
 new g_ConfigsDir[256];
+new g_ReplaysDir[256];
 new g_StatsFileNub[256];
 new g_StatsFilePro[256];
 new g_StatsFilePure[256];
@@ -222,6 +242,9 @@ new pcvar_kz_slopefix;
 new pcvar_kz_speedcap;
 new pcvar_kz_speclist;
 new pcvar_kz_speclist_admin_invis;
+new pcvar_kz_autorecord;
+new pcvar_kz_max_concurrent_replays;
+new pcvar_kz_max_replay_duration;
 
 new g_FwLightStyle;
 
@@ -293,9 +316,14 @@ public plugin_init()
 	pcvar_kz_speclist = register_cvar("kz_speclist", "1");
 	pcvar_kz_speclist_admin_invis = register_cvar("kz_speclist_admin_invis", "0");
 
+	pcvar_kz_autorecord = register_cvar("kz_autorecord", "1");
+	pcvar_kz_max_concurrent_replays = register_cvar("kz_max_concurrent_replays", "5");
+	pcvar_kz_max_replay_duration = register_cvar("kz_max_replay_duration", "1200"); // in seconds (default: 20 minutes)
+
 	pcvar_allow_spectators = get_cvar_pointer("allow_spectators");
 
 	pcvar_sv_ag_match_running = get_cvar_pointer("sv_ag_match_running");
+
 
 	register_dictionary("telemenu.txt");
 	register_dictionary("common.txt");
@@ -326,6 +354,8 @@ public plugin_init()
 	register_menucmd(register_menuid(MAIN_MENU_ID), 1023, "ActionKzMenu");
 	register_menucmd(register_menuid(TELE_MENU_ID), 1023, "ActionTeleportMenu");
 
+	register_think("replay_bot", "npc_think");
+
 	RegisterHam(Ham_Use, "func_button", "Fw_HamUseButtonPre");
 	RegisterHam(Ham_Touch, "trigger_multiple", "Fw_HamUseButtonPre"); // ag_bhop_master.bsp starts timer when jumping on a platform
 	RegisterHam(Ham_Spawn, "player", "Fw_HamSpawnPlayerPost", 1);
@@ -338,7 +368,6 @@ public plugin_init()
 	register_forward(FM_ClientKill,"Fw_FmClientKillPre");
 	register_forward(FM_ClientCommand, "Fw_FmClientCommandPost", 1);
 	register_forward(FM_Think, "Fw_FmThinkPre");
-	register_forward(FM_PlayerPreThink, "Fw_FmPlayerPreThinkPre");
 	register_forward(FM_PlayerPreThink, "Fw_FmPlayerPreThinkPost", 1);
 	register_forward(FM_PlayerPostThink, "Fw_FmPlayerPostThinkPre");
 	register_forward(FM_AddToFullPack, "Fw_FmAddToFullPackPost", 1);
@@ -379,6 +408,8 @@ public plugin_init()
 	g_ArrayStatsNub = ArrayCreate(STATS);
 	g_ArrayStatsPro = ArrayCreate(STATS);
 	g_ArrayStatsPure = ArrayCreate(STATS);
+
+	g_ReplayNum = 0;
 }
 
 public plugin_cfg()
@@ -400,6 +431,10 @@ public plugin_cfg()
 	add(g_ConfigsDir, charsmax(g_ConfigsDir), configsSubDir);
 	if (!dir_exists(g_ConfigsDir))
 		mkdir(g_ConfigsDir);
+
+	formatex(g_ReplaysDir, charsmax(g_ReplaysDir), "%s/%s", g_ConfigsDir, "replays");
+	if (!dir_exists(g_ReplaysDir))
+		mkdir(g_ReplaysDir);
 
 	// Load stats
 	formatex(g_StatsFileNub, charsmax(g_StatsFileNub), "%s/%s_%s.dat", g_ConfigsDir, g_Map, "nub");
@@ -767,6 +802,8 @@ public client_putinserver(id)
 
 	g_ControlPoints[id][CP_TYPE_START] = g_MapDefaultStart;
 
+	g_ReplayFrames[id] = ArrayCreate(REPLAY);
+
 	set_task(1.20, "DisplayWelcomeMessage", id + TASKID_WELCOME);
 }
 
@@ -780,6 +817,17 @@ public client_disconnect(id)
 	clr_bit(g_baIsFirstSpawn, id);
 	clr_bit(g_baIsPureRunning, id);
 	g_SolidState[id] = -1;
+
+	if (g_RecordRun[id])
+	{
+		//fclose(g_RecordRun[id]);
+		g_RecordRun[id] = 0;
+		ArrayClear(g_RunFrames[id]);
+		console_print(id, "stopped recording");
+	}
+	ArrayClear(g_ReplayFrames[id]);
+	g_ReplayFramesIdx[id] = 0;
+
 
 	// Clear and reset other things
 	ResetPlayer(id, true, false);
@@ -988,52 +1036,272 @@ CmdTimer(id)
 	}
 }
 
-CmdSpawnBot(id)
+CmdReplayPure(id)
+	CmdReplay(id, g_szTops[0]);
+
+CmdReplayPro(id)
+	CmdReplay(id, g_szTops[1]);
+
+CmdReplayNoob(id)
+	CmdReplay(id, g_szTops[2]);
+
+CmdReplay(id, szTopType[])
+{
+	new maxReplays = get_pcvar_num(pcvar_kz_max_concurrent_replays);
+	if (g_ReplayNum >= maxReplays)
+		client_print(id, print_chat, "[%s] Sorry, there are too many replays running! Please, wait until one of the %d replays finish.", PLUGIN_TAG, g_ReplayNum);
+	else if (g_ReplayFramesIdx[id])
+		client_print(id, print_chat, "[%s] You're already replaying a record!", PLUGIN_TAG);
+	else if (!g_ReplayFramesIdx[id])
+	{ // not a simple else as if it accidentally gets into here, it can mess up the replays or bring down the server, so better leave the condition
+		static authid[32], replayFile[256], idNumbers[24], stats[STATS], time[32];
+		new minutes, Float:seconds, replayRank = GetNumberArg();
+
+		LoadRecords(szTopType);
+
+		new Array:arr;
+		if 		(equali(szTopType, g_szTops[0]))	arr = g_ArrayStatsPure;
+		else if (equali(szTopType, g_szTops[1]))	arr = g_ArrayStatsPro;
+		else										arr = g_ArrayStatsNub;
+
+		for (new i = 0; i < ArraySize(arr); i++)
+		{
+			ArrayGetArray(arr, i, stats);
+			if (i == replayRank - 1)
+			{
+				stats[STATS_NAME][17] = EOS;
+				formatex(authid, charsmax(authid), "%s", stats[STATS_ID]);
+				break; // the desired record info is already stored in stats, so exit loop
+			}
+		}
+
+		new replayingMsg[96], replayFailedMsg[96];
+		formatex(replayingMsg, charsmax(replayingMsg), "[%s] Replaying %s's %s record (%ss)", PLUGIN_TAG, stats[STATS_NAME], szTopType, time);
+		formatex(replayFailedMsg, charsmax(replayFailedMsg), "[%s] Sorry, no replay available for %s's %s record.", PLUGIN_TAG, stats[STATS_NAME], szTopType);
+		ConvertSteamID32ToNumbers(authid, idNumbers);
+		strtolower(szTopType);
+		formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
+		formatex(g_ReplayFile[id], 255, "%s", replayFile);
+		//console_print(id, "rank %d's idNumbers: '%s', replay file: '%s'", replayRank, idNumbers, replayFile);
+		
+		minutes = floatround(stats[STATS_TIME], floatround_floor) / 60;
+		seconds = stats[STATS_TIME] - (60 * minutes);
+
+		formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%"), minutes, seconds);
+
+
+		new file = fopen(replayFile, "rt");
+		if (!file)
+		{
+			client_print(id, print_chat, "%s", replayFailedMsg);
+			return;
+		}
+		else
+			client_print(id, print_chat, "%s", replayingMsg);
+
+		new data[1024], pos, replay[REPLAY], gametime[24], buttons[24];
+		new originX[24], originY[24], originZ[24];
+		new anglesX[24], anglesY[24], anglesZ[24];
+
+		ArrayClear(g_ReplayFrames[id]);
+
+		new i = 0;
+		while (!feof(file))
+		{ // TODO: make lazy load not to freeze the server for approx. 0.1 sec per 5000 frames
+			fgets(file, data, charsmax(data));
+			if (!strlen(data))
+				continue;
+
+			new parsedParamNum = parse(data, gametime, charsmax(gametime),
+				originX, charsmax(originX), originY, charsmax(originY), originZ, charsmax(originZ),
+				anglesX, charsmax(anglesX), anglesY, charsmax(anglesY), anglesZ, charsmax(anglesZ),
+				buttons, charsmax(buttons));
+
+			replay[RP_TIME] = _:str_to_float(gametime);
+			replay[RP_ORIGIN][0] = _:str_to_float(originX);
+			replay[RP_ORIGIN][1] = _:str_to_float(originY);
+			replay[RP_ORIGIN][2] = _:str_to_float(originZ);
+			replay[RP_ANGLES][0] = _:str_to_float(anglesX);
+			replay[RP_ANGLES][1] = _:str_to_float(anglesY);
+			replay[RP_ANGLES][2] = _:str_to_float(anglesZ);
+			replay[RP_BUTTONS] = str_to_num(buttons);
+
+			//new Float:speed = floatsqroot(floatpower(replay[RP_VELOCITY][0], 2.0) + floatpower(replay[RP_VELOCITY][1], 2.0));
+			if (i % 131 == 0) // only showing these frames because printing too many throws stack overflow
+				console_print(id, "gametime: %.5f, buttons: %df", replay[RP_TIME], replay[RP_BUTTONS]);
+
+			ArrayPushArray(g_ReplayFrames[id], replay);
+			i++;
+		}
+
+		fclose(file);
+
+		g_ReplayNum++;
+		SpawnBot(id);
+	}
+}
+
+SpawnBot(id)
 {
     if (get_playersnum(1) < get_maxplayers() - 4) // leave at least 4 slots available
     {
 	    new botName[9];
 	    botName = "Bot ";
 		for (new i = 0; i < 4; i++)
-		{
+		{ // Generate a random number 4 times, so the final name is like Bot 0123
 			new str[2];
 	    	num_to_str(random_num(0, 9), str, charsmax(str));
 	    	add(botName, charsmax(botName), str);
 		}
-	    new bot_id, ptr[128], ip[64], Float:botOrigin[3];
-	    bot_id = engfunc(EngFunc_CreateFakeClient, botName);
-		get_cvar_string("ip", ip, charsmax(ip));
-	    console_print(id, "bot_id: %d; ip: %s", bot_id, ip);
-	    dllfunc(DLLFunc_ClientConnect, bot_id, botName, ip, ptr);
-	    console_print(id, "ptr d: %d;", ptr);
-	    dllfunc(DLLFunc_ClientPutInServer, bot_id);
-	    hl_set_user_model(bot_id, "robo");
-	    dllfunc(DLLFunc_Spawn, bot_id);
-	    //set_pev(bot_id, pev_effects, (pev(bot_id, pev_effects) | 128));
-	    //set_pev(bot_id, pev_solid, 0);
-	    //new bot_userid = get_user_userid(bot_id);
-	    get_user_origin(id, botOrigin);
-	    set_user_origin(bot_id, botOrigin);
+	    new bot, ptr[128], ip[64]/*, Float:botOrigin[3], Float:botAngles[3], Float:botViewOfs[3], Float:botVelocity[3]*/;
+	    bot = engfunc(EngFunc_CreateFakeClient, botName);
+	    if (bot)
+	    {
+	    	// Creating an entity that will make the thinking process for this bot
+	    	new ent = create_entity("info_target");
+	    	g_BotEntity[bot] = ent;
+		    entity_set_string(ent, EV_SZ_classname, "replay_bot");
+		    //GetEntityBot(ent);
 
-		static classname[32];
-		pev(bot_id, pev_classname, classname, charsmax(classname));
-		console_print(id, "classname: %s", classname);
+		    engfunc(EngFunc_FreeEntPrivateData, bot);
+		    ConfigureBot(bot);
+		    // bot = create_entity("info_target"); 
+			get_cvar_string("ip", ip, charsmax(ip));
+		    dllfunc(DLLFunc_ClientConnect, bot, botName, ip, ptr);
+		    dllfunc(DLLFunc_ClientPutInServer, bot);
+		    //dllfunc(DLLFunc_Spawn, bot);
+		    //hl_set_user_model(bot, "robo");
+		    //dllfunc(DLLFunc_Spawn, bot);
 
-	    entity_set_float(bot_id, EV_FL_takedamage, 1.0);
-	    entity_set_float(bot_id, EV_FL_health, 100.0);
+		    entity_set_float(bot, EV_FL_takedamage, 1.0);
+		    entity_set_float(bot, EV_FL_health, 100.0);
 
-        entity_set_float(bot_id, EV_FL_animtime, 2.0);
-	    entity_set_float(bot_id, EV_FL_framerate, 1.0);
-	    entity_set_int(bot_id, EV_INT_sequence, 1);
+		    entity_set_byte(bot, EV_BYTE_controller1, 125);
+		    entity_set_byte(bot, EV_BYTE_controller2, 125);
+		    entity_set_byte(bot, EV_BYTE_controller3, 125);
+		    entity_set_byte(bot, EV_BYTE_controller4, 125);
+
+		    new Float:maxs[3] = {16.0, 16.0, 36.0};
+		    new Float:mins[3] = {-16.0, -16.0, -36.0};
+		    entity_set_size(bot, mins, maxs);
+
+		    // Copy the state of the player who spawned the bot
+			static replay[REPLAY], replayNext[REPLAY];
+			ArrayGetArray(g_ReplayFrames[id], 0, replay);
+			ArrayGetArray(g_ReplayFrames[id], 1, replayNext);
+			/*
+		    get_user_origin(id, botOrigin);
+			pev(id, pev_angles, botAngles);
+			pev(id, pev_view_ofs, botViewOfs);
+			pev(id, pev_velocity, botVelocity);
+		    set_user_origin(bot, botOrigin);
+		    */
+		    console_print(1, "data row: \"%.5f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%d\"",
+		    	replay[RP_TIME],
+		    	replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2],
+		    	replay[RP_ANGLES][0], replay[RP_ANGLES][1], replay[RP_ANGLES][2],
+		    	replay[RP_BUTTONS]);
+
+		    set_pev(bot, pev_origin, replay[RP_ORIGIN]);
+		    set_pev(bot, pev_angles, replay[RP_ANGLES]);
+		    set_pev(bot, pev_button, replay[RP_BUTTONS]);
+
+		    g_BotOwner[bot] = id;
+
+		    entity_set_float(ent, EV_FL_nextthink, get_gametime() + replayNext[RP_TIME] - replay[RP_TIME]);
+		    engfunc(EngFunc_RunPlayerMove, bot, replay[RP_ANGLES], 0.0, 0.0, 0.0, replay[RP_BUTTONS], 0, 4);
+	    }
+	    else
+	    	console_print(id, "[%s] Sorry, couldn't create the bot.", PLUGIN_TAG);
     }
+    return PLUGIN_HANDLED;
+}
 
-    static players[MAX_PLAYERS], num;
-	get_players(players, num);
-	for (new i = 0; i < num; i++)
+ConfigureBot(id) {
+	set_user_info(id, "model",				"robo");
+	set_user_info(id, "rate",				"3500");
+	set_user_info(id, "cl_updaterate",		"30");
+	set_user_info(id, "cl_lw",				"0");
+	set_user_info(id, "cl_lc",				"0");
+	set_user_info(id, "tracker",			"0");
+	set_user_info(id, "cl_dlmax",			"128");
+	set_user_info(id, "lefthand",			"1");
+	set_user_info(id, "friends",			"0");
+	set_user_info(id, "dm",					"0");
+	set_user_info(id, "ah",					"1");
+
+	set_user_info(id, "*bot",				"1");
+	set_user_info(id, "_cl_autowepswitch",	"1");
+	set_user_info(id, "_vgui_menu",			"0");		//disable vgui so we dont have to
+	set_user_info(id, "_vgui_menus",		"0");		//register both 2 types of menus :)
+}
+
+// Using this for bots instead of the player prethink because here I can tell the engine
+// when I want the next frame to be displayed, because prethink for bots runs 1000 times per second
+// (nextthink doesn't work for player prethink), and this one is adaptable to the FPS the run was recorded on
+public npc_think(id)
+{
+	// Get the bot attached to this entity
+	new bot = GetEntityBot(id);
+	new owner = g_BotOwner[bot];
+	if (g_ReplayFrames[owner] && g_ReplayFramesIdx[owner] < ArraySize(g_ReplayFrames[owner]))
 	{
-		new id2 = players[i];
-		console_print(id, "players[%d] = %d, isBot(%d) = %s", i, id2, id2, IsBot(id2) ? "yes" : "no");
+		static replay[REPLAY], replayNext[REPLAY];
+		ArrayGetArray(g_ReplayFrames[owner], g_ReplayFramesIdx[owner], replay); // get current frame
+		if (g_ReplayFramesIdx[owner] + 1 < ArraySize(g_ReplayFrames[owner]))
+			ArrayGetArray(g_ReplayFrames[owner], g_ReplayFramesIdx[owner] + 1, replayNext); // get next frame
+		else
+			replayNext[RP_TIME] = replay[RP_TIME] + 0.005;
+
+	    set_pev(bot, pev_origin, replay[RP_ORIGIN]);
+	    set_pev(bot, pev_angles, replay[RP_ANGLES]);
+	    set_pev(bot, pev_button, replay[RP_BUTTONS]);
+
+		new Float:botVelocity[3], frameDuration = replayNext[RP_TIME] - replay[RP_TIME];
+		if (frameDuration < 0)
+			log_amx("Negative frame duration detected in the frame #%d of the replay located in '%s'!", g_ReplayFramesIdx[owner], g_ReplayFile[owner]);
+
+		// The correct thing would be to take into account the previous frame, but it doesn't matter most of the time
+		if (frameDuration)
+		{
+			botVelocity[0] = (replayNext[RP_ORIGIN][0] - replay[RP_ORIGIN][0]) / frameDuration;
+			botVelocity[1] = (replayNext[RP_ORIGIN][1] - replay[RP_ORIGIN][1]) / frameDuration;
+			botVelocity[2] = (replayNext[RP_ORIGIN][2] - replay[RP_ORIGIN][2]) / frameDuration;
+		}
+		else
+		{
+			botVelocity[0] = (replayNext[RP_ORIGIN][0] - replay[RP_ORIGIN][0]);
+			botVelocity[1] = (replayNext[RP_ORIGIN][1] - replay[RP_ORIGIN][1]);
+			botVelocity[2] = (replayNext[RP_ORIGIN][2] - replay[RP_ORIGIN][2]);
+		}
+
+	    if (!g_ReplayFramesIdx[owner])
+	    	entity_set_float(id, EV_FL_nextthink, get_gametime() + 3.0); // TODO: countdown hud; 3 seconds to start the replay, so there's time to switch to spectator
+	    else
+	    	entity_set_float(id, EV_FL_nextthink, get_gametime() + replayNext[RP_TIME] - replay[RP_TIME]);
+
+	    engfunc(EngFunc_RunPlayerMove, bot, replay[RP_ANGLES], botVelocity[0], botVelocity[1], botVelocity[2], replay[RP_BUTTONS], 0, 4);
+	    g_ReplayFramesIdx[owner]++;
 	}
+	else
+	{
+		g_ReplayFramesIdx[owner] = 0;
+		ArrayClear(g_ReplayFrames[owner]);
+
+		new botId[1];
+		botId[0] = bot;
+		console_print(1, "removing bot %d", botId[0]);
+		set_task(0.5, "FinishReplay", _, botId, 1);
+		console_print(1, "removing entity %d", id);
+		remove_entity(id);
+	}
+
+}
+
+public FinishReplay(id[])
+{
+	server_cmd("kick #%d \"Replay finished.\"", get_user_userid(id[0]));
+	g_ReplayNum--;
 }
 
 CmdShowkeys(id)
@@ -1163,7 +1431,7 @@ CmdHelp(id)
 	return PLUGIN_HANDLED;
 }
 
-public CmdSayHandler(id)
+public CmdSayHandler(id, level, cid)
 {
 	static args[64];
 	read_args(args, charsmax(args));
@@ -1192,9 +1460,6 @@ public CmdSayHandler(id)
 
 	else if (equali(args[1], "timer"))
 		CmdTimer(id);
-
-	else if (equali(args[1], "bot"))
-		CmdSpawnBot(id);
 
 	else if (equali(args[1], "speclist"))
 		CmdSpecList(id);
@@ -1234,6 +1499,24 @@ public CmdSayHandler(id)
 
 	else if (equali(args[1], "speed"))
 		CmdSpeed(id);
+
+	/*
+	else if (equali(args[1], "bot"))
+	{
+		if (is_user_admin(id))
+			SpawnBot(id);
+	}
+	*/
+
+	// The ones below use contain because they can be passed parameters
+	else if (containi(args[1], "replaypure") == 0)
+		CmdReplayPure(id);
+
+	else if (containi(args[1], "replaypro") == 0)
+		CmdReplayPro(id);
+
+	else if (containi(args[1], "replaynub") == 0 || containi(args[1], "replaynoob") == 0)
+		CmdReplayNoob(id);
 
 	else if (containi(args[1], "speedcap") == 0)
 		CmdSpeedcap(id);
@@ -1747,6 +2030,22 @@ StartClimb(id)
 		return;
 	}
 
+	if (g_RecordRun[id])
+	{
+		//fclose(g_RecordRun[id]);
+		g_RecordRun[id] = 0;
+		ArrayClear(g_RunFrames[id]);
+		console_print(id, "stopped recording");
+	}
+
+	if (get_pcvar_num(pcvar_kz_autorecord))
+	{
+		g_RecordRun[id] = 1;
+		g_RunFrames[id] = ArrayCreate(REPLAY);
+		console_print(id, "started recording");
+		RecordRunFrame(id);
+	}
+
 	InitPlayer(id);
 
 	CreateCp(id, CP_TYPE_START);
@@ -1818,10 +2117,7 @@ FinishTimer(id)
 		{
 			if (get_bit(g_baIsPureRunning, id))
 			{
-				//log_amx(" ----- Checking records after Pure Run end ------");
-				//log_amx("Checking Pure top... ");
 				UpdateRecords(id, kztime, g_szTops[0]);
-				//log_amx("Checking Pro top... ");
 				UpdateRecords(id, kztime, g_szTops[1]);
 			}
 			else
@@ -2395,11 +2691,11 @@ public Fw_FmGetGameDescriptionPre()
 
 public Fw_FmCmdStartPre(id, uc_handle, seed)
 {
-
 	g_FrameTime[id][1] = g_FrameTime[id][0];
 	g_FrameTime[id][0] = get_uc(uc_handle, UC_Msec);
-
 	g_FrameTimeInMsec[id] = g_FrameTime[id][0] * 0.001;
+	g_Buttons[id] = get_uc(uc_handle, UC_Buttons);
+	g_Impulses[id] = get_uc(uc_handle, UC_Impulse);
 }
 
 public Fw_MsgTempEntity()
@@ -2421,12 +2717,6 @@ public Fw_MsgTempEntity()
 //*                                                     *
 //*******************************************************
 
-public Fw_FmPlayerPrethinkPre(id)
-{
-	Util_PlayAnimation(id, NPC_IdleAnimations[random(sizeof NPC_IdleAnimations)]);
-	console_print(0, "animating id %d", id);
-}
-
 public Fw_FmPlayerPreThinkPost(id)
 {
 	g_bWasSurfing[id] = g_bIsSurfing[id];
@@ -2443,18 +2733,14 @@ public Fw_FmPlayerPreThinkPost(id)
 		g_HBFrameCounter[id] -= 1;
 		CheckHealthBoost(id);
 	}
-	pev(id, pev_velocity, g_Velocity[id]);
 	pev(id, pev_origin, g_Origin[id]);
-
-	//for (new j = 0; j < sizeof(botIds); j++)
-	//{
-		//if (botIds[j] == id)
-	//if (IsBot(id))
-	//{
-		// Animate bot
-		//set_pev(id, pev_sequence, NPC_IdleAnimations[random(sizeof NPC_IdleAnimations)]);
-	//}
-	//}
+	pev(id, pev_angles, g_Angles[id]);
+	pev(id, pev_view_ofs, g_ViewOfs[id]);
+	pev(id, pev_velocity, g_Velocity[id]);
+	//console_print(id, "sequence: %d, pev_gaitsequence: %d", pev(id, pev_sequence), pev(id, pev_gaitsequence));
+	
+	if (!IsBot(id) && g_RecordRun[id])
+		RecordRunFrame(id);
 
 	// Store pressed keys here, cos HUD updating is called not so frequently
 	HudStorePressedKeys(id);
@@ -2705,6 +2991,8 @@ public Fw_FmPlayerPostThinkPre(id)
 		if (IsConnected(i) && g_SolidState[i] >= 0)
 			set_pev(i, pev_solid, g_SolidState[i]);
 	}
+	//pev(id, pev_velocity, g_Velocity[id]);
+	//pev(id, pev_angles, g_Angles[id]);
 }
 
 /* TODO: Review this dead code. There's NOT a forward pointing here, so it's never called and I don't know it should be
@@ -3221,29 +3509,16 @@ UpdateRecords(id, Float:kztime, szTopType[])
 	GetColorlessName(id, name, charsmax(name));
 
 	new result;
-
-	//log_amx("uniqueid = %s, name = %s", uniqueid, name);
-
-	//log_amx("-- Entering records loop. Array size: %d", ArraySize(arr));
 	for (new i = 0; i < ArraySize(arr); i++)
 	{
 		ArrayGetArray(arr, i, stats);
 		result = floatcmp(kztime, stats[STATS_TIME]);
-		//log_amx("comparing current run's time (%.2f) to best #%d time (%.2f); result = %d", kztime, i+1, stats[STATS_TIME], result);
 
 		if (result == -1 && insertItemId == -1)
-		{
 			insertItemId = i;
-			//log_amx("insertItemId = %d", insertItemId);
-		}
 
-		//log_amx("comparing %s to current runner ID (%s)", stats[STATS_ID], uniqueid);
 		if (!equal(stats[STATS_ID], uniqueid))
-		{
-			//log_amx("not equal, continue finding the current runner's position...");
 			continue;
-		}
-		//log_amx("equal, this is the record that we want to check...");
 
 		if (result != -1)
 		{
@@ -3255,10 +3530,6 @@ UpdateRecords(id, Float:kztime, szTopType[])
 				client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You failed your %s time by %02d:%"),
 					PLUGIN_TAG, szTopType, minutes, seconds);
 			}
-			/*
-			log_amx(GetVariableDecimalMessage(id, "%s failed their %s time by %02d:%", ", nothing to update here!"),
-				name, szTopType, minutes, seconds);
-			*/
 		
 			return;
 		}
@@ -3268,22 +3539,11 @@ UpdateRecords(id, Float:kztime, szTopType[])
 		seconds = faster - (60 * minutes);
 		client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You improved your %s time by %02d:%"),
 			PLUGIN_TAG, szTopType, minutes, seconds);
-		/*
-		log_amx(GetVariableDecimalMessage(id, "%s improved their %s time by %02d:%"),
-			name, szTopType, minutes, seconds);
-		*/
 
 		deleteItemId = i;
-		//log_amx("deleteItemId = %d", deleteItemId);
 
 		break;
 	}
-	//log_amx("-- Records loop finished. State of variables:");
-	//log_amx("uniqueid = %s, name = %s", uniqueid, name);
-	//log_amx("current run's time = %.2f", kztime);
-	//log_amx("result = %d", result);
-	//log_amx("insertItemId = %d", insertItemId);
-	//log_amx("deleteItemId = %d", deleteItemId);
 
 	copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
 	copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
@@ -3307,7 +3567,6 @@ UpdateRecords(id, Float:kztime, szTopType[])
 		ArrayDeleteItem(arr, insertItemId != -1 ? deleteItemId + 1 : deleteItemId);
 
 	rank++;
-	//log_amx("checking rank... rank = %d", rank);
 	if (rank <= get_pcvar_num(pcvar_kz_top_records))
 	{
 		client_cmd(0, "spk woop");
@@ -3321,8 +3580,16 @@ UpdateRecords(id, Float:kztime, szTopType[])
 	if (rank == 1)
 	{
 		new ret;
-		//new iArrayPass = PrepareArray(arr, ArraySize(arr));
 		ExecuteForward(mfwd_hlkz_worldrecord, ret, id, kztime, type, arr);
+	}
+
+	if (g_RecordRun[id])
+	{
+		//fclose(g_RecordRun[id]);
+		g_RecordRun[id] = 0;
+		//ArrayClear(g_RunFrames[id]);
+		console_print(id, "stopped recording");
+		SaveRecordedRun(id, szTopType);
 	}
 }
 
@@ -3451,22 +3718,66 @@ GetVariableDecimalMessage(id, msg1[], msg2[] = "")
 	return msg;
 }
 
-public give_weapon(ent)
+RecordRunFrame(id)
 {
-        new entWeapon = create_entity("info_target");
-
-        entity_set_string(entWeapon, EV_SZ_classname, "npc_weapon");
-
-        entity_set_int(entWeapon, EV_INT_movetype, MOVETYPE_FOLLOW);
-        entity_set_int(entWeapon, EV_INT_solid, SOLID_NOT);
-        entity_set_edict(entWeapon, EV_ENT_aiment, ent);
-        entity_set_model(entWeapon, "models/p_shotgun.mdl");
+	new Float:maxDuration = get_pcvar_float(pcvar_kz_max_replay_duration);
+	new Float:kztime = get_gametime() - g_PlayerTime[id];
+	if (kztime < maxDuration)
+	{
+		new frameState[REPLAY];
+		frameState[RP_TIME] = get_gametime();
+		frameState[RP_ORIGIN] = g_Origin[id];
+		frameState[RP_ANGLES] = g_Angles[id];
+		frameState[RP_BUTTONS] = pev(id, pev_button);
+		ArrayPushArray(g_RunFrames[id], frameState);
+		//console_print(id, "[%.3f] recording run...", frameState[RP_TIME]);
+	}
 }
 
-stock Util_PlayAnimation(index, sequence, Float: framerate = 1.0) 
-{ 
-    entity_set_float(index, EV_FL_animtime, get_gametime()); 
-    entity_set_float(index, EV_FL_framerate,  framerate); 
-    entity_set_float(index, EV_FL_frame, 0.0); 
-    entity_set_int(index, EV_INT_sequence, sequence); 
+SaveRecordedRun(id, szTopType[])
+{
+	static authid[32], replayFile[256], idNumbers[24];
+	get_user_authid(id, authid, charsmax(authid));
+
+	ConvertSteamID32ToNumbers(authid, idNumbers);
+	strtolower(szTopType);
+	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
+	console_print(id, "saving run to: '%s'", replayFile);
+
+	g_RecordRun[id] = fopen(replayFile, "wt");
+	console_print(id, "opened replay file");
+
+	new frameState[REPLAY];
+	for (new i; i < ArraySize(g_RunFrames[id]); i++)
+	{
+		ArrayGetArray(g_RunFrames[id], i, frameState);
+
+		// between double quotes because otherwise it doesn't parse correctly, not even with GetNextFloat()
+		fprintf(g_RecordRun[id], "\"%.5f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%d\"\n",
+			frameState[RP_TIME],
+			frameState[RP_ORIGIN][0],
+			frameState[RP_ORIGIN][1],
+			frameState[RP_ORIGIN][2],
+			frameState[RP_ANGLES][0],
+			frameState[RP_ANGLES][1],
+			frameState[RP_ANGLES][2],
+			frameState[RP_BUTTONS]);
+	}
+
+	fclose(g_RecordRun[id]);
+	console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
+	g_RecordRun[id] = 0;
+	ArrayClear(g_RunFrames[id]);
+	console_print(id, "clearing replay from memory");
+}
+
+// Returns the corresponding entity
+GetEntityBot(ent)
+{
+	for (new i = 0; i < sizeof(g_BotEntity); i++)
+	{	
+		if (ent == g_BotEntity[i])
+			return i;
+	}
+	return 0;
 }
