@@ -245,6 +245,7 @@ new pcvar_kz_speclist_admin_invis;
 new pcvar_kz_autorecord;
 new pcvar_kz_max_concurrent_replays;
 new pcvar_kz_max_replay_duration;
+new pcvar_kz_replay_setup_time;
 
 new g_FwLightStyle;
 
@@ -319,6 +320,7 @@ public plugin_init()
 	pcvar_kz_autorecord = register_cvar("kz_autorecord", "1");
 	pcvar_kz_max_concurrent_replays = register_cvar("kz_max_concurrent_replays", "5");
 	pcvar_kz_max_replay_duration = register_cvar("kz_max_replay_duration", "1200"); // in seconds (default: 20 minutes)
+	pcvar_kz_replay_setup_time = register_cvar("kz_replay_setup_time", "2"); // in seconds
 
 	pcvar_allow_spectators = get_cvar_pointer("allow_spectators");
 
@@ -1047,58 +1049,83 @@ CmdReplayNoob(id)
 
 CmdReplay(id, szTopType[])
 {
+	static authid[32], replayFile[256], idNumbers[24], stats[STATS], time[32];
+	new minutes, Float:seconds, replayRank = GetNumberArg();
 	new maxReplays = get_pcvar_num(pcvar_kz_max_concurrent_replays);
-	if (g_ReplayNum >= maxReplays)
-		client_print(id, print_chat, "[%s] Sorry, there are too many replays running! Please, wait until one of the %d replays finish.", PLUGIN_TAG, g_ReplayNum);
-	else if (g_ReplayFramesIdx[id])
-		client_print(id, print_chat, "[%s] You're already replaying a record!", PLUGIN_TAG);
-	else if (!g_ReplayFramesIdx[id])
+	new Float:setupTime = get_pcvar_float(pcvar_kz_replay_setup_time);
+
+	LoadRecords(szTopType);
+
+	new Array:arr;
+	if 		(equali(szTopType, g_szTops[0]))	arr = g_ArrayStatsPure;
+	else if (equali(szTopType, g_szTops[1]))	arr = g_ArrayStatsPro;
+	else										arr = g_ArrayStatsNub;
+
+	for (new i = 0; i < ArraySize(arr); i++)
+	{
+		ArrayGetArray(arr, i, stats);
+		if (i == replayRank - 1)
+		{
+			stats[STATS_NAME][17] = EOS;
+			formatex(authid, charsmax(authid), "%s", stats[STATS_ID]);
+			break; // the desired record info is already stored in stats, so exit loop
+		}
+	}
+
+	new replayingMsg[96], replayFailedMsg[96];
+	formatex(replayingMsg, charsmax(replayingMsg), "[%s] Replaying %s's %s run (%ss)", PLUGIN_TAG, stats[STATS_NAME], szTopType, time);
+	formatex(replayFailedMsg, charsmax(replayFailedMsg), "[%s] Sorry, no replay available for %s's %s run", PLUGIN_TAG, stats[STATS_NAME], szTopType);
+	ConvertSteamID32ToNumbers(authid, idNumbers);
+	strtolower(szTopType);
+	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
+	formatex(g_ReplayFile[id], 255, "%s", replayFile); // 255 hardcoded as the compiler doesn't like the brackets in charsmax(g_ReplayFile[id])
+	//console_print(id, "rank %d's idNumbers: '%s', replay file: '%s'", replayRank, idNumbers, replayFile);
+	
+	minutes = floatround(stats[STATS_TIME], floatround_floor) / 60;
+	seconds = stats[STATS_TIME] - (60 * minutes);
+
+	formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%"), minutes, seconds);
+
+	new file = fopen(replayFile, "rt");
+	if (!file)
+	{
+		client_print(id, print_chat, "%s", replayFailedMsg);
+		return PLUGIN_HANDLED;
+	}
+	else
+	{
+		new bool:canceled = false;
+		if (g_ReplayFramesIdx[id])
+		{
+			new botId[1];
+			botId[0] = GetOwnersBot(id);
+			FinishReplay(id);
+			console_print(1, "CmdReplay :: removing bot %d", botId[0]);
+			KickReplayBot(botId);
+			canceled = true;
+		}
+
+		if (g_ReplayNum >= maxReplays)
+		{
+			client_print(id, print_chat, "[%s] Sorry, there are too many replays running! Please, wait until one of the %d replays finish", PLUGIN_TAG, g_ReplayNum);
+			fclose(file);
+			return PLUGIN_HANDLED;
+		}
+		else if (GetOwnersBot(id))
+		{
+			client_print(id, print_chat, "[%s] Your previous bot is still setting up. Please, wait %.1f seconds to start a new replay", PLUGIN_TAG, setupTime);
+			fclose(file);
+			return PLUGIN_HANDLED;
+		}
+
+		if (canceled)
+			client_print(id, print_chat, "[%s] Cancelling your current replay...", PLUGIN_TAG);
+
+		client_print(id, print_chat, "%s", replayingMsg);
+	}
+	
+	if (!g_ReplayFramesIdx[id])
 	{ // not a simple else as if it accidentally gets into here, it can mess up the replays or bring down the server, so better leave the condition
-		static authid[32], replayFile[256], idNumbers[24], stats[STATS], time[32];
-		new minutes, Float:seconds, replayRank = GetNumberArg();
-
-		LoadRecords(szTopType);
-
-		new Array:arr;
-		if 		(equali(szTopType, g_szTops[0]))	arr = g_ArrayStatsPure;
-		else if (equali(szTopType, g_szTops[1]))	arr = g_ArrayStatsPro;
-		else										arr = g_ArrayStatsNub;
-
-		for (new i = 0; i < ArraySize(arr); i++)
-		{
-			ArrayGetArray(arr, i, stats);
-			if (i == replayRank - 1)
-			{
-				stats[STATS_NAME][17] = EOS;
-				formatex(authid, charsmax(authid), "%s", stats[STATS_ID]);
-				break; // the desired record info is already stored in stats, so exit loop
-			}
-		}
-
-		new replayingMsg[96], replayFailedMsg[96];
-		formatex(replayingMsg, charsmax(replayingMsg), "[%s] Replaying %s's %s record (%ss)", PLUGIN_TAG, stats[STATS_NAME], szTopType, time);
-		formatex(replayFailedMsg, charsmax(replayFailedMsg), "[%s] Sorry, no replay available for %s's %s record.", PLUGIN_TAG, stats[STATS_NAME], szTopType);
-		ConvertSteamID32ToNumbers(authid, idNumbers);
-		strtolower(szTopType);
-		formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
-		formatex(g_ReplayFile[id], 255, "%s", replayFile);
-		//console_print(id, "rank %d's idNumbers: '%s', replay file: '%s'", replayRank, idNumbers, replayFile);
-		
-		minutes = floatround(stats[STATS_TIME], floatround_floor) / 60;
-		seconds = stats[STATS_TIME] - (60 * minutes);
-
-		formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%"), minutes, seconds);
-
-
-		new file = fopen(replayFile, "rt");
-		if (!file)
-		{
-			client_print(id, print_chat, "%s", replayFailedMsg);
-			return;
-		}
-		else
-			client_print(id, print_chat, "%s", replayingMsg);
-
 		new data[1024], pos, replay[REPLAY], gametime[24], buttons[24];
 		new originX[24], originY[24], originZ[24];
 		new anglesX[24], anglesY[24], anglesZ[24];
@@ -1126,18 +1153,17 @@ CmdReplay(id, szTopType[])
 			replay[RP_ANGLES][2] = _:str_to_float(anglesZ);
 			replay[RP_BUTTONS] = str_to_num(buttons);
 
-			//new Float:speed = floatsqroot(floatpower(replay[RP_VELOCITY][0], 2.0) + floatpower(replay[RP_VELOCITY][1], 2.0));
-			if (i % 131 == 0) // only showing these frames because printing too many throws stack overflow
-				console_print(id, "gametime: %.5f, buttons: %df", replay[RP_TIME], replay[RP_BUTTONS]);
+			//if (i % 131 == 0) // only showing these frames because printing too many throws stack overflow
+				//console_print(id, "gametime: %.5f, buttons: %d", replay[RP_TIME], replay[RP_BUTTONS]);
 
 			ArrayPushArray(g_ReplayFrames[id], replay);
 			i++;
 		}
-
 		fclose(file);
 
 		g_ReplayNum++;
 		SpawnBot(id);
+		client_print(id, print_chat, "[%s] Your bot will start running in %.1f seconds", PLUGIN_TAG, setupTime);
 	}
 }
 
@@ -1145,8 +1171,8 @@ SpawnBot(id)
 {
     if (get_playersnum(1) < get_maxplayers() - 4) // leave at least 4 slots available
     {
-	    new botName[9];
-	    botName = "Bot ";
+	    new botName[33];
+	    formatex(botName, charsmax(botName), "%s Bot ", PLUGIN_TAG);
 		for (new i = 0; i < 4; i++)
 		{ // Generate a random number 4 times, so the final name is like Bot 0123
 			new str[2];
@@ -1161,17 +1187,12 @@ SpawnBot(id)
 	    	new ent = create_entity("info_target");
 	    	g_BotEntity[bot] = ent;
 		    entity_set_string(ent, EV_SZ_classname, "replay_bot");
-		    //GetEntityBot(ent);
 
 		    engfunc(EngFunc_FreeEntPrivateData, bot);
 		    ConfigureBot(bot);
-		    // bot = create_entity("info_target"); 
 			get_cvar_string("ip", ip, charsmax(ip));
 		    dllfunc(DLLFunc_ClientConnect, bot, botName, ip, ptr);
 		    dllfunc(DLLFunc_ClientPutInServer, bot);
-		    //dllfunc(DLLFunc_Spawn, bot);
-		    //hl_set_user_model(bot, "robo");
-		    //dllfunc(DLLFunc_Spawn, bot);
 
 		    entity_set_float(bot, EV_FL_takedamage, 1.0);
 		    entity_set_float(bot, EV_FL_health, 100.0);
@@ -1186,16 +1207,9 @@ SpawnBot(id)
 		    entity_set_size(bot, mins, maxs);
 
 		    // Copy the state of the player who spawned the bot
-			static replay[REPLAY], replayNext[REPLAY];
+			static replay[REPLAY];
 			ArrayGetArray(g_ReplayFrames[id], 0, replay);
-			ArrayGetArray(g_ReplayFrames[id], 1, replayNext);
-			/*
-		    get_user_origin(id, botOrigin);
-			pev(id, pev_angles, botAngles);
-			pev(id, pev_view_ofs, botViewOfs);
-			pev(id, pev_velocity, botVelocity);
-		    set_user_origin(bot, botOrigin);
-		    */
+
 		    console_print(1, "data row: \"%.5f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%d\"",
 		    	replay[RP_TIME],
 		    	replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2],
@@ -1207,12 +1221,13 @@ SpawnBot(id)
 		    set_pev(bot, pev_button, replay[RP_BUTTONS]);
 
 		    g_BotOwner[bot] = id;
+		    console_print(1, "player %d spawned the bot %d", id, bot);
 
-		    entity_set_float(ent, EV_FL_nextthink, get_gametime() + replayNext[RP_TIME] - replay[RP_TIME]);
+			entity_set_float(ent, EV_FL_nextthink, get_gametime() + get_pcvar_float(pcvar_kz_replay_setup_time)); // TODO: countdown hud; 3 seconds to start the replay, so there's time to switch to spectator
 		    engfunc(EngFunc_RunPlayerMove, bot, replay[RP_ANGLES], 0.0, 0.0, 0.0, replay[RP_BUTTONS], 0, 4);
 	    }
 	    else
-	    	console_print(id, "[%s] Sorry, couldn't create the bot.", PLUGIN_TAG);
+	    	console_print(id, "[%s] Sorry, couldn't create the bot", PLUGIN_TAG);
     }
     return PLUGIN_HANDLED;
 }
@@ -1242,7 +1257,7 @@ ConfigureBot(id) {
 public npc_think(id)
 {
 	// Get the bot attached to this entity
-	new bot = GetEntityBot(id);
+	new bot = GetEntitysBot(id);
 	new owner = g_BotOwner[bot];
 	if (g_ReplayFrames[owner] && g_ReplayFramesIdx[owner] < ArraySize(g_ReplayFrames[owner]))
 	{
@@ -1253,13 +1268,10 @@ public npc_think(id)
 		else
 			replayNext[RP_TIME] = replay[RP_TIME] + 0.005;
 
-	    set_pev(bot, pev_origin, replay[RP_ORIGIN]);
-	    set_pev(bot, pev_angles, replay[RP_ANGLES]);
-	    set_pev(bot, pev_button, replay[RP_BUTTONS]);
-
 		new Float:botVelocity[3], frameDuration = replayNext[RP_TIME] - replay[RP_TIME];
-		if (frameDuration < 0)
-			log_amx("Negative frame duration detected in the frame #%d of the replay located in '%s'!", g_ReplayFramesIdx[owner], g_ReplayFile[owner]);
+		if (frameDuration <= 0)
+			frameDuration = 0.004; // duration of a frame at 250 fps
+			//log_amx("Negative frame duration detected in the frame #%d of the replay located in '%s'!", g_ReplayFramesIdx[owner] + 1, g_ReplayFile[owner]);
 
 		// The correct thing would be to take into account the previous frame, but it doesn't matter most of the time
 		if (frameDuration)
@@ -1274,31 +1286,42 @@ public npc_think(id)
 			botVelocity[1] = (replayNext[RP_ORIGIN][1] - replay[RP_ORIGIN][1]);
 			botVelocity[2] = (replayNext[RP_ORIGIN][2] - replay[RP_ORIGIN][2]);
 		}
+	    set_pev(bot, pev_origin, replay[RP_ORIGIN]);
+	    set_pev(bot, pev_angles, replay[RP_ANGLES]);
+	    set_pev(bot, pev_button, replay[RP_BUTTONS]);
+		set_pev(bot, pev_velocity, botVelocity);
 
-	    if (!g_ReplayFramesIdx[owner])
-	    	entity_set_float(id, EV_FL_nextthink, get_gametime() + 3.0); // TODO: countdown hud; 3 seconds to start the replay, so there's time to switch to spectator
-	    else
-	    	entity_set_float(id, EV_FL_nextthink, get_gametime() + replayNext[RP_TIME] - replay[RP_TIME]);
+    	entity_set_float(id, EV_FL_nextthink, get_gametime() + replayNext[RP_TIME] - replay[RP_TIME]);
 
 	    engfunc(EngFunc_RunPlayerMove, bot, replay[RP_ANGLES], botVelocity[0], botVelocity[1], botVelocity[2], replay[RP_BUTTONS], 0, 4);
 	    g_ReplayFramesIdx[owner]++;
 	}
 	else
 	{
-		g_ReplayFramesIdx[owner] = 0;
-		ArrayClear(g_ReplayFrames[owner]);
-
 		new botId[1];
 		botId[0] = bot;
 		console_print(1, "removing bot %d", botId[0]);
-		set_task(0.5, "FinishReplay", _, botId, 1);
-		console_print(1, "removing entity %d", id);
-		remove_entity(id);
+		set_task(0.5, "KickReplayBot", _, botId, 1);
+		FinishReplay(owner);
 	}
 
 }
 
-public FinishReplay(id[])
+// Pass the player id that spawned the replay bot
+FinishReplay(id)
+{
+	g_ReplayFramesIdx[id] = 0;
+	ArrayClear(g_ReplayFrames[id]);
+
+	new bot = GetOwnersBot(id);
+	new ent = g_BotEntity[bot];
+	console_print(1, "removing entity %d", ent);
+	remove_entity(ent);
+	g_BotOwner[bot] = 0;
+	g_BotEntity[bot] = 0;
+}
+
+public KickReplayBot(id[])
 {
 	server_cmd("kick #%d \"Replay finished.\"", get_user_userid(id[0]));
 	g_ReplayNum--;
@@ -2277,7 +2300,8 @@ public Fw_FmThinkPre(ent)
 UpdateHud(Float:currentGameTime)
 {
 	static Float:kztime, min, sec, mode, targetId, ent, body;
-	static players[MAX_PLAYERS], num, id, id2, i, j, playerName[32];
+	static players[MAX_PLAYERS], num, id, id2, i, j, playerName[33];
+	static specHud[1280];
 
 	get_players(players, num);
 	for (i = 0; i < num; i++)
@@ -2316,44 +2340,22 @@ UpdateHud(Float:currentGameTime)
 		}
 
 		// Drawing spectator list
-		new msgSpectators[1216];
-		for (j = 0; j < num; j++)
+		if (is_user_alive(id))
 		{
-			id2 = players[j];
-			if (!is_user_connected(id2)) continue;
-
-			if (pev(id2, pev_iuser1))
-				specsTotal++;
-
-			new spectatedPlayer = pev(id2, pev_iuser2);
-			if (spectatedPlayer && pev(id2, pev_iuser2) == targetId
-				&& !(get_pcvar_num(pcvar_kz_speclist_admin_invis) && get_user_flags(id2, 0) & ADMIN_IMMUNITY))
-			{ // This guy is watching you or the same player as you're watching
-				new spectatorName[33];
-				GetColorlessName(id2, spectatorName, charsmax(spectatorName));
-				add(spectatorName, charsmax(spectatorName) + 2, "\n");
-				add(msgSpectators, charsmax(msgSpectators), spectatorName);
-				specs++;
-			}
-		}
-
-		if (specs && g_ShowSpecList[id])
-		{
-			set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], 0.75, 0.15, 0, 0.0, 999999.0, 0.0, 0.0, -1);
-			new msgSpecHeader[64];
-			new msgSpecList[1280];
-			if (pev(id, pev_iuser2))
-				if (specs > 1)
-					formatex(msgSpecHeader, charsmax(msgSpecHeader), "Spectating %s: (%d/%d)\n", playerName, specs, specsTotal);
-			else
-				formatex(msgSpecHeader, charsmax(msgSpecHeader), "Spectating you: (%d/%d)\n", specs, specsTotal);
-
-			if (msgSpecHeader[0])
+			new bool:sendTo[33];
+			if (GetSpectatorList(id, specHud, sendTo))
 			{
-				formatex(msgSpecList, charsmax(msgSpecList), "%s%s", msgSpecHeader, msgSpectators);
-				ShowSyncHudMsg(id, g_SyncHudSpecList, msgSpecList);
+				for (new i = 1; i <= g_MaxPlayers; i++)
+				{
+					if (sendTo[i] == true && g_ShowSpecList[i] == true)
+					{
+						set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], 0.75, 0.15, 0, 0.0, 999999.0, 0.0, 0.0, -1);
+						ShowSyncHudMsg(id, g_SyncHudSpecList, specHud);
+					}
+				}
 			}
 		}
+
 
 		// Drawing pressed keys
 		HudShowPressedKeys(id, mode, targetId);
@@ -2412,19 +2414,52 @@ UpdateHud(Float:currentGameTime)
 		if (g_ShowSpeed[id])
 		{
 			set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, 0.7, 0, 0.0, 999999.0, 0.0, 0.0, -1);
-			if( is_user_alive( id ) )
-				ShowSyncHudMsg( id, g_SyncHudSpeedometer, "%.2f", floatsqroot( g_Velocity[id][0] * g_Velocity[id][0] + g_Velocity[id][1] * g_Velocity[id][1] ) );
+			if (is_user_alive(id))
+				ShowSyncHudMsg(id, g_SyncHudSpeedometer, "%.2f", floatsqroot(g_Velocity[id][0] * g_Velocity[id][0] + g_Velocity[id][1] * g_Velocity[id][1]));
 			else
 			{
-				new specmode = pev( id, pev_iuser1 );
-				if( specmode == 2 || specmode == 4 )
+				new specmode = pev(id, pev_iuser1);
+				if (specmode == 2 || specmode == 4)
 				{
-					new t = pev( id, pev_iuser2 );
-					ShowSyncHudMsg( id, g_SyncHudSpeedometer, "%.2f", floatsqroot( g_Velocity[t][0] * g_Velocity[t][0] + g_Velocity[t][1] * g_Velocity[t][1] ) );
+					new t = pev(id, pev_iuser2);
+					ShowSyncHudMsg(id, g_SyncHudSpeedometer, "%.2f", floatsqroot(g_Velocity[t][0] * g_Velocity[t][0] + g_Velocity[t][1] * g_Velocity[t][1]));
 				}
 			}
 		}
 	}
+}
+
+GetSpectatorList(id, hud[], sendTo[])
+{
+	new szName[33];
+	new bool:send = false;
+	
+	sendTo[id] = true;
+	
+	GetColorlessName(id, szName, charsmax(szName));
+	format(hud, 45, "Spectating %s:\n", szName);
+	
+	for (new dead = 1; dead <= g_MaxPlayers; dead++)
+	{
+		if (is_user_connected(dead))
+		{
+			if (is_user_alive(dead) || is_user_bot(dead))
+				continue;
+			
+			if (pev(dead, pev_iuser2) == id)
+			{
+				if(!(get_pcvar_num(pcvar_kz_speclist_admin_invis) && get_user_flags(dead, 0) & ADMIN_IMMUNITY))
+				{
+					get_user_name(dead, szName, charsmax(szName));
+					add(szName, charsmax(szName), "\n");
+					add(hud, charsmax(hud), szName);
+					send = true;
+				}
+				sendTo[dead] = true;
+			}
+		}
+	}
+	return send;
 }
 
 HudStorePressedKeys(id)
@@ -3771,12 +3806,23 @@ SaveRecordedRun(id, szTopType[])
 	console_print(id, "clearing replay from memory");
 }
 
-// Returns the corresponding entity
-GetEntityBot(ent)
+// Returns the entity that is linked to a bot
+GetEntitysBot(ent)
 {
-	for (new i = 0; i < sizeof(g_BotEntity); i++)
+	for (new i = 1; i <= sizeof(g_BotEntity) - 1; i++)
 	{	
 		if (ent == g_BotEntity[i])
+			return i;
+	}
+	return 0;
+}
+
+// Returns the bot that a player has spawned
+GetOwnersBot(id)
+{
+	for (new i = 1; i <= sizeof(g_BotOwner) - 1; i++)
+	{	
+		if (id == g_BotOwner[i])
 			return i;
 	}
 	return 0;
