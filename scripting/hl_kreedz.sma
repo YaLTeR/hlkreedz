@@ -1245,7 +1245,7 @@ ConfigureBot(id) {
 	set_user_info(id, "dm",					"0");
 	set_user_info(id, "ah",					"1");
 
-	set_user_info(id, "*bot",				"1");
+	//set_user_info(id, "*bot",				"1");
 	set_user_info(id, "_cl_autowepswitch",	"1");
 	set_user_info(id, "_vgui_menu",			"0");		//disable vgui so we dont have to
 	set_user_info(id, "_vgui_menus",		"0");		//register both 2 types of menus :)
@@ -1268,7 +1268,8 @@ public npc_think(id)
 		else
 			replayNext[RP_TIME] = replay[RP_TIME] + 0.005;
 
-		new Float:botVelocity[3], frameDuration = replayNext[RP_TIME] - replay[RP_TIME];
+		new Float:botVelocity[3], Float:frameDuration = replayNext[RP_TIME] - replay[RP_TIME];
+		pev(bot, pev_velocity, botVelocity);
 		if (frameDuration <= 0)
 			frameDuration = 0.004; // duration of a frame at 250 fps
 			//log_amx("Negative frame duration detected in the frame #%d of the replay located in '%s'!", g_ReplayFramesIdx[owner] + 1, g_ReplayFile[owner]);
@@ -1278,13 +1279,9 @@ public npc_think(id)
 		{
 			botVelocity[0] = (replayNext[RP_ORIGIN][0] - replay[RP_ORIGIN][0]) / frameDuration;
 			botVelocity[1] = (replayNext[RP_ORIGIN][1] - replay[RP_ORIGIN][1]) / frameDuration;
-			botVelocity[2] = (replayNext[RP_ORIGIN][2] - replay[RP_ORIGIN][2]) / frameDuration;
-		}
-		else
-		{
-			botVelocity[0] = (replayNext[RP_ORIGIN][0] - replay[RP_ORIGIN][0]);
-			botVelocity[1] = (replayNext[RP_ORIGIN][1] - replay[RP_ORIGIN][1]);
-			botVelocity[2] = (replayNext[RP_ORIGIN][2] - replay[RP_ORIGIN][2]);
+			// z velocity is already calculated by the engine because of gravity,
+			// but it would have to be calculated if surfing, but may not be easy
+			// as a too high z velocity when not surfing will deal fall damage
 		}
 	    set_pev(bot, pev_origin, replay[RP_ORIGIN]);
 	    set_pev(bot, pev_angles, replay[RP_ANGLES]);
