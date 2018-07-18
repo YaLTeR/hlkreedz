@@ -17,8 +17,9 @@ HLKreedz TODO:
 - [ ] Implement cookies to store client preferences.
 - [ ] Implement achievements and ranks (ie. Diamond rank if you finish 5 classic maps in 1st-3rd position... Platinum, Gold, Silver, Bronze...).
 - [ ] Implement a small tool to measure distances ingame (by aiming position, etc.).
-- [ ] Implement replay bot, so players can see how worldrecords or other records are done.
+- [x] Implement replay bot, so players can see how worldrecords or other records are done.
 - [ ] Add a menu to choose custom replays, not replays of full runs, but thinking more of small strats or skips recording.
+- [ ] Add some commands to rewind and change the speed of the replay (not the same as changing replay framerate).
 - [ ] Make replay framerate customizable. If the demo was recorded at a lower framerate, calculate the missing frames (maybe it's only possible to multiply the framerate by an integer, e.g.: it would be possible to upgrade from 125 fps to 250 fps (x2), 375 fps (x3), 500 fps (x4), etc., but not possible from 125 fps to 144 fps (x1.152) or 200 fps (x1.6)).
 - [ ] Add an admin command for record removal, which updates the tops in real-time for all players.
 - [ ] Add an admin MOTD showing all connected players' variable states (e.g.: naz - LJStats ON, Speed OFF, NV mode 2, speclist OFF, etc.).
