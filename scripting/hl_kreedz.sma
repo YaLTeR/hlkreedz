@@ -23,7 +23,7 @@
 
 #define PLUGIN "HL KreedZ Beta"
 #define PLUGIN_TAG "HLKZ"
-#define VERSION "0.33"
+#define VERSION "0.34"
 #define AUTHOR "KORD_12.7 & Lev & YaLTeR & naz"
 
 // Compilation options
@@ -161,7 +161,7 @@ new g_RecordRun[MAX_PLAYERS + 1];
 new Array:g_RunFrames[MAX_PLAYERS + 1]; // current run frames, being stored here while the run is going on
 new Array:g_ReplayFrames[MAX_PLAYERS + 1]; // frames to be replayed
 new g_ReplayFramesIdx[MAX_PLAYERS + 1]; // How many frames have been replayed
-new g_ReplayFile[MAX_PLAYERS + 1][256];
+//new g_ReplayFile[MAX_PLAYERS + 1][256];
 new g_ReplayNum; // How many replays are running
 
 new g_FrameTime[MAX_PLAYERS + 1][2];
@@ -1078,7 +1078,7 @@ CmdReplay(id, szTopType[])
 	ConvertSteamID32ToNumbers(authid, idNumbers);
 	strtolower(szTopType);
 	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
-	formatex(g_ReplayFile[id], 255, "%s", replayFile); // 255 hardcoded as the compiler doesn't like the brackets in charsmax(g_ReplayFile[id])
+	//formatex(g_ReplayFile[id], charsmax(replayFile), "%s", replayFile);
 	//console_print(id, "rank %d's idNumbers: '%s', replay file: '%s'", replayRank, idNumbers, replayFile);
 	
 	minutes = floatround(stats[STATS_TIME], floatround_floor) / 60;
@@ -1086,7 +1086,7 @@ CmdReplay(id, szTopType[])
 
 	formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%"), minutes, seconds);
 
-	new file = fopen(replayFile, "rt");
+	new file = fopen(replayFile, "rb");
 	if (!file)
 	{
 		client_print(id, print_chat, "%s", replayFailedMsg);
@@ -1131,33 +1131,20 @@ CmdReplay(id, szTopType[])
 		new anglesX[24], anglesY[24], anglesZ[24];
 
 		ArrayClear(g_ReplayFrames[id]);
+		console_print(id, "gonna read the replay file");
 
 		new i = 0;
 		while (!feof(file))
-		{ // TODO: make lazy load not to freeze the server for approx. 0.1 sec per 5000 frames
-			fgets(file, data, charsmax(data));
-			if (!strlen(data))
-				continue;
+		{
+			i++;
+			fread_blocks(file, replay, sizeof(replay) - 1, BLOCK_INT);
+			fread(file, replay[RP_BUTTONS], BLOCK_SHORT);
 
-			new parsedParamNum = parse(data, gametime, charsmax(gametime),
-				originX, charsmax(originX), originY, charsmax(originY), originZ, charsmax(originZ),
-				anglesX, charsmax(anglesX), anglesY, charsmax(anglesY), anglesZ, charsmax(anglesZ),
-				buttons, charsmax(buttons));
-
-			replay[RP_TIME] = _:str_to_float(gametime);
-			replay[RP_ORIGIN][0] = _:str_to_float(originX);
-			replay[RP_ORIGIN][1] = _:str_to_float(originY);
-			replay[RP_ORIGIN][2] = _:str_to_float(originZ);
-			replay[RP_ANGLES][0] = _:str_to_float(anglesX);
-			replay[RP_ANGLES][1] = _:str_to_float(anglesY);
-			replay[RP_ANGLES][2] = _:str_to_float(anglesZ);
-			replay[RP_BUTTONS] = str_to_num(buttons);
-
-			//if (i % 131 == 0) // only showing these frames because printing too many throws stack overflow
-				//console_print(id, "gametime: %.5f, buttons: %d", replay[RP_TIME], replay[RP_BUTTONS]);
+			if (i % 331 == 0) // only showing these frames because printing too many throws stack overflow
+				console_print(id, "gametime: %.5f, pz: %.3f, ay: %.3f, buttons: %d", replay[RP_TIME], replay[RP_ORIGIN], replay[RP_ANGLES], replay[RP_BUTTONS]);
 
 			ArrayPushArray(g_ReplayFrames[id], replay);
-			i++;
+
 		}
 		fclose(file);
 
@@ -1210,7 +1197,7 @@ SpawnBot(id)
 			static replay[REPLAY];
 			ArrayGetArray(g_ReplayFrames[id], 0, replay);
 
-		    console_print(1, "data row: \"%.5f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%d\"",
+		    console_print(1, "data row: %.5f %.3f %.3f %.3f %.3f %.3f %.3f %d",
 		    	replay[RP_TIME],
 		    	replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2],
 		    	replay[RP_ANGLES][0], replay[RP_ANGLES][1], replay[RP_ANGLES][2],
@@ -3660,13 +3647,16 @@ ShowTopClimbers(id, szTopType[])
 		client_print(id, print_chat, "[%s] Sorry, not showing all the requested records because the server won't allow loading more than %d records at once", PLUGIN_TAG, cvarMaxRecords);
 	}
 
+
+
 	if (equali(szTopType, g_szTops[2]))
-		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time       CP  TP         Date\n\n");
+		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time       CP  TP         Date        Demo\n\n");
 	else
-		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time              Date\n\n");
+		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time              Date        Demo\n\n");
 
 	for (new i = recMin; i < recMax && charsmax(buffer) - len > 0; i++)
 	{
+		static authid[32], idNumbers[24], replayFile[256];
 		ArrayGetArray(arr, i, stats);
 
 		// TODO: Solve UTF halfcut at the end
@@ -3678,10 +3668,18 @@ ShowTopClimbers(id, szTopType[])
 		formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%"), minutes, seconds);
 		format_time(date, charsmax(date), "%d/%m/%Y", stats[STATS_TIMESTAMP]);
 
+		// Check if there's demo for this record
+		formatex(authid, charsmax(authid), "%s", stats[STATS_ID]);
+		ConvertSteamID32ToNumbers(authid, idNumbers);
+		strtolower(szTopType);
+		formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
+		new hasDemo = file_exists(replayFile);
+		ucfirst(szTopType);
+
 		if (equali(szTopType, g_szTops[2]))
-			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s  %3d %3d        %s\n", i + 1, stats[STATS_NAME], time, stats[STATS_CP], stats[STATS_TP], date);
+			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s  %3d %3d        %s   %s\n", i + 1, stats[STATS_NAME], time, stats[STATS_CP], stats[STATS_TP], date, hasDemo ? "yes" : "no");
 		else
-			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s         %s\n", i + 1, stats[STATS_NAME], time, date);
+			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s         %s   %s\n", i + 1, stats[STATS_NAME], time, date, hasDemo ? "yes" : "no");
 	}
 
 	len += formatex(buffer[len], charsmax(buffer) - len, "\n%s %s", PLUGIN, VERSION);
@@ -3776,25 +3774,17 @@ SaveRecordedRun(id, szTopType[])
 	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
 	console_print(id, "saving run to: '%s'", replayFile);
 
-	g_RecordRun[id] = fopen(replayFile, "wt");
+	g_RecordRun[id] = fopen(replayFile, "wb");
 	console_print(id, "opened replay file");
 
 	new frameState[REPLAY];
 	for (new i; i < ArraySize(g_RunFrames[id]); i++)
 	{
 		ArrayGetArray(g_RunFrames[id], i, frameState);
-
-		// between double quotes because otherwise it doesn't parse correctly, not even with GetNextFloat()
-		fprintf(g_RecordRun[id], "\"%.5f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%.3f\" \"%d\"\n",
-			frameState[RP_TIME],
-			frameState[RP_ORIGIN][0],
-			frameState[RP_ORIGIN][1],
-			frameState[RP_ORIGIN][2],
-			frameState[RP_ANGLES][0],
-			frameState[RP_ANGLES][1],
-			frameState[RP_ANGLES][2],
-			frameState[RP_BUTTONS]);
+		fwrite_blocks(g_RecordRun[id], frameState, sizeof(frameState) - 1, BLOCK_INT);
+		fwrite(g_RecordRun[id], frameState[RP_BUTTONS], BLOCK_SHORT);
 	}
+	
 
 	fclose(g_RecordRun[id]);
 	console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
