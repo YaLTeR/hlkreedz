@@ -20,9 +20,10 @@
 #include <hl>
 #include <hl_kreedz_util>
 
+
 #define PLUGIN "HL KreedZ Beta"
 #define PLUGIN_TAG "HLKZ"
-#define VERSION "0.31"
+#define VERSION "0.34"
 #define AUTHOR "KORD_12.7 & Lev & YaLTeR & naz"
 
 // Compilation options
@@ -79,6 +80,14 @@ new const g_szTops[][] =
 	"Pure", "Pro", "Noob"
 };
 
+enum _:REPLAY
+{
+	Float:RP_TIME,
+	Float:RP_ORIGIN[3],
+	Float:RP_ANGLES[3],
+	RP_BUTTONS
+}
+
 enum _:CP_TYPES
 {
 	CP_TYPE_SPEC,
@@ -106,16 +115,6 @@ enum _:COUNTERS
 	COUNTER_CP,
 	COUNTER_TP,
 	COUNTER_SP,
-}
-
-enum _:STATS
-{
-	STATS_ID[32],
-	STATS_NAME[32],
-	STATS_CP,
-	STATS_TP,
-	Float:STATS_TIME,	// Timer value
-	STATS_TIMESTAMP,	// Date
 }
 
 enum BUTTON_TYPE
@@ -150,6 +149,20 @@ new g_ShowStartMsg[MAX_PLAYERS + 1];
 new g_TimeDecimals[MAX_PLAYERS + 1];
 new g_Nightvision[MAX_PLAYERS + 1];
 new g_Slopefix[MAX_PLAYERS + 1];
+new Float:g_Speedcap[MAX_PLAYERS + 1];
+new g_ShowSpeed[MAX_PLAYERS + 1];
+new g_ShowSpecList[MAX_PLAYERS + 1];
+new Float:g_PlayerTASed[MAX_PLAYERS + 1];
+
+new g_BotOwner[MAX_PLAYERS + 1];
+new g_BotEntity[MAX_PLAYERS + 1];
+new g_RecordRun[MAX_PLAYERS + 1];
+// Each player has all the frames of their run stored here, the frames are arrays containing the info formatted like the REPLAY enum
+new Array:g_RunFrames[MAX_PLAYERS + 1]; // current run frames, being stored here while the run is going on
+new Array:g_ReplayFrames[MAX_PLAYERS + 1]; // frames to be replayed
+new g_ReplayFramesIdx[MAX_PLAYERS + 1]; // How many frames have been replayed
+//new g_ReplayFile[MAX_PLAYERS + 1][256];
+new g_ReplayNum; // How many replays are running
 
 new g_FrameTime[MAX_PLAYERS + 1][2];
 new Float:g_FrameTimeInMsec[MAX_PLAYERS + 1];
@@ -159,6 +172,10 @@ new g_CpCounters[MAX_PLAYERS + 1][COUNTERS];
 new g_RunType[MAX_PLAYERS + 1][9];
 new Float:g_Velocity[MAX_PLAYERS + 1][3];
 new Float:g_Origin[MAX_PLAYERS + 1][3];
+new Float:g_Angles[MAX_PLAYERS + 1][3];
+new Float:g_ViewOfs[MAX_PLAYERS + 1][3];
+new g_Impulses[MAX_PLAYERS + 1];
+new g_Buttons[MAX_PLAYERS + 1];
 new bool:g_bIsSurfing[MAX_PLAYERS + 1];
 new bool:g_bWasSurfing[MAX_PLAYERS + 1];
 new bool:g_bIsSurfingWithFeet[MAX_PLAYERS + 1];
@@ -174,12 +191,15 @@ new g_SyncHudMessage;
 new g_SyncHudKeys;
 new g_SyncHudHealth;
 new g_SyncHudShowStartMsg;
+new g_SyncHudSpeedometer;
+new g_SyncHudSpecList;
 new g_MaxPlayers;
 new g_PauseSprite;
 new g_TaskEnt;
 
 new g_Map[64];
 new g_ConfigsDir[256];
+new g_ReplaysDir[256];
 new g_StatsFileNub[256];
 new g_StatsFilePro[256];
 new g_StatsFilePure[256];
@@ -219,24 +239,33 @@ new pcvar_kz_pure_allow_healthboost;
 new pcvar_kz_remove_func_friction;
 new pcvar_kz_nightvision;
 new pcvar_kz_slopefix;
+new pcvar_kz_speedcap;
+new pcvar_kz_speclist;
+new pcvar_kz_speclist_admin_invis;
+new pcvar_kz_autorecord;
+new pcvar_kz_max_concurrent_replays;
+new pcvar_kz_max_replay_duration;
+new pcvar_kz_replay_setup_time;
 
 new g_FwLightStyle;
 
 new pcvar_sv_ag_match_running;
 
 new mfwd_hlkz_cheating;
+new mfwd_hlkz_worldrecord;
 
 new Array:g_ArrayStatsNub;
 new Array:g_ArrayStatsPro;
 new Array:g_ArrayStatsPure;
 
 
-
-
 public plugin_precache()
 {
 	g_FwLightStyle = register_forward(FM_LightStyle, "Fw_FmLightStyle");
 	g_PauseSprite = precache_model("sprites/pause_icon.spr");
+    precache_model("models/player/robo/robo.mdl");
+    precache_model("models/player/gordon/gordon.mdl");
+    precache_model("models/p_shotgun.mdl");
 }
 
 public plugin_init()
@@ -284,10 +313,19 @@ public plugin_init()
 
 	// 0 - slopebug/surfbug fix disabled, 1 - fix enabled, may want to disable it when you consistently get stuck in little slopes while sliding+wallstrafing
 	pcvar_kz_slopefix = register_cvar("kz_slopefix", "1");
+	pcvar_kz_speedcap = register_cvar("kz_speedcap", "0"); // 0 means the player can set the speedcap at the horizontal speed they want
+	pcvar_kz_speclist = register_cvar("kz_speclist", "1");
+	pcvar_kz_speclist_admin_invis = register_cvar("kz_speclist_admin_invis", "0");
+
+	pcvar_kz_autorecord = register_cvar("kz_autorecord", "1");
+	pcvar_kz_max_concurrent_replays = register_cvar("kz_max_concurrent_replays", "5");
+	pcvar_kz_max_replay_duration = register_cvar("kz_max_replay_duration", "1200"); // in seconds (default: 20 minutes)
+	pcvar_kz_replay_setup_time = register_cvar("kz_replay_setup_time", "2"); // in seconds
 
 	pcvar_allow_spectators = get_cvar_pointer("allow_spectators");
 
 	pcvar_sv_ag_match_running = get_cvar_pointer("sv_ag_match_running");
+
 
 	register_dictionary("telemenu.txt");
 	register_dictionary("common.txt");
@@ -310,9 +348,15 @@ public plugin_init()
 	register_clcmd("-hook", "CheatCmdHandler");
 	register_clcmd("+rope", "CheatCmdHandler");
 	register_clcmd("-rope", "CheatCmdHandler");
+	register_clcmd("+tas_perfectstrafe", "TASCmdHandler");
+	register_clcmd("-tas_perfectstrafe", "TASCmdHandler");
+	register_clcmd("+tas_autostrafe", "TASCmdHandler");
+	register_clcmd("-tas_autostrafe", "TASCmdHandler");
 
 	register_menucmd(register_menuid(MAIN_MENU_ID), 1023, "ActionKzMenu");
 	register_menucmd(register_menuid(TELE_MENU_ID), 1023, "ActionTeleportMenu");
+
+	register_think("replay_bot", "npc_think");
 
 	RegisterHam(Ham_Use, "func_button", "Fw_HamUseButtonPre");
 	RegisterHam(Ham_Touch, "trigger_multiple", "Fw_HamUseButtonPre"); // ag_bhop_master.bsp starts timer when jumping on a platform
@@ -337,7 +381,8 @@ public plugin_init()
 	register_touch("trigger_push", "player", "Fw_FmPlayerTouchPush");
 	register_touch("trigger_multiple", "player", "Fw_FmPlayerTouchHealthBooster");
 
-	mfwd_hlkz_cheating = CreateMultiForward( "hlkz_cheating", ET_IGNORE, FP_CELL );
+	mfwd_hlkz_cheating = CreateMultiForward("hlkz_cheating", ET_IGNORE, FP_CELL);
+	mfwd_hlkz_worldrecord = CreateMultiForward("hlkz_worldrecord", ET_IGNORE, FP_CELL, FP_FLOAT, FP_CELL, FP_CELL);
 
 	register_message(get_user_msgid("Health"), "Fw_MsgHealth");
 	register_message(SVC_TEMPENTITY, "Fw_MsgTempEntity");
@@ -359,10 +404,14 @@ public plugin_init()
 	g_SyncHudKeys = CreateHudSyncObj();
 	g_SyncHudHealth = CreateHudSyncObj();
 	g_SyncHudShowStartMsg = CreateHudSyncObj();
+	g_SyncHudSpeedometer = CreateHudSyncObj();
+	g_SyncHudSpecList = CreateHudSyncObj();
 
 	g_ArrayStatsNub = ArrayCreate(STATS);
 	g_ArrayStatsPro = ArrayCreate(STATS);
 	g_ArrayStatsPure = ArrayCreate(STATS);
+
+	g_ReplayNum = 0;
 }
 
 public plugin_cfg()
@@ -384,6 +433,10 @@ public plugin_cfg()
 	add(g_ConfigsDir, charsmax(g_ConfigsDir), configsSubDir);
 	if (!dir_exists(g_ConfigsDir))
 		mkdir(g_ConfigsDir);
+
+	formatex(g_ReplaysDir, charsmax(g_ReplaysDir), "%s/%s", g_ConfigsDir, "replays");
+	if (!dir_exists(g_ReplaysDir))
+		mkdir(g_ReplaysDir);
 
 	// Load stats
 	formatex(g_StatsFileNub, charsmax(g_StatsFileNub), "%s/%s_%s.dat", g_ConfigsDir, g_Map, "nub");
@@ -656,7 +709,7 @@ DisplayKzMenu(id, mode)
 
 public ActionKzMenu(id, key)
 {
-	key ++;
+	key++;
 
 	if (key == 9) DisplayKzMenu(id, 0);
 	if (key == 10) return PLUGIN_HANDLED;
@@ -742,9 +795,16 @@ public client_putinserver(id)
 	else if (g_Nightvision[id] == 1)
 		g_Nightvision[id] = 2;
 
+	g_Speedcap[id] = get_pcvar_float(pcvar_kz_speedcap);
+
+	g_ShowSpeed[id] = false;
+	g_ShowSpecList[id] = true;
+
 	//query_client_cvar(id, "kz_nightvision", "ClCmdNightvision"); // TODO save user variables in a file and retrieve them when they connect to server
 
 	g_ControlPoints[id][CP_TYPE_START] = g_MapDefaultStart;
+
+	g_ReplayFrames[id] = ArrayCreate(REPLAY);
 
 	set_task(1.20, "DisplayWelcomeMessage", id + TASKID_WELCOME);
 }
@@ -759,6 +819,17 @@ public client_disconnect(id)
 	clr_bit(g_baIsFirstSpawn, id);
 	clr_bit(g_baIsPureRunning, id);
 	g_SolidState[id] = -1;
+
+	if (g_RecordRun[id])
+	{
+		//fclose(g_RecordRun[id]);
+		g_RecordRun[id] = 0;
+		ArrayClear(g_RunFrames[id]);
+		console_print(id, "stopped recording");
+	}
+	ArrayClear(g_ReplayFrames[id]);
+	g_ReplayFramesIdx[id] = 0;
+
 
 	// Clear and reset other things
 	ResetPlayer(id, true, false);
@@ -899,6 +970,19 @@ CmdReset(id)
 		ResetPlayer(id, false, false);
 }
 
+CmdSpecList(id)
+{
+	//console_print(id, "pev_iuser1 is %s", pev(id, pev_iuser1) ? "set" : "NOT set"); // happens when you're in spectator mode
+	//console_print(id, "pev_iuser2 is %s", pev(id, pev_iuser2) ? "set" : "NOT set"); // happens when you're spectating a player (not in Free mode)
+	if (!get_pcvar_num(pcvar_kz_speclist))
+	{
+		ShowMessage(id, "Toggling the spectator list is disabled by server");
+		return;
+	}
+	g_ShowSpecList[id] = !g_ShowSpecList[id];
+	client_print(id, print_chat, "[%s] Spectator list is now %s", PLUGIN_TAG, g_ShowSpecList[id] ? "visible" : "hidden");
+}
+
 CmdSpec(id)
 {
 	client_cmd(id, "spectate");	// CanSpectate is called inside of command hook handler
@@ -916,7 +1000,6 @@ CmdInvis(id)
 		set_bit(g_bit_invis, id);
 		client_print(id, print_chat, "[%s] All players hidden", PLUGIN_TAG);
 	}
-	return PLUGIN_CONTINUE;
 }
 
 CmdWaterInvis(id)
@@ -931,7 +1014,6 @@ CmdWaterInvis(id)
 		set_bit(g_bit_waterinvis, id);
 		client_print(id, print_chat, "[%s] Liquids are now hidden", PLUGIN_TAG);
 	}
-	return PLUGIN_CONTINUE;
 }
 
 CmdTimer(id)
@@ -954,6 +1036,279 @@ CmdTimer(id)
 		g_ShowTimer[id] = 0;
 		ShowMessage(id, "Timer display: off");
 	}
+}
+
+CmdReplayPure(id)
+	CmdReplay(id, g_szTops[0]);
+
+CmdReplayPro(id)
+	CmdReplay(id, g_szTops[1]);
+
+CmdReplayNoob(id)
+	CmdReplay(id, g_szTops[2]);
+
+CmdReplay(id, szTopType[])
+{
+	static authid[32], replayFile[256], idNumbers[24], stats[STATS], time[32];
+	new minutes, Float:seconds, replayRank = GetNumberArg();
+	new maxReplays = get_pcvar_num(pcvar_kz_max_concurrent_replays);
+	new Float:setupTime = get_pcvar_float(pcvar_kz_replay_setup_time);
+
+	LoadRecords(szTopType);
+
+	new Array:arr;
+	if 		(equali(szTopType, g_szTops[0]))	arr = g_ArrayStatsPure;
+	else if (equali(szTopType, g_szTops[1]))	arr = g_ArrayStatsPro;
+	else										arr = g_ArrayStatsNub;
+
+	for (new i = 0; i < ArraySize(arr); i++)
+	{
+		ArrayGetArray(arr, i, stats);
+		if (i == replayRank - 1)
+		{
+			stats[STATS_NAME][17] = EOS;
+			formatex(authid, charsmax(authid), "%s", stats[STATS_ID]);
+			break; // the desired record info is already stored in stats, so exit loop
+		}
+	}
+
+	new replayingMsg[96], replayFailedMsg[96];
+	formatex(replayingMsg, charsmax(replayingMsg), "[%s] Replaying %s's %s run (%ss)", PLUGIN_TAG, stats[STATS_NAME], szTopType, time);
+	formatex(replayFailedMsg, charsmax(replayFailedMsg), "[%s] Sorry, no replay available for %s's %s run", PLUGIN_TAG, stats[STATS_NAME], szTopType);
+	ConvertSteamID32ToNumbers(authid, idNumbers);
+	strtolower(szTopType);
+	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
+	//formatex(g_ReplayFile[id], charsmax(replayFile), "%s", replayFile);
+	//console_print(id, "rank %d's idNumbers: '%s', replay file: '%s'", replayRank, idNumbers, replayFile);
+	
+	minutes = floatround(stats[STATS_TIME], floatround_floor) / 60;
+	seconds = stats[STATS_TIME] - (60 * minutes);
+
+	formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%"), minutes, seconds);
+
+	new file = fopen(replayFile, "rb");
+	if (!file)
+	{
+		client_print(id, print_chat, "%s", replayFailedMsg);
+		return PLUGIN_HANDLED;
+	}
+	else
+	{
+		new bool:canceled = false;
+		if (g_ReplayFramesIdx[id])
+		{
+			new botId[1];
+			botId[0] = GetOwnersBot(id);
+			FinishReplay(id);
+			console_print(1, "CmdReplay :: removing bot %d", botId[0]);
+			KickReplayBot(botId);
+			canceled = true;
+		}
+
+		if (g_ReplayNum >= maxReplays)
+		{
+			client_print(id, print_chat, "[%s] Sorry, there are too many replays running! Please, wait until one of the %d replays finish", PLUGIN_TAG, g_ReplayNum);
+			fclose(file);
+			return PLUGIN_HANDLED;
+		}
+		else if (GetOwnersBot(id))
+		{
+			client_print(id, print_chat, "[%s] Your previous bot is still setting up. Please, wait %.1f seconds to start a new replay", PLUGIN_TAG, setupTime);
+			fclose(file);
+			return PLUGIN_HANDLED;
+		}
+
+		if (canceled)
+			client_print(id, print_chat, "[%s] Cancelling your current replay...", PLUGIN_TAG);
+
+		client_print(id, print_chat, "%s", replayingMsg);
+	}
+	
+	if (!g_ReplayFramesIdx[id])
+	{ // not a simple else as if it accidentally gets into here, it can mess up the replays or bring down the server, so better leave the condition
+		new data[1024], pos, replay[REPLAY], gametime[24], buttons[24];
+		new originX[24], originY[24], originZ[24];
+		new anglesX[24], anglesY[24], anglesZ[24];
+
+		ArrayClear(g_ReplayFrames[id]);
+		console_print(id, "gonna read the replay file");
+
+		new i = 0;
+		while (!feof(file))
+		{
+			i++;
+			fread_blocks(file, replay, sizeof(replay) - 1, BLOCK_INT);
+			fread(file, replay[RP_BUTTONS], BLOCK_SHORT);
+
+			if (i % 331 == 0) // only showing these frames because printing too many throws stack overflow
+				console_print(id, "gametime: %.5f, pz: %.3f, ay: %.3f, buttons: %d", replay[RP_TIME], replay[RP_ORIGIN], replay[RP_ANGLES], replay[RP_BUTTONS]);
+
+			ArrayPushArray(g_ReplayFrames[id], replay);
+
+		}
+		fclose(file);
+
+		g_ReplayNum++;
+		SpawnBot(id);
+		client_print(id, print_chat, "[%s] Your bot will start running in %.1f seconds", PLUGIN_TAG, setupTime);
+	}
+}
+
+SpawnBot(id)
+{
+    if (get_playersnum(1) < get_maxplayers() - 4) // leave at least 4 slots available
+    {
+	    new botName[33];
+	    formatex(botName, charsmax(botName), "%s Bot ", PLUGIN_TAG);
+		for (new i = 0; i < 4; i++)
+		{ // Generate a random number 4 times, so the final name is like Bot 0123
+			new str[2];
+	    	num_to_str(random_num(0, 9), str, charsmax(str));
+	    	add(botName, charsmax(botName), str);
+		}
+	    new bot, ptr[128], ip[64]/*, Float:botOrigin[3], Float:botAngles[3], Float:botViewOfs[3], Float:botVelocity[3]*/;
+	    bot = engfunc(EngFunc_CreateFakeClient, botName);
+	    if (bot)
+	    {
+	    	// Creating an entity that will make the thinking process for this bot
+	    	new ent = create_entity("info_target");
+	    	g_BotEntity[bot] = ent;
+		    entity_set_string(ent, EV_SZ_classname, "replay_bot");
+
+		    engfunc(EngFunc_FreeEntPrivateData, bot);
+		    ConfigureBot(bot);
+			get_cvar_string("ip", ip, charsmax(ip));
+		    dllfunc(DLLFunc_ClientConnect, bot, botName, ip, ptr);
+		    dllfunc(DLLFunc_ClientPutInServer, bot);
+
+		    entity_set_float(bot, EV_FL_takedamage, 1.0);
+		    entity_set_float(bot, EV_FL_health, 100.0);
+
+		    entity_set_byte(bot, EV_BYTE_controller1, 125);
+		    entity_set_byte(bot, EV_BYTE_controller2, 125);
+		    entity_set_byte(bot, EV_BYTE_controller3, 125);
+		    entity_set_byte(bot, EV_BYTE_controller4, 125);
+
+		    new Float:maxs[3] = {16.0, 16.0, 36.0};
+		    new Float:mins[3] = {-16.0, -16.0, -36.0};
+		    entity_set_size(bot, mins, maxs);
+
+		    // Copy the state of the player who spawned the bot
+			static replay[REPLAY];
+			ArrayGetArray(g_ReplayFrames[id], 0, replay);
+
+		    console_print(1, "data row: %.5f %.3f %.3f %.3f %.3f %.3f %.3f %d",
+		    	replay[RP_TIME],
+		    	replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2],
+		    	replay[RP_ANGLES][0], replay[RP_ANGLES][1], replay[RP_ANGLES][2],
+		    	replay[RP_BUTTONS]);
+
+		    set_pev(bot, pev_origin, replay[RP_ORIGIN]);
+		    set_pev(bot, pev_angles, replay[RP_ANGLES]);
+		    set_pev(bot, pev_button, replay[RP_BUTTONS]);
+
+		    g_BotOwner[bot] = id;
+		    console_print(1, "player %d spawned the bot %d", id, bot);
+
+			entity_set_float(ent, EV_FL_nextthink, get_gametime() + get_pcvar_float(pcvar_kz_replay_setup_time)); // TODO: countdown hud; 3 seconds to start the replay, so there's time to switch to spectator
+		    engfunc(EngFunc_RunPlayerMove, bot, replay[RP_ANGLES], 0.0, 0.0, 0.0, replay[RP_BUTTONS], 0, 4);
+	    }
+	    else
+	    	console_print(id, "[%s] Sorry, couldn't create the bot", PLUGIN_TAG);
+    }
+    return PLUGIN_HANDLED;
+}
+
+ConfigureBot(id) {
+	set_user_info(id, "model",				"robo");
+	set_user_info(id, "rate",				"3500");
+	set_user_info(id, "cl_updaterate",		"30");
+	set_user_info(id, "cl_lw",				"0");
+	set_user_info(id, "cl_lc",				"0");
+	set_user_info(id, "tracker",			"0");
+	set_user_info(id, "cl_dlmax",			"128");
+	set_user_info(id, "lefthand",			"1");
+	set_user_info(id, "friends",			"0");
+	set_user_info(id, "dm",					"0");
+	set_user_info(id, "ah",					"1");
+
+	//set_user_info(id, "*bot",				"1");
+	set_user_info(id, "_cl_autowepswitch",	"1");
+	set_user_info(id, "_vgui_menu",			"0");		//disable vgui so we dont have to
+	set_user_info(id, "_vgui_menus",		"0");		//register both 2 types of menus :)
+}
+
+// Using this for bots instead of the player prethink because here I can tell the engine
+// when I want the next frame to be displayed, because prethink for bots runs 1000 times per second
+// (nextthink doesn't work for player prethink), and this one is adaptable to the FPS the run was recorded on
+public npc_think(id)
+{
+	// Get the bot attached to this entity
+	new bot = GetEntitysBot(id);
+	new owner = g_BotOwner[bot];
+	if (g_ReplayFrames[owner] && g_ReplayFramesIdx[owner] < ArraySize(g_ReplayFrames[owner]))
+	{
+		static replay[REPLAY], replayNext[REPLAY];
+		ArrayGetArray(g_ReplayFrames[owner], g_ReplayFramesIdx[owner], replay); // get current frame
+		if (g_ReplayFramesIdx[owner] + 1 < ArraySize(g_ReplayFrames[owner]))
+			ArrayGetArray(g_ReplayFrames[owner], g_ReplayFramesIdx[owner] + 1, replayNext); // get next frame
+		else
+			replayNext[RP_TIME] = replay[RP_TIME] + 0.005;
+
+		new Float:botVelocity[3], Float:frameDuration = replayNext[RP_TIME] - replay[RP_TIME];
+		pev(bot, pev_velocity, botVelocity);
+		if (frameDuration <= 0)
+			frameDuration = 0.004; // duration of a frame at 250 fps
+			//log_amx("Negative frame duration detected in the frame #%d of the replay located in '%s'!", g_ReplayFramesIdx[owner] + 1, g_ReplayFile[owner]);
+
+		// The correct thing would be to take into account the previous frame, but it doesn't matter most of the time
+		if (frameDuration)
+		{
+			botVelocity[0] = (replayNext[RP_ORIGIN][0] - replay[RP_ORIGIN][0]) / frameDuration;
+			botVelocity[1] = (replayNext[RP_ORIGIN][1] - replay[RP_ORIGIN][1]) / frameDuration;
+			// z velocity is already calculated by the engine because of gravity,
+			// but it would have to be calculated if surfing, but may not be easy
+			// as a too high z velocity when not surfing will deal fall damage
+		}
+	    set_pev(bot, pev_origin, replay[RP_ORIGIN]);
+	    set_pev(bot, pev_angles, replay[RP_ANGLES]);
+	    set_pev(bot, pev_button, replay[RP_BUTTONS]);
+		set_pev(bot, pev_velocity, botVelocity);
+
+    	entity_set_float(id, EV_FL_nextthink, get_gametime() + replayNext[RP_TIME] - replay[RP_TIME]);
+
+	    engfunc(EngFunc_RunPlayerMove, bot, replay[RP_ANGLES], botVelocity[0], botVelocity[1], botVelocity[2], replay[RP_BUTTONS], 0, 4);
+	    g_ReplayFramesIdx[owner]++;
+	}
+	else
+	{
+		new botId[1];
+		botId[0] = bot;
+		console_print(1, "removing bot %d", botId[0]);
+		set_task(0.5, "KickReplayBot", _, botId, 1);
+		FinishReplay(owner);
+	}
+
+}
+
+// Pass the player id that spawned the replay bot
+FinishReplay(id)
+{
+	g_ReplayFramesIdx[id] = 0;
+	ArrayClear(g_ReplayFrames[id]);
+
+	new bot = GetOwnersBot(id);
+	new ent = g_BotEntity[bot];
+	console_print(1, "removing entity %d", ent);
+	remove_entity(ent);
+	g_BotOwner[bot] = 0;
+	g_BotEntity[bot] = 0;
+}
+
+public KickReplayBot(id[])
+{
+	server_cmd("kick #%d \"Replay finished.\"", get_user_userid(id[0]));
+	g_ReplayNum--;
 }
 
 CmdShowkeys(id)
@@ -1037,16 +1392,17 @@ CmdHelp(id)
 		/cp - create control point\n\
 		/tp - teleport to last control point\n\
 		/top - show Top climbers\n\
-		/pure /pro /nub /noob <#>-<#> - show specific tops and records, e.g. /pro 20-50\n\
+		/pure /pro /nub <#>-<#> - show specific tops and records, e.g. /pro 20-50\n\
 		/unstuck - teleport to previous control point\n\
 		/pause - pause timer and freeze player\n\
-		/reset - reset timer and clear checkpoints\n");
+		/reset - reset timer and clear checkpoints\n\
+		/speed - toggle showing your horizontal speed\n");
 
 	if (is_plugin_loaded("Q::Jumpstats"))
 	{
 		len += formatex(motd[len], charsmax(motd) - len,
-			"/ljstats /jumpstats - toggle showing different jump distances\n\
-			/speed - toggle showing your horizontal speed\n\
+			"/lj - show LJ top\n\
+			/ljstats - toggle showing different jump distances\n\
 			/prestrafe - toggle showing prestrafe speed\n");
 	}
 	if (is_plugin_loaded("Enhanced Map Searching"))
@@ -1059,6 +1415,7 @@ CmdHelp(id)
 		"/start - go to start button\n\
 		/respawn - go to spawn point\n\
 		/spec - go to spectate mode or exit from it\n\
+		/speclist - show players watching you\n\
 		/ss - set custom start position\n\
 		/cs - clear custom start position\n\
 		/invis - make other players invisible to you\n\
@@ -1069,6 +1426,7 @@ CmdHelp(id)
 		/dec <1-6> - number of decimals in times\n\
 		/nv <0-2> - nightvision mode, 0=off, 1=flashlight, 2=global\n\
 		/slopefix - toggle slopebug/surfbug fix, if you get stuck in little slopes disable it\n\
+		/speedcap <#> - set your horizontal speed limit\n\
 		/kzhelp - this motd\n");
 
 	formatex(motd[len], charsmax(motd) - len,
@@ -1080,7 +1438,7 @@ CmdHelp(id)
 	return PLUGIN_HANDLED;
 }
 
-public CmdSayHandler(id)
+public CmdSayHandler(id, level, cid)
 {
 	static args[64];
 	read_args(args, charsmax(args));
@@ -1109,6 +1467,9 @@ public CmdSayHandler(id)
 
 	else if (equali(args[1], "timer"))
 		CmdTimer(id);
+
+	else if (equali(args[1], "speclist"))
+		CmdSpecList(id);
 
 	else if (equali(args[1], "spectate") || equali(args[1], "spec"))
 		CmdSpec(id);
@@ -1142,6 +1503,30 @@ public CmdSayHandler(id)
 
 	else if (equali(args[1], "slopefix"))
 		CmdSlopefix(id);
+
+	else if (equali(args[1], "speed"))
+		CmdSpeed(id);
+
+	/*
+	else if (equali(args[1], "bot"))
+	{
+		if (is_user_admin(id))
+			SpawnBot(id);
+	}
+	*/
+
+	// The ones below use contain because they can be passed parameters
+	else if (containi(args[1], "replaypure") == 0)
+		CmdReplayPure(id);
+
+	else if (containi(args[1], "replaypro") == 0)
+		CmdReplayPro(id);
+
+	else if (containi(args[1], "replaynub") == 0 || containi(args[1], "replaynoob") == 0)
+		CmdReplayNoob(id);
+
+	else if (containi(args[1], "speedcap") == 0)
+		CmdSpeedcap(id);
 
 	else if (containi(args[1], "dec") == 0)
 		CmdTimeDecimals(id);
@@ -1191,16 +1576,52 @@ public CheatCmdHandler(id)
 		g_CheatCommandsGuard[id] &= ~bit;
 	}
 
-	new ret;
-	ExecuteForward(mfwd_hlkz_cheating, ret, id);
-
 	if (get_bit(g_baIsClimbing, id))
 		ResetPlayer(id, false, true);
+
+	new ret;
+	ExecuteForward(mfwd_hlkz_cheating, ret, id);
 
 	return PLUGIN_CONTINUE;
 }
 
+// refactor to get this into the CheatCmdHandler function,
+// it isn't already inside it 'cos wasn't working properly at first try
+public TASCmdHandler(id)
+{
+	new cmd[32];
+	read_argv(0, cmd, charsmax(cmd));
 
+	if (cmd[0] == '+')
+		g_CheatCommandsGuard[id] |= (1 << 2);
+	else
+	{
+		// Skip timer reset if hook isn't used, the case when console opened/closed with bind to command (it sends -command)
+		if (!(g_CheatCommandsGuard[id] & (1 << 2)))
+			return PLUGIN_CONTINUE;
+		g_CheatCommandsGuard[id] &= ~(1 << 2);
+	}
+
+	if (get_bit(g_baIsClimbing, id))
+		ResetPlayer(id, false, true);
+
+	if (cmd[0] == '+')
+	{
+		if (!g_PlayerTASed[id] || (get_gametime() - g_PlayerTASed[id]) > 10.0)
+		{
+			new name[32], uniqueid[32];
+			GetColorlessName(id, name, charsmax(name));
+			get_user_authid(id, uniqueid, charsmax(uniqueid));
+			log_amx("%s <%s> has used a TAS command! Command: %s", name, uniqueid, cmd);
+			g_PlayerTASed[id] = get_gametime();
+		}
+	}
+	
+	new ret;
+	ExecuteForward(mfwd_hlkz_cheating, ret, id);
+
+	return PLUGIN_CONTINUE;
+}
 
 
 //*******************************************************
@@ -1444,7 +1865,8 @@ bool:CanSpectate(id, bool:showMessages = true)
 
 public CmdSpectateHandler(id)
 {
-	if (IsHltv(id) || IsBot(id))
+	//if (IsHltv(id) || IsBot(id))
+	if (IsHltv(id))
 		return PLUGIN_CONTINUE;
 
 	return ClientCommandSpectatePre(id);
@@ -1452,7 +1874,8 @@ public CmdSpectateHandler(id)
 
 public Fw_FmClientCommandPost(id)
 {
-	if (IsHltv(id) || IsBot(id))
+	//if (IsHltv(id) || IsBot(id))
+	if (IsHltv(id))
 		return FMRES_IGNORED;
 
 	new cmd[32];
@@ -1614,6 +2037,22 @@ StartClimb(id)
 		return;
 	}
 
+	if (g_RecordRun[id])
+	{
+		//fclose(g_RecordRun[id]);
+		g_RecordRun[id] = 0;
+		ArrayClear(g_RunFrames[id]);
+		console_print(id, "stopped recording");
+	}
+
+	if (get_pcvar_num(pcvar_kz_autorecord))
+	{
+		g_RecordRun[id] = 1;
+		g_RunFrames[id] = ArrayCreate(REPLAY);
+		console_print(id, "started recording");
+		RecordRunFrame(id);
+	}
+
 	InitPlayer(id);
 
 	CreateCp(id, CP_TYPE_START);
@@ -1685,10 +2124,7 @@ FinishTimer(id)
 		{
 			if (get_bit(g_baIsPureRunning, id))
 			{
-				log_amx(" ----- Checking records after Pure Run end ------");
-				log_amx("Checking Pure top... ");
 				UpdateRecords(id, kztime, g_szTops[0]);
-				log_amx("Checking Pro top... ");
 				UpdateRecords(id, kztime, g_szTops[1]);
 			}
 			else
@@ -1848,15 +2284,18 @@ public Fw_FmThinkPre(ent)
 UpdateHud(Float:currentGameTime)
 {
 	static Float:kztime, min, sec, mode, targetId, ent, body;
-	static players[MAX_PLAYERS], num, id, i;
+	static players[MAX_PLAYERS], num, id, id2, i, j, playerName[33];
+	static specHud[1280];
 
 	get_players(players, num);
 	for (i = 0; i < num; i++)
 	{
+		new specs = 0, specsTotal = 0;
 		id = players[i];
+		GetColorlessName(id, playerName, charsmax(playerName));
 		//if (IsBot(id) || IsHltv(id)) continue;
 
-		// Select traget from whom to take timer and pressed keys
+		// Select target from whom to take timer and pressed keys
 		mode = pev(id, pev_iuser1);
 		targetId = mode == OBS_CHASE_LOCKED || mode == OBS_CHASE_FREE || mode == OBS_IN_EYE || mode == OBS_MAP_CHASE ? pev(id, pev_iuser2) : id;
 		if (!is_user_connected(targetId)) continue;
@@ -1868,6 +2307,9 @@ UpdateHud(Float:currentGameTime)
 			ClearSyncHud(id, g_SyncHudTimer);
 			ClearSyncHud(id, g_SyncHudKeys);
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
+			ClearSyncHud(id, g_SyncHudSpeedometer);
+			ClearSyncHud(id, g_SyncHudSpecList);
+			ClearSyncHud(targetId, g_SyncHudSpecList);
 		}
 		if (g_LastTarget[id] != targetId)
 		{
@@ -1876,8 +2318,30 @@ UpdateHud(Float:currentGameTime)
 			ClearSyncHud(id, g_SyncHudTimer);
 			ClearSyncHud(id, g_SyncHudKeys);
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
+			ClearSyncHud(id, g_SyncHudSpeedometer);
+			ClearSyncHud(id, g_SyncHudSpecList);
+			ClearSyncHud(targetId, g_SyncHudSpecList);
 		}
 
+		// Drawing spectator list
+		if (is_user_alive(id))
+		{
+			new bool:sendTo[33];
+			if (GetSpectatorList(id, specHud, sendTo))
+			{
+				for (new i = 1; i <= g_MaxPlayers; i++)
+				{
+					if (sendTo[i] == true && g_ShowSpecList[i] == true)
+					{
+						set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], 0.75, 0.15, 0, 0.0, 999999.0, 0.0, 0.0, -1);
+						ShowSyncHudMsg(id, g_SyncHudSpecList, specHud);
+					}
+				}
+			}
+		}
+
+
+		// Drawing pressed keys
 		HudShowPressedKeys(id, mode, targetId);
 
 		// Show information about start/stop entities
@@ -1917,8 +2381,11 @@ UpdateHud(Float:currentGameTime)
 
 			switch (g_ShowTimer[id])
 			{
-			case 1: client_print(id, print_center, "%s | Time: %02d:%02d | CPs: %d | TPs: %d %s",
-						g_RunType[id], min, sec, g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP], get_bit(g_baIsPaused, targetId) ? "| *Paused*" : "");
+			case 1:
+				{
+					client_print(id, print_center, "%s | Time: %02d:%02d | CPs: %d | TPs: %d %s",
+							g_RunType[id], min, sec, g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP], get_bit(g_baIsPaused, targetId) ? "| *Paused*" : "");
+				}
 			case 2:
 				{
 					set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, 0.10, 0, 0.0, 999999.0, 0.0, 0.0, -1);
@@ -1927,7 +2394,56 @@ UpdateHud(Float:currentGameTime)
 				}
 			}
 		}
+
+		if (g_ShowSpeed[id])
+		{
+			set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, 0.7, 0, 0.0, 999999.0, 0.0, 0.0, -1);
+			if (is_user_alive(id))
+				ShowSyncHudMsg(id, g_SyncHudSpeedometer, "%.2f", floatsqroot(g_Velocity[id][0] * g_Velocity[id][0] + g_Velocity[id][1] * g_Velocity[id][1]));
+			else
+			{
+				new specmode = pev(id, pev_iuser1);
+				if (specmode == 2 || specmode == 4)
+				{
+					new t = pev(id, pev_iuser2);
+					ShowSyncHudMsg(id, g_SyncHudSpeedometer, "%.2f", floatsqroot(g_Velocity[t][0] * g_Velocity[t][0] + g_Velocity[t][1] * g_Velocity[t][1]));
+				}
+			}
+		}
 	}
+}
+
+GetSpectatorList(id, hud[], sendTo[])
+{
+	new szName[33];
+	new bool:send = false;
+	
+	sendTo[id] = true;
+	
+	GetColorlessName(id, szName, charsmax(szName));
+	format(hud, 45, "Spectating %s:\n", szName);
+	
+	for (new dead = 1; dead <= g_MaxPlayers; dead++)
+	{
+		if (is_user_connected(dead))
+		{
+			if (is_user_alive(dead) || is_user_bot(dead))
+				continue;
+			
+			if (pev(dead, pev_iuser2) == id)
+			{
+				if(!(get_pcvar_num(pcvar_kz_speclist_admin_invis) && get_user_flags(dead, 0) & ADMIN_IMMUNITY))
+				{
+					get_user_name(dead, szName, charsmax(szName));
+					add(szName, charsmax(szName), "\n");
+					add(hud, charsmax(hud), szName);
+					send = true;
+				}
+				sendTo[dead] = true;
+			}
+		}
+	}
+	return send;
 }
 
 HudStorePressedKeys(id)
@@ -2194,11 +2710,11 @@ public Fw_FmGetGameDescriptionPre()
 
 public Fw_FmCmdStartPre(id, uc_handle, seed)
 {
-
 	g_FrameTime[id][1] = g_FrameTime[id][0];
 	g_FrameTime[id][0] = get_uc(uc_handle, UC_Msec);
-
 	g_FrameTimeInMsec[id] = g_FrameTime[id][0] * 0.001;
+	g_Buttons[id] = get_uc(uc_handle, UC_Buttons);
+	g_Impulses[id] = get_uc(uc_handle, UC_Impulse);
 }
 
 public Fw_MsgTempEntity()
@@ -2236,8 +2752,14 @@ public Fw_FmPlayerPreThinkPost(id)
 		g_HBFrameCounter[id] -= 1;
 		CheckHealthBoost(id);
 	}
-	pev(id, pev_velocity, g_Velocity[id]);
 	pev(id, pev_origin, g_Origin[id]);
+	pev(id, pev_angles, g_Angles[id]);
+	pev(id, pev_view_ofs, g_ViewOfs[id]);
+	pev(id, pev_velocity, g_Velocity[id]);
+	//console_print(id, "sequence: %d, pev_gaitsequence: %d", pev(id, pev_sequence), pev(id, pev_gaitsequence));
+	
+	if (!IsBot(id) && g_RecordRun[id])
+		RecordRunFrame(id);
 
 	// Store pressed keys here, cos HUD updating is called not so frequently
 	HudStorePressedKeys(id);
@@ -2260,6 +2782,7 @@ public Fw_FmPlayerPreThinkPost(id)
 	}
 
 	g_RestoreSolidStates = true;
+
 }
 
 public Fw_FmTouchPre(iEntity1, iEntity2)
@@ -2382,13 +2905,14 @@ public Fw_FmPlayerTouchHealthBooster(hb, id)
 
 public Fw_FmPlayerPostThinkPre(id)
 {
+	new Float:currVelocity[3];
+	pev(id, pev_velocity, currVelocity);
+	new Float:endSpeed = floatsqroot(floatpower(currVelocity[0], 2.0) + floatpower(currVelocity[1], 2.0));
 	if (g_Slopefix[id])
 	{
-		new Float:currOrigin[3], Float:futureOrigin[3], Float:currVelocity[3], Float:futureVelocity[3];
+		new Float:currOrigin[3], Float:futureOrigin[3], Float:futureVelocity[3];
 		pev(id, pev_origin, currOrigin);
-		pev(id, pev_velocity, currVelocity);
 		new Float:startSpeed = floatsqroot(floatpower(g_Velocity[id][0], 2.0) + floatpower(g_Velocity[id][1], 2.0));
-		new Float:endSpeed = floatsqroot(floatpower(currVelocity[0], 2.0) + floatpower(currVelocity[1], 2.0));
 
 		new Float:svGravity = get_cvar_float("sv_gravity");
 		new Float:pGravity;
@@ -2465,6 +2989,16 @@ public Fw_FmPlayerPostThinkPre(id)
 	if (g_HBFrameCounter[id] > 0)
 		CheckHealthBoost(id);
 
+	if (g_Speedcap[id] && endSpeed > g_Speedcap[id])
+	{
+		new Float:m = (endSpeed / g_Speedcap[id]) * 1.000001;
+		new Float:cappedVelocity[3];
+		cappedVelocity[0] = currVelocity[0] / m;
+		cappedVelocity[1] = currVelocity[1] / m;
+		cappedVelocity[2] = currVelocity[2];
+		set_pev(id, pev_velocity, cappedVelocity);
+	}
+
 	if (!g_RestoreSolidStates)
 		return;
 
@@ -2476,6 +3010,8 @@ public Fw_FmPlayerPostThinkPre(id)
 		if (IsConnected(i) && g_SolidState[i] >= 0)
 			set_pev(i, pev_solid, g_SolidState[i]);
 	}
+	//pev(id, pev_velocity, g_Velocity[id]);
+	//pev(id, pev_angles, g_Angles[id]);
 }
 
 /* TODO: Review this dead code. There's NOT a forward pointing here, so it's never called and I don't know it should be
@@ -2743,6 +3279,33 @@ public CmdTimeDecimals(id)
  	return PLUGIN_HANDLED;
 }
 
+CmdSpeed(id)
+{
+	ClearSyncHud( id, g_SyncHudSpeedometer );
+	g_ShowSpeed[id] = !g_ShowSpeed[id];
+	client_print( id, print_chat, "Speed: %s", g_ShowSpeed[id] ? "ON" : "OFF" );
+
+	return PLUGIN_HANDLED;
+}
+
+CmdSpeedcap(id)
+{
+	new Float:allowed_speedcap = get_pcvar_float(pcvar_kz_speedcap);
+	new Float:speedcap = GetFloatArg();
+	//console_print(id, "allowed_speedcap = %.2f; speedcap = %.2f", allowed_speedcap, speedcap);
+
+	if (allowed_speedcap && speedcap > allowed_speedcap)
+	{
+		g_Speedcap[id] = speedcap;
+		ShowMessage(id, "Server doesn't allow a higher speedcap than %.2f", allowed_speedcap);
+	} else {
+		g_Speedcap[id] = speedcap;
+	}
+
+	ShowMessage(id, "Your horizontal speedcap is now: %.2f", g_Speedcap[id]);
+	return PLUGIN_HANDLED;
+}
+
 public CmdNightvision(id)
 {
 	new cvar_nightvision = get_pcvar_num(pcvar_kz_nightvision);
@@ -2760,7 +3323,7 @@ public CmdNightvision(id)
 	}
 	else if (mode == 1 && cvar_nightvision == 3)
 	{
-		ShowMessage(id, "Only nightvision mode 2 is allowerd by server");
+		ShowMessage(id, "Only nightvision mode 2 is allowed by server");
 		return PLUGIN_HANDLED;
 	}
 
@@ -2865,7 +3428,7 @@ LoadRecords(szTopType[])
 
 	new data[1024], stats[STATS], uniqueid[32], name[32], cp[24], tp[24];
 	new kztime[24], timestamp[24];
-	//new current_time = get_systime();
+
 	new Array:arr;
 	if (equali(szTopType, g_szTops[0]))
 		arr = g_ArrayStatsPure;
@@ -2886,13 +3449,6 @@ LoadRecords(szTopType[])
 
 		stats[STATS_TIMESTAMP] = str_to_num(timestamp);
 
-		/*
-		// Stale old records that are below specified amount, otherwise we use them to inform player about better/worse time and position
-		if (current_time - stats[STATS_TIMESTAMP] > staleStatTime &&
-			i > keepStatPlayers)
-			continue;
-		*/
-
 		copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
 		copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
 		stats[STATS_CP] = str_to_num(cp);
@@ -2900,7 +3456,6 @@ LoadRecords(szTopType[])
 		stats[STATS_TIME] = _:str_to_float(kztime);
 
 		ArrayPushArray(arr, stats);
-		//i++;
 	}
 
 	fclose(file);
@@ -2952,51 +3507,48 @@ UpdateRecords(id, Float:kztime, szTopType[])
 	new minutes, Float:seconds, Float:slower, Float:faster;
 	LoadRecords(szTopType);
 
-	new Array:arr;
+	new Array:arr, type;
 	if (equali(szTopType, g_szTops[0]))
+	{
 		arr = g_ArrayStatsPure;
+		type = 0;
+	}
 	else if (equali(szTopType, g_szTops[1]))
+	{
 		arr = g_ArrayStatsPro;
+		type = 1;
+	}
 	else
+	{
 		arr = g_ArrayStatsNub;
+		type = 2;
+	}
 
 	GetUserUniqueId(id, uniqueid, charsmax(uniqueid));
 	GetColorlessName(id, name, charsmax(name));
 
-	new result, bool:skipResult = false;
-
-	log_amx("uniqueid = %s, name = %s", uniqueid, name);
-
-	log_amx("-- Entering records loop. Array size: %d", ArraySize(arr));
+	new result;
 	for (new i = 0; i < ArraySize(arr); i++)
 	{
 		ArrayGetArray(arr, i, stats);
 		result = floatcmp(kztime, stats[STATS_TIME]);
-		log_amx("comparing current run's time (%.2f) to best #%d time (%.2f); result = %d", kztime, i+1, stats[STATS_TIME], result);
 
 		if (result == -1 && insertItemId == -1)
-		{
 			insertItemId = i;
-			log_amx("insertItemId = %d", insertItemId);
-		}
 
-		log_amx("comparing %s to current runner ID (%s)", stats[STATS_ID], uniqueid);
 		if (!equal(stats[STATS_ID], uniqueid))
-		{
-			log_amx("not equal, continue finding the current runner's position...");
 			continue;
-		}
-		log_amx("equal, this is the record that we want to check...");
 
 		if (result != -1)
 		{
 			slower = kztime - stats[STATS_TIME];
 			minutes = floatround(slower, floatround_floor) / 60;
 			seconds = slower - (60 * minutes);
-			client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You failed your %s time by %02d:%"),
-				PLUGIN_TAG, szTopType, minutes, seconds);
-			log_amx(GetVariableDecimalMessage(id, "%s failed their %s time by %02d:%", ", nothing to update here!"),
-				name, szTopType, minutes, seconds);
+			if (!(get_bit(g_baIsPureRunning, id) && type == 1))
+			{
+				client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You failed your %s time by %02d:%"),
+					PLUGIN_TAG, szTopType, minutes, seconds);
+			}
 		
 			return;
 		}
@@ -3006,20 +3558,11 @@ UpdateRecords(id, Float:kztime, szTopType[])
 		seconds = faster - (60 * minutes);
 		client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You improved your %s time by %02d:%"),
 			PLUGIN_TAG, szTopType, minutes, seconds);
-		log_amx(GetVariableDecimalMessage(id, "%s improved their %s time by %02d:%"),
-			name, szTopType, minutes, seconds);
 
 		deleteItemId = i;
-		log_amx("deleteItemId = %d", deleteItemId);
 
 		break;
 	}
-	log_amx("-- Records loop finished. State of variables:");
-	log_amx("uniqueid = %s, name = %s", uniqueid, name);
-	log_amx("current run's time = %.2f", kztime);
-	log_amx("result = %d", result);
-	log_amx("insertItemId = %d", insertItemId);
-	log_amx("deleteItemId = %d", deleteItemId);
 
 	copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
 	copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
@@ -3043,7 +3586,6 @@ UpdateRecords(id, Float:kztime, szTopType[])
 		ArrayDeleteItem(arr, insertItemId != -1 ? deleteItemId + 1 : deleteItemId);
 
 	rank++;
-	log_amx("checking rank... rank = %d", rank);
 	if (rank <= get_pcvar_num(pcvar_kz_top_records))
 	{
 		client_cmd(0, "spk woop");
@@ -3054,6 +3596,20 @@ UpdateRecords(id, Float:kztime, szTopType[])
 
 	SaveRecords(szTopType);
 
+	if (rank == 1)
+	{
+		new ret;
+		ExecuteForward(mfwd_hlkz_worldrecord, ret, id, kztime, type, arr);
+	}
+
+	if (g_RecordRun[id])
+	{
+		//fclose(g_RecordRun[id]);
+		g_RecordRun[id] = 0;
+		//ArrayClear(g_RunFrames[id]);
+		console_print(id, "stopped recording");
+		SaveRecordedRun(id, szTopType);
+	}
 }
 
 ShowTopClimbers(id, szTopType[])
@@ -3091,13 +3647,16 @@ ShowTopClimbers(id, szTopType[])
 		client_print(id, print_chat, "[%s] Sorry, not showing all the requested records because the server won't allow loading more than %d records at once", PLUGIN_TAG, cvarMaxRecords);
 	}
 
+
+
 	if (equali(szTopType, g_szTops[2]))
-		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time       CP  TP         Date\n\n");
+		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time       CP  TP         Date        Demo\n\n");
 	else
-		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time              Date\n\n");
+		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time              Date        Demo\n\n");
 
 	for (new i = recMin; i < recMax && charsmax(buffer) - len > 0; i++)
 	{
+		static authid[32], idNumbers[24], replayFile[256];
 		ArrayGetArray(arr, i, stats);
 
 		// TODO: Solve UTF halfcut at the end
@@ -3109,10 +3668,18 @@ ShowTopClimbers(id, szTopType[])
 		formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%"), minutes, seconds);
 		format_time(date, charsmax(date), "%d/%m/%Y", stats[STATS_TIMESTAMP]);
 
+		// Check if there's demo for this record
+		formatex(authid, charsmax(authid), "%s", stats[STATS_ID]);
+		ConvertSteamID32ToNumbers(authid, idNumbers);
+		strtolower(szTopType);
+		formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
+		new hasDemo = file_exists(replayFile);
+		ucfirst(szTopType);
+
 		if (equali(szTopType, g_szTops[2]))
-			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s  %3d %3d        %s\n", i + 1, stats[STATS_NAME], time, stats[STATS_CP], stats[STATS_TP], date);
+			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s  %3d %3d        %s   %s\n", i + 1, stats[STATS_NAME], time, stats[STATS_CP], stats[STATS_TP], date, hasDemo ? "yes" : "no");
 		else
-			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s         %s\n", i + 1, stats[STATS_NAME], time, date);
+			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s         %s   %s\n", i + 1, stats[STATS_NAME], time, date, hasDemo ? "yes" : "no");
 	}
 
 	len += formatex(buffer[len], charsmax(buffer) - len, "\n%s %s", PLUGIN, VERSION);
@@ -3179,4 +3746,71 @@ GetVariableDecimalMessage(id, msg1[], msg2[] = "")
 	strcat(msg, "f ", charsmax(msg));
 	strcat(msg, msg2, charsmax(msg));
 	return msg;
+}
+
+RecordRunFrame(id)
+{
+	new Float:maxDuration = get_pcvar_float(pcvar_kz_max_replay_duration);
+	new Float:kztime = get_gametime() - g_PlayerTime[id];
+	if (kztime < maxDuration)
+	{
+		new frameState[REPLAY];
+		frameState[RP_TIME] = get_gametime();
+		frameState[RP_ORIGIN] = g_Origin[id];
+		frameState[RP_ANGLES] = g_Angles[id];
+		frameState[RP_BUTTONS] = pev(id, pev_button);
+		ArrayPushArray(g_RunFrames[id], frameState);
+		//console_print(id, "[%.3f] recording run...", frameState[RP_TIME]);
+	}
+}
+
+SaveRecordedRun(id, szTopType[])
+{
+	static authid[32], replayFile[256], idNumbers[24];
+	get_user_authid(id, authid, charsmax(authid));
+
+	ConvertSteamID32ToNumbers(authid, idNumbers);
+	strtolower(szTopType);
+	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
+	console_print(id, "saving run to: '%s'", replayFile);
+
+	g_RecordRun[id] = fopen(replayFile, "wb");
+	console_print(id, "opened replay file");
+
+	new frameState[REPLAY];
+	for (new i; i < ArraySize(g_RunFrames[id]); i++)
+	{
+		ArrayGetArray(g_RunFrames[id], i, frameState);
+		fwrite_blocks(g_RecordRun[id], frameState, sizeof(frameState) - 1, BLOCK_INT);
+		fwrite(g_RecordRun[id], frameState[RP_BUTTONS], BLOCK_SHORT);
+	}
+	
+
+	fclose(g_RecordRun[id]);
+	console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
+	g_RecordRun[id] = 0;
+	ArrayClear(g_RunFrames[id]);
+	console_print(id, "clearing replay from memory");
+}
+
+// Returns the entity that is linked to a bot
+GetEntitysBot(ent)
+{
+	for (new i = 1; i <= sizeof(g_BotEntity) - 1; i++)
+	{	
+		if (ent == g_BotEntity[i])
+			return i;
+	}
+	return 0;
+}
+
+// Returns the bot that a player has spawned
+GetOwnersBot(id)
+{
+	for (new i = 1; i <= sizeof(g_BotOwner) - 1; i++)
+	{	
+		if (id == g_BotOwner[i])
+			return i;
+	}
+	return 0;
 }

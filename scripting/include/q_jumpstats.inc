@@ -21,6 +21,6 @@
 
 #include <q_jumpstats_const>
 
-forward q_js_jumpstart( id );
+forward q_js_jumpbegin( id );
 forward q_js_jumpend( id, type, Float:distance, Float:prestrafe, Float:gain, strafes, sync );
 forward q_js_jumpillegal( id );

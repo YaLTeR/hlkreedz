@@ -1,7 +1,5 @@
 /* 
- * Q Jumpstats API by Quaker
- *
- * This file is provided as is (no warranties).
+ * HLKZ API by naz
  */
 
 #if defined _hl_kreedz_included
@@ -19,4 +17,17 @@
 	#pragma library hl_kreedz
 #endif
 
-forward hlkz_cheating( id );
+
+/**
+ * When +hook/+rope/healthbooster is used
+ * @param id		client id of the player that cheated
+ */
+forward hlkz_cheating(id);
+
+/**
+ * When a map's best time is beaten
+ * @param id		client id of the player who got the best time
+ * @param kztime	how many seconds it took to run the map
+ * @param type		run type: 0 = pure, 1 = pro, 2 = noob
+ */
+forward hlkz_worldrecord(id, Float:kztime, type);

@@ -6,6 +6,16 @@
 #include <fakemeta>
 #include <xs>
 
+enum _:STATS
+{
+	STATS_ID[32],
+	STATS_NAME[32],
+	STATS_CP,
+	STATS_TP,
+	Float:STATS_TIME,	// Timer value
+	STATS_TIMESTAMP,	// Date
+}
+
 public GetNextNumber(buffer[], &pos)
 {
 	while ((buffer[pos] < '0' || buffer[pos] > '9') && buffer[pos] != '-' && buffer[pos] != 0)
@@ -47,7 +57,6 @@ GetColorlessName(id, name[], len)
 	new const hat[3] = "^^";
 	while (name[i])
 	{
-		// ^ symbol is escaping the next ^ symbol
 		if (name[i] == hat[0] && name[i + 1] >= '0' && name[i + 1] <= '9')
 		{
 			i++;
@@ -129,6 +138,28 @@ public GetNumberArg()
     return str_to_num(numberPart);
 }
 
+// e.g.: say "/speedcap 499.5" // get the '499.5'
+public Float:GetFloatArg()
+{
+	new cmdArg[32], numberPart[32];
+	read_args(cmdArg, charsmax(cmdArg));
+
+	new bool:prevWasDigit = false;
+    for (new i = 0; cmdArg[i]; i++) {
+        if (isdigit(cmdArg[i])) {
+            formatex(numberPart, charsmax(numberPart), "%s%s", numberPart, cmdArg[i]);
+            prevWasDigit = true;
+        }
+        else if (prevWasDigit) {
+        	if (equal(cmdArg[i], "."))
+        		formatex(numberPart, charsmax(numberPart), "%s.", numberPart);
+        	else
+        		break; // e.g.: say "/speedcap 499.5 some text and 123 numbers here" --> get out when parsing the '499.5'
+        }
+    }
+    return str_to_float(numberPart);
+}
+
 // e.g.: say "/pro 1-18" --> get the 1 and 18 in an array of 2 cells
 public GetRangeArg(range[2])
 {
@@ -163,3 +194,65 @@ public GetRangeArg(range[2])
 	    range[1] = str_to_num(numberPart[1]);
 	}
 }
+
+// You have to pass the numbers of a SteamID in the format X_Y_Z (without STEAM_) and it stores in the result the full SteamID (like STEAM_X:Y:Z)
+ConvertNumbersToSteamID32(numbers[], result[])
+{
+    new a[2], b[2], c[11];
+    xs_strmid(numbers, a, 0, 0);
+    xs_strmid(numbers, b, 2, 2);
+    xs_strmid(numbers, c, 4, charsmax(numbers[]));
+
+    formatex(result, charsmax(result), "STEAM_%s:%s:%s", a, b, c);
+}
+
+// You have to pass a STEAM_X:Y:Z and it stores in the result the numbers in the X_Y_Z format (without STEAM_)
+ConvertSteamID32ToNumbers(steamId32[], result[])
+{
+    new a[2], b[2], c[11];
+    xs_strmid(steamId32, a, 6, 6);
+    xs_strmid(steamId32, b, 8, 8);
+    xs_strmid(steamId32, c, 10, charsmax(steamId32[]));
+
+    formatex(result, 24, "%s_%s_%s", a, b, c);
+}
+
+/* DOESN'T WORK DUE TO INT64 NOT BEING AVAILABLE IN AMXMODX OR PAWN
+// You have to pass the Community ID (e.g.: a number higher than 76561197960265728) and the string for the result to be stored
+public ConvertSteamID64to32(steamId64, result[])
+{
+	// FIXME calculate correctly the universe, because for my id it calculates a 3 for universe which is wrong, should be 0
+	//new universe = (steamId64 >> 56) & 255;
+	//if (universe == 1) universe = 0;
+	new accountIdLowBit = steamId64 & 1;
+	new accountIdHighBits = (steamId64 >> 1) & 134217727;
+
+	//formatex(result, charsmax(result), "STEAM_%d:%d:%d", universe, accountIdLowBit, accountIdHighBits);
+	formatex(result, charsmax(result), "STEAM_0:%d:%d", accountIdLowBit, accountIdHighBits); // hardcoded 0 universe while calc is broken, haven't seen in logs any with a different universe
+}
+*/
+
+/* DOESN'T WORK DUE TO INT64 NOT BEING AVAILABLE IN AMXMODX OR PAWN
+// You have to pass a STEAM_X:Y:Z and it stores in the result the Community ID (e.g.: a number higher than 76561197960265728), or nothing if something went wrong
+public ConvertSteamID32to64(steamId32[], result[])
+{
+    // ID64 = 76561197960265728 + (B * 2) + A
+    // ID3 = (B * 2) + A
+    // ID32 = STEAM_0:A:B
+
+    new a[2], b[11];
+    server_print("steamId32: %s", steamId32);
+    xs_strmid(steamId32, a, 8, 9);
+    xs_strmid(steamId32, b, 10, charsmax(steamId32[]));
+    server_print("a: %s, b: %s", a, b);
+
+    if (isdigit(a[0]) && isdigit(b[0]))
+    {
+	    new x = str_to_num(a), y = str_to_num(b);
+    	server_print("x: %s, y: %s", a, b);
+	    new id64 = ((y * 2) + x) + 76561197960265728; // error, max int32 type
+	    server_print("id64: %d", id64);
+	    num_to_str(id64, result, charsmax(result));
+    }
+}
+*/
