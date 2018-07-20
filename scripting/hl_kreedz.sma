@@ -825,7 +825,7 @@ public client_disconnect(id)
 		//fclose(g_RecordRun[id]);
 		g_RecordRun[id] = 0;
 		ArrayClear(g_RunFrames[id]);
-		console_print(id, "stopped recording");
+		//console_print(id, "stopped recording");
 	}
 	ArrayClear(g_ReplayFrames[id]);
 	g_ReplayFramesIdx[id] = 0;
@@ -1100,7 +1100,7 @@ CmdReplay(id, szTopType[])
 			new botId[1];
 			botId[0] = GetOwnersBot(id);
 			FinishReplay(id);
-			console_print(1, "CmdReplay :: removing bot %d", botId[0]);
+			//console_print(1, "CmdReplay :: removing bot %d", botId[0]);
 			KickReplayBot(botId);
 			canceled = true;
 		}
@@ -1131,7 +1131,7 @@ CmdReplay(id, szTopType[])
 		new anglesX[24], anglesY[24], anglesZ[24];
 
 		ArrayClear(g_ReplayFrames[id]);
-		console_print(id, "gonna read the replay file");
+		//console_print(id, "gonna read the replay file");
 
 		new i = 0;
 		while (!feof(file))
@@ -1140,8 +1140,8 @@ CmdReplay(id, szTopType[])
 			fread_blocks(file, replay, sizeof(replay) - 1, BLOCK_INT);
 			fread(file, replay[RP_BUTTONS], BLOCK_SHORT);
 
-			if (i % 331 == 0) // only showing these frames because printing too many throws stack overflow
-				console_print(id, "gametime: %.5f, pz: %.3f, ay: %.3f, buttons: %d", replay[RP_TIME], replay[RP_ORIGIN], replay[RP_ANGLES], replay[RP_BUTTONS]);
+			//if (i % 331 == 0) // only showing these frames because printing too many throws stack overflow
+				//console_print(id, "gametime: %.5f, pz: %.3f, ay: %.3f, buttons: %d", replay[RP_TIME], replay[RP_ORIGIN], replay[RP_ANGLES], replay[RP_BUTTONS]);
 
 			ArrayPushArray(g_ReplayFrames[id], replay);
 
@@ -1196,30 +1196,31 @@ SpawnBot(id)
 		    // Copy the state of the player who spawned the bot
 			static replay[REPLAY];
 			ArrayGetArray(g_ReplayFrames[id], 0, replay);
-
+                    /*
 		    console_print(1, "data row: %.5f %.3f %.3f %.3f %.3f %.3f %.3f %d",
 		    	replay[RP_TIME],
 		    	replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2],
 		    	replay[RP_ANGLES][0], replay[RP_ANGLES][1], replay[RP_ANGLES][2],
 		    	replay[RP_BUTTONS]);
+                    */
 
 		    set_pev(bot, pev_origin, replay[RP_ORIGIN]);
 		    set_pev(bot, pev_angles, replay[RP_ANGLES]);
 		    set_pev(bot, pev_button, replay[RP_BUTTONS]);
 
 		    g_BotOwner[bot] = id;
-		    console_print(1, "player %d spawned the bot %d", id, bot);
+		    //console_print(1, "player %d spawned the bot %d", id, bot);
 
 			entity_set_float(ent, EV_FL_nextthink, get_gametime() + get_pcvar_float(pcvar_kz_replay_setup_time)); // TODO: countdown hud; 3 seconds to start the replay, so there's time to switch to spectator
 		    engfunc(EngFunc_RunPlayerMove, bot, replay[RP_ANGLES], 0.0, 0.0, 0.0, replay[RP_BUTTONS], 0, 4);
 	    }
 	    else
-	    	console_print(id, "[%s] Sorry, couldn't create the bot", PLUGIN_TAG);
+	    	client_print(id, print_chat, "[%s] Sorry, couldn't create the bot", PLUGIN_TAG);
     }
     return PLUGIN_HANDLED;
 }
 
-ConfigureBot(id) {
+ConfigureBot(id) {,
 	set_user_info(id, "model",				"robo");
 	set_user_info(id, "rate",				"3500");
 	set_user_info(id, "cl_updaterate",		"30");
@@ -1284,7 +1285,7 @@ public npc_think(id)
 	{
 		new botId[1];
 		botId[0] = bot;
-		console_print(1, "removing bot %d", botId[0]);
+		//console_print(1, "removing bot %d", botId[0]);
 		set_task(0.5, "KickReplayBot", _, botId, 1);
 		FinishReplay(owner);
 	}
@@ -1299,7 +1300,7 @@ FinishReplay(id)
 
 	new bot = GetOwnersBot(id);
 	new ent = g_BotEntity[bot];
-	console_print(1, "removing entity %d", ent);
+	//console_print(1, "removing entity %d", ent);
 	remove_entity(ent);
 	g_BotOwner[bot] = 0;
 	g_BotEntity[bot] = 0;
@@ -2042,14 +2043,14 @@ StartClimb(id)
 		//fclose(g_RecordRun[id]);
 		g_RecordRun[id] = 0;
 		ArrayClear(g_RunFrames[id]);
-		console_print(id, "stopped recording");
+		//console_print(id, "stopped recording");
 	}
 
 	if (get_pcvar_num(pcvar_kz_autorecord))
 	{
 		g_RecordRun[id] = 1;
 		g_RunFrames[id] = ArrayCreate(REPLAY);
-		console_print(id, "started recording");
+		//console_print(id, "started recording");
 		RecordRunFrame(id);
 	}
 
@@ -3607,7 +3608,7 @@ UpdateRecords(id, Float:kztime, szTopType[])
 		//fclose(g_RecordRun[id]);
 		g_RecordRun[id] = 0;
 		//ArrayClear(g_RunFrames[id]);
-		console_print(id, "stopped recording");
+		//console_print(id, "stopped recording");
 		SaveRecordedRun(id, szTopType);
 	}
 }
@@ -3772,10 +3773,10 @@ SaveRecordedRun(id, szTopType[])
 	ConvertSteamID32ToNumbers(authid, idNumbers);
 	strtolower(szTopType);
 	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
-	console_print(id, "saving run to: '%s'", replayFile);
+	//console_print(id, "saving run to: '%s'", replayFile);
 
 	g_RecordRun[id] = fopen(replayFile, "wb");
-	console_print(id, "opened replay file");
+	//console_print(id, "opened replay file");
 
 	new frameState[REPLAY];
 	for (new i; i < ArraySize(g_RunFrames[id]); i++)
@@ -3787,10 +3788,10 @@ SaveRecordedRun(id, szTopType[])
 	
 
 	fclose(g_RecordRun[id]);
-	console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
+	//console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
 	g_RecordRun[id] = 0;
 	ArrayClear(g_RunFrames[id]);
-	console_print(id, "clearing replay from memory");
+	//console_print(id, "clearing replay from memory");
 }
 
 // Returns the entity that is linked to a bot
