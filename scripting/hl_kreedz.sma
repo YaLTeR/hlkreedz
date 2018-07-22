@@ -1076,8 +1076,6 @@ CmdReplay(id, szTopType[])
 	}
 
 	new replayingMsg[96], replayFailedMsg[96];
-	formatex(replayingMsg, charsmax(replayingMsg), "[%s] Replaying %s's %s run (%ss)", PLUGIN_TAG, stats[STATS_NAME], szTopType, time);
-	formatex(replayFailedMsg, charsmax(replayFailedMsg), "[%s] Sorry, no replay available for %s's %s run", PLUGIN_TAG, stats[STATS_NAME], szTopType);
 	ConvertSteamID32ToNumbers(authid, idNumbers);
 	strtolower(szTopType);
 	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
@@ -1088,8 +1086,16 @@ CmdReplay(id, szTopType[])
 	seconds = stats[STATS_TIME] - (60 * minutes);
 
 	formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%"), minutes, seconds);
+	ucfirst(szTopType);
+	formatex(replayingMsg, charsmax(replayingMsg), "[%s] Replaying %s's %s run (%ss)", PLUGIN_TAG, stats[STATS_NAME], szTopType, time);
+	formatex(replayFailedMsg, charsmax(replayFailedMsg), "[%s] Sorry, no replay available for %s's %s run", PLUGIN_TAG, stats[STATS_NAME], szTopType);
 
 	new file = fopen(replayFile, "rb");
+	if (!file && equali(szTopType, "pro") && ComparePro2PureTime(stats[STATS_ID], stats[STATS_TIME]) == 0)
+	{
+		formatex(replayFile, charsmax(replayFile), "%s/%s_%s_pure.dat", g_ReplaysDir, g_Map, idNumbers);
+		file = fopen(replayFile, "rb");
+	}
 	if (!file)
 	{
 		client_print(id, print_chat, "%s", replayFailedMsg);
@@ -3798,6 +3804,11 @@ ShowTopClimbers(id, szTopType[])
 		strtolower(szTopType);
 		formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
 		new hasDemo = file_exists(replayFile);
+		if (!hasDemo && equali(szTopType, "pro") && ComparePro2PureTime(stats[STATS_ID], stats[STATS_TIME]) == 0)
+		{
+	    	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_pure.dat", g_ReplaysDir, g_Map, idNumbers);
+	        hasDemo = file_exists(replayFile);
+		}
 		ucfirst(szTopType);
 
 		if (equali(szTopType, g_szTops[2]))
@@ -3813,6 +3824,19 @@ ShowTopClimbers(id, szTopType[])
 	show_motd(id, buffer, header);
 
 	return PLUGIN_HANDLED;
+}
+
+ComparePro2PureTime(runnerId[], Float:runnerTime)
+{
+	new stats[STATS];
+	for (new i = 0; i < ArraySize(g_ArrayStatsPure); i++)
+	{
+		ArrayGetArray(g_ArrayStatsPure, i, stats);
+
+		if (equal(stats[STATS_ID], runnerId))
+			return floatcmp(runnerTime, stats[STATS_TIME]);
+	}
+	return 1;
 }
 
 // Checks if the bounding box of the player has its nearest boundary to the wall inside that same wall
