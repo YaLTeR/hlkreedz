@@ -23,7 +23,7 @@
 
 #define PLUGIN "HL KreedZ Beta"
 #define PLUGIN_TAG "HLKZ"
-#define VERSION "0.34"
+#define VERSION "0.34" // take into account replays' version byte when updating version
 #define AUTHOR "KORD_12.7 & Lev & YaLTeR & naz"
 
 // Compilation options
@@ -1068,7 +1068,7 @@ CmdReplay(id, szTopType[])
 		{
 			stats[STATS_NAME][17] = EOS;
 			formatex(authid, charsmax(authid), "%s", stats[STATS_ID]);
-			break; // the desired record info is already stored in stats, so exit loop
+			break; // the desired record info is now stored in stats, so exit loop
 		}
 	}
 
@@ -1125,13 +1125,15 @@ CmdReplay(id, szTopType[])
 	}
 	
 	if (!g_ReplayFramesIdx[id])
-	{ // not a simple else as if it accidentally gets into here, it can mess up the replays or bring down the server, so better leave the condition
-		new data[1024], pos, replay[REPLAY], gametime[24], buttons[24];
-		new originX[24], originY[24], originZ[24];
-		new anglesX[24], anglesY[24], anglesZ[24];
+	{
+		new replay[REPLAY];
 
 		ArrayClear(g_ReplayFrames[id]);
 		//console_print(id, "gonna read the replay file");
+
+		//new version;
+		//fread(file, version, BLOCK_BYTE);
+		//console_print(1, "replaying demo of version %d", version);
 
 		new i = 0;
 		while (!feof(file))
@@ -1146,6 +1148,7 @@ CmdReplay(id, szTopType[])
 			ArrayPushArray(g_ReplayFrames[id], replay);
 
 		}
+		//console_print(id, "%d frames loaded", ArraySize(g_ReplayFrames[id]));
 		fclose(file);
 
 		g_ReplayNum++;
@@ -1220,7 +1223,7 @@ SpawnBot(id)
     return PLUGIN_HANDLED;
 }
 
-ConfigureBot(id) {,
+ConfigureBot(id) {
 	set_user_info(id, "model",				"robo");
 	set_user_info(id, "rate",				"3500");
 	set_user_info(id, "cl_updaterate",		"30");
@@ -2103,6 +2106,8 @@ StartTimer(id)
 		formatex(msg, charsmax(msg), "Timer started with speed %5.2fu/s", speed);
 		ShowMessage(id, msg);
 	}
+
+	//console_print(id, "gametime: %.5f", get_gametime());
 }
 
 FinishTimer(id)
@@ -2310,6 +2315,7 @@ UpdateHud(Float:currentGameTime)
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
 			ClearSyncHud(id, g_SyncHudSpeedometer);
 			ClearSyncHud(id, g_SyncHudSpecList);
+			ClearSyncHud(id, g_SyncHudSpecList);
 			ClearSyncHud(targetId, g_SyncHudSpecList);
 		}
 		if (g_LastTarget[id] != targetId)
@@ -2321,11 +2327,12 @@ UpdateHud(Float:currentGameTime)
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
 			ClearSyncHud(id, g_SyncHudSpeedometer);
 			ClearSyncHud(id, g_SyncHudSpecList);
+			ClearSyncHud(id, g_SyncHudSpecList);
 			ClearSyncHud(targetId, g_SyncHudSpecList);
 		}
 
 		// Drawing spectator list
-		if (is_user_alive(id))
+		if (is_user_alive(id) && get_pcvar_num(pcvar_kz_speclist))
 		{
 			new bool:sendTo[33];
 			if (GetSpectatorList(id, specHud, sendTo))
@@ -2336,6 +2343,8 @@ UpdateHud(Float:currentGameTime)
 					{
 						set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], 0.75, 0.15, 0, 0.0, 999999.0, 0.0, 0.0, -1);
 						ShowSyncHudMsg(id, g_SyncHudSpecList, specHud);
+					} else {
+						ClearSyncHud(id, g_SyncHudSpecList);
 					}
 				}
 			}
@@ -2428,7 +2437,7 @@ GetSpectatorList(id, hud[], sendTo[])
 	{
 		if (is_user_connected(dead))
 		{
-			if (is_user_alive(dead) || is_user_bot(dead))
+			if (is_user_alive(dead))
 				continue;
 			
 			if (pev(dead, pev_iuser2) == id)
@@ -3778,15 +3787,15 @@ SaveRecordedRun(id, szTopType[])
 	g_RecordRun[id] = fopen(replayFile, "wb");
 	//console_print(id, "opened replay file");
 
+	//fwrite(g_RecordRun[id], GetVersionNumber(), BLOCK_BYTE); // version
+
 	new frameState[REPLAY];
 	for (new i; i < ArraySize(g_RunFrames[id]); i++)
 	{
 		ArrayGetArray(g_RunFrames[id], i, frameState);
-		fwrite_blocks(g_RecordRun[id], frameState, sizeof(frameState) - 1, BLOCK_INT);
-		fwrite(g_RecordRun[id], frameState[RP_BUTTONS], BLOCK_SHORT);
+		fwrite_blocks(g_RecordRun[id], frameState, sizeof(frameState) - 1, BLOCK_INT); // gametime, origin and angles
+		fwrite(g_RecordRun[id], frameState[RP_BUTTONS], BLOCK_SHORT); // buttons
 	}
-	
-
 	fclose(g_RecordRun[id]);
 	//console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
 	g_RecordRun[id] = 0;
@@ -3814,4 +3823,26 @@ GetOwnersBot(id)
 			return i;
 	}
 	return 0;
+}
+
+/**
+ * Returns the numbers in the version, so 0.34 returns 34, or 1.0.2 returns 102.
+ * This is to save as metadata in the replay files so we can know what version they're
+ * to make proper changes to them (e.g.: convert from one version to another 'cos
+ * replay data format is changed).
+ */
+GetVersionNumber()
+{
+	new szVersion[32], numberPart[32];
+	add(szVersion, charsmax(szVersion), VERSION);
+
+	// Get number part
+	new len = strlen(szVersion);
+    for (new i = 0; i < len; i++) {
+        if (isdigit(szVersion[i])) {
+        	add(numberPart, charsmax(numberPart), szVersion[i], 1);
+    }
+
+	//console_print(1, "%s --> %s --> %d", szVersion, numberPart, str_to_num(numberPart));
+	return str_to_num(numberPart);
 }
