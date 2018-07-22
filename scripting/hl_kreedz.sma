@@ -53,6 +53,8 @@
 
 #define TASKID_ICON 5633445
 #define TASKID_WELCOME 43321
+#define TASKID_KICK_REPLAYBOT 9572626
+#define TASKID_CAM_UNFREEZE 15622952
 
 #define MAIN_MENU_ID	"HL KreedZ Menu"
 #define TELE_MENU_ID	"HL KreedZ Teleport Menu"
@@ -161,8 +163,9 @@ new g_RecordRun[MAX_PLAYERS + 1];
 new Array:g_RunFrames[MAX_PLAYERS + 1]; // current run frames, being stored here while the run is going on
 new Array:g_ReplayFrames[MAX_PLAYERS + 1]; // frames to be replayed
 new g_ReplayFramesIdx[MAX_PLAYERS + 1]; // How many frames have been replayed
-//new g_ReplayFile[MAX_PLAYERS + 1][256];
+new bool:g_Unfreeze[MAX_PLAYERS + 1];
 new g_ReplayNum; // How many replays are running
+new g_FrozenSpectators[MAX_PLAYERS + 1]; // spectators that saw a player teleporting and got their cam frozen
 
 new g_FrameTime[MAX_PLAYERS + 1][2];
 new Float:g_FrameTimeInMsec[MAX_PLAYERS + 1];
@@ -1097,11 +1100,10 @@ CmdReplay(id, szTopType[])
 		new bool:canceled = false;
 		if (g_ReplayFramesIdx[id])
 		{
-			new botId[1];
-			botId[0] = GetOwnersBot(id);
+			new bot = GetOwnersBot(id);
+			//console_print(1, "CmdReplay :: removing bot %d", bot);
 			FinishReplay(id);
-			//console_print(1, "CmdReplay :: removing bot %d", botId[0]);
-			KickReplayBot(botId);
+			KickReplayBot(bot + TASKID_KICK_REPLAYBOT);
 			canceled = true;
 		}
 
@@ -1206,12 +1208,14 @@ SpawnBot(id)
 		    	replay[RP_ANGLES][0], replay[RP_ANGLES][1], replay[RP_ANGLES][2],
 		    	replay[RP_BUTTONS]);
                     */
-
 		    set_pev(bot, pev_origin, replay[RP_ORIGIN]);
 		    set_pev(bot, pev_angles, replay[RP_ANGLES]);
 		    set_pev(bot, pev_button, replay[RP_BUTTONS]);
+		    new Float:botOrigin[3];
+		    pev(bot, pev_origin, botOrigin);
 
 		    g_BotOwner[bot] = id;
+		    g_Unfreeze[bot] = false;
 		    //console_print(1, "player %d spawned the bot %d", id, bot);
 
 			entity_set_float(ent, EV_FL_nextthink, get_gametime() + get_pcvar_float(pcvar_kz_replay_setup_time)); // TODO: countdown hud; 3 seconds to start the replay, so there's time to switch to spectator
@@ -1252,18 +1256,51 @@ public npc_think(id)
 	new owner = g_BotOwner[bot];
 	if (g_ReplayFrames[owner] && g_ReplayFramesIdx[owner] < ArraySize(g_ReplayFrames[owner]))
 	{
-		static replay[REPLAY], replayNext[REPLAY];
-		ArrayGetArray(g_ReplayFrames[owner], g_ReplayFramesIdx[owner], replay); // get current frame
-		if (g_ReplayFramesIdx[owner] + 1 < ArraySize(g_ReplayFrames[owner]))
-			ArrayGetArray(g_ReplayFrames[owner], g_ReplayFramesIdx[owner] + 1, replayNext); // get next frame
-		else
-			replayNext[RP_TIME] = replay[RP_TIME] + 0.005;
+		static replayPrev[REPLAY], replay[REPLAY], replayNext[REPLAY], replay2Next[REPLAY];
 
-		new Float:botVelocity[3], Float:frameDuration = replayNext[RP_TIME] - replay[RP_TIME];
+		// Fix spectator cam getting frozen when the watched player is teleported
+		//if (g_Unfreeze[bot] == 10)
+			//UnfreezeSpecCam(bot);
+
+		if (g_Unfreeze[bot] > 25)
+		{
+			UnfreezeSpecCam(bot);
+			g_Unfreeze[bot] = 0;
+		}
+
+		// Get previous frame
+		if (g_ReplayFramesIdx[owner] - 1 >= 0)
+			ArrayGetArray(g_ReplayFrames[owner], g_ReplayFramesIdx[owner] - 1, replayPrev);
+
+		// Get current frame
+		ArrayGetArray(g_ReplayFrames[owner], g_ReplayFramesIdx[owner], replay); // get current frame
+
+		// Get next frame
+		if (g_ReplayFramesIdx[owner] + 1 < ArraySize(g_ReplayFrames[owner]))
+			ArrayGetArray(g_ReplayFrames[owner], g_ReplayFramesIdx[owner] + 1, replayNext);
+		else
+			replayNext[RP_TIME] = replay[RP_TIME] + 0.004;
+
+		// Get next next frame
+		if (g_ReplayFramesIdx[owner] + 2 < ArraySize(g_ReplayFrames[owner]))
+			ArrayGetArray(g_ReplayFrames[owner], g_ReplayFramesIdx[owner] + 2, replay2Next);
+		else
+			replay2Next[RP_TIME] = replay[RP_TIME] + 0.004;
+
+		new Float:botVelocity[3], Float:botOrigin[3], Float:frameDuration = replayNext[RP_TIME] - replay[RP_TIME];
 		pev(bot, pev_velocity, botVelocity);
+		pev(bot, pev_origin, botOrigin);
 		if (frameDuration <= 0)
-			frameDuration = 0.004; // duration of a frame at 250 fps
-			//log_amx("Negative frame duration detected in the frame #%d of the replay located in '%s'!", g_ReplayFramesIdx[owner] + 1, g_ReplayFile[owner]);
+		{
+			if (replay2Next[RP_TIME])
+				frameDuration = (replay2Next[RP_TIME] - replay[RP_TIME]) / 2;
+			else
+				frameDuration = 0.002; // duration of a frame at 125 fps, 'cos the most usual thing is to use 250 fps, so at 0.004 there will already be another frame to replay
+		}
+
+		new Float:botPrevHSpeed = floatsqroot(floatpower(botVelocity[0], 2.0) + floatpower(botVelocity[1], 2.0));
+		new Float:botPrevPos[3];
+		xs_vec_copy(botOrigin, botPrevPos);
 
 		// The correct thing would be to take into account the previous frame, but it doesn't matter most of the time
 		if (frameDuration)
@@ -1276,23 +1313,92 @@ public npc_think(id)
 		}
 	    set_pev(bot, pev_origin, replay[RP_ORIGIN]);
 	    set_pev(bot, pev_angles, replay[RP_ANGLES]);
+	    set_pev(bot, pev_v_angle, replay[RP_ANGLES]);
 	    set_pev(bot, pev_button, replay[RP_BUTTONS]);
 		set_pev(bot, pev_velocity, botVelocity);
+		pev(bot, pev_origin, botOrigin); // set again botOrigin to calculate curr position vector length
+
 
     	entity_set_float(id, EV_FL_nextthink, get_gametime() + replayNext[RP_TIME] - replay[RP_TIME]);
 
 	    engfunc(EngFunc_RunPlayerMove, bot, replay[RP_ANGLES], botVelocity[0], botVelocity[1], botVelocity[2], replay[RP_BUTTONS], 0, 4);
+
+		new Float:botCurrHSpeed = floatsqroot(floatpower(botVelocity[0], 2.0) + floatpower(botVelocity[1], 2.0));
+		new Float:botCurrPos[3];
+		xs_vec_copy(botOrigin, botCurrPos);
+
 	    g_ReplayFramesIdx[owner]++;
+
+		if ((botPrevHSpeed > 0.0 && botCurrHSpeed == 0.0 && get_distance_f(botOrigin, botPrevPos) > 50.0)
+			|| get_distance_f(botOrigin, botPrevPos) > 900.0) // Has teleported?
+			g_Unfreeze[bot]++;
+		else if (g_Unfreeze[bot])
+			g_Unfreeze[bot]++;
+
+		//if (g_Unfreeze[bot])
+		    //console_print(1, "[t=%d] Distance from prev frame: %.3f, curr HSpeed: %.3f", g_ReplayFramesIdx[owner], get_distance_f(botOrigin, botPrevPos), botCurrHSpeed);
 	}
 	else
 	{
-		new botId[1];
-		botId[0] = bot;
-		//console_print(1, "removing bot %d", botId[0]);
-		set_task(0.5, "KickReplayBot", _, botId, 1);
+		//console_print(1, "npc_think :: removing bot %d", bot);
+		set_task(0.5, "KickReplayBot", bot + TASKID_KICK_REPLAYBOT);
 		FinishReplay(owner);
 	}
 
+}
+
+public UnfreezeSpecCam(bot)
+{
+	//new bot = id - TASKID_CAM_UNFREEZE;
+	//console_print(1, "UnfreezeSpecCam :: bot id: %d", bot);
+	new bool:launchTask = false;
+	for (new spec = 1; spec <= g_MaxPlayers; spec++)
+	{
+		if (is_user_connected(spec))
+		{
+			if (is_user_alive(spec))
+				continue;
+			
+			if (pev(spec, pev_iuser2) == bot)
+			{
+				client_cmd(spec, "+attack; wait; -attack;");
+				g_FrozenSpectators[spec] = bot;
+				new runnerName[33], specName[33];
+				GetColorlessName(bot, runnerName, charsmax(runnerName));
+				GetColorlessName(spec, specName, charsmax(specName));
+				//console_print(spec, "executing +attack;wait;-attack on spectator %s", specName);
+				launchTask = true;
+			}
+		}
+	}
+	if (launchTask)
+		set_task(0.1, "RestoreSpecCam");
+}
+
+public RestoreSpecCam()
+{
+	for (new i = 1; i <= sizeof(g_FrozenSpectators) - 1; i++)
+	{	
+		new bot = g_FrozenSpectators[i];
+		if (bot)
+		{
+			new runnerName[33];
+			GetColorlessName(bot, runnerName, charsmax(runnerName));
+			//console_print(i, "setting cam back on player %s", runnerName);
+			set_pev(i, pev_iuser2, bot);
+		}
+	}
+}
+
+public CmdSpectatingName(id)
+{
+	new runner = pev(id, pev_iuser2);
+	if (runner)
+	{
+		new runnerName[33];
+		GetColorlessName(runner, runnerName, charsmax(runnerName));
+		client_print(id, print_chat, "You're spectating %s", runnerName);
+	}
 }
 
 // Pass the player id that spawned the replay bot
@@ -1306,12 +1412,17 @@ FinishReplay(id)
 	//console_print(1, "removing entity %d", ent);
 	remove_entity(ent);
 	g_BotOwner[bot] = 0;
+	//console_print(1, "FinishReplay :: setting g_BotOwner[bot] = 0");
 	g_BotEntity[bot] = 0;
+
+	set_pev(bot, pev_flags, pev(bot, pev_flags) & ~FL_FROZEN);
+	remove_task(bot + TASKID_ICON);
 }
 
-public KickReplayBot(id[])
+public KickReplayBot(id)
 {
-	server_cmd("kick #%d \"Replay finished.\"", get_user_userid(id[0]));
+	new bot = id - TASKID_KICK_REPLAYBOT;
+	server_cmd("kick #%d \"Replay finished.\"", get_user_userid(bot));
 	g_ReplayNum--;
 }
 
@@ -1477,6 +1588,9 @@ public CmdSayHandler(id, level, cid)
 
 	else if (equali(args[1], "spectate") || equali(args[1], "spec"))
 		CmdSpec(id);
+
+	else if (equali(args[1], "checkspec"))
+		CmdSpectatingName(id);
 
 	else if (equali(args[1], "setstart") || equali(args[1], "ss"))
 		CmdSetCustomStartHandler(id);
@@ -3817,8 +3931,10 @@ GetEntitysBot(ent)
 // Returns the bot that a player has spawned
 GetOwnersBot(id)
 {
+	//console_print(1, "checking bots of player %d", id);
 	for (new i = 1; i <= sizeof(g_BotOwner) - 1; i++)
 	{	
+		//console_print(1, "%d's owner is %d", i, g_BotOwner[i]);
 		if (id == g_BotOwner[i])
 			return i;
 	}
