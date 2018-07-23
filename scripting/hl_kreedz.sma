@@ -1317,13 +1317,17 @@ public npc_think(id)
 			// but it would have to be calculated if surfing, but may not be easy
 			// as a too high z velocity when not surfing will deal fall damage
 		}
+		set_pev(id, pev_origin, replay[RP_ORIGIN]);
+	    set_pev(id, pev_angles, replay[RP_ANGLES]);
+	    set_pev(id, pev_v_angle, replay[RP_ANGLES]);
+	    set_pev(id, pev_button, replay[RP_BUTTONS]);
+		set_pev(id, pev_velocity, botVelocity);
 	    set_pev(bot, pev_origin, replay[RP_ORIGIN]);
 	    set_pev(bot, pev_angles, replay[RP_ANGLES]);
 	    set_pev(bot, pev_v_angle, replay[RP_ANGLES]);
 	    set_pev(bot, pev_button, replay[RP_BUTTONS]);
 		set_pev(bot, pev_velocity, botVelocity);
-		pev(bot, pev_origin, botOrigin); // set again botOrigin to calculate curr position vector length
-
+		pev(bot, pev_origin, botOrigin); // get again botOrigin to calculate curr position vector length
 
     	entity_set_float(id, EV_FL_nextthink, get_gametime() + replayNext[RP_TIME] - replay[RP_TIME]);
 
@@ -1357,7 +1361,18 @@ public UnfreezeSpecCam(bot)
 {
 	//new bot = id - TASKID_CAM_UNFREEZE;
 	//console_print(1, "UnfreezeSpecCam :: bot id: %d", bot);
-	new bool:launchTask = false;
+	new bool:launchTask = false, j = 0;
+	new runningPlayers[MAX_PLAYERS + 1];
+
+	for (new i = 1; i <= g_MaxPlayers; i++)
+	{
+		if (IsAlive(i) && !pev(i, pev_iuser1))
+		{
+			runningPlayers[j] = i;
+			j++;
+		}
+	}
+
 	for (new spec = 1; spec <= g_MaxPlayers; spec++)
 	{
 		if (is_user_connected(spec))
@@ -1367,7 +1382,17 @@ public UnfreezeSpecCam(bot)
 			
 			if (pev(spec, pev_iuser2) == bot)
 			{
-				client_cmd(spec, "+attack; wait; -attack;");
+				if (!runningPlayers[0])
+					client_cmd(spec, "+attack; wait; -attack;");
+				else
+				{
+					if (runningPlayers[0] != bot)
+						set_pev(spec, pev_iuser2, runningPlayers[0]);
+					else if (runningPlayers[1])
+						set_pev(spec, pev_iuser2, runningPlayers[1]);
+					else
+						client_cmd(spec, "+attack; wait; -attack;");
+				}
 				g_FrozenSpectators[spec] = bot;
 				new runnerName[33], specName[33];
 				GetColorlessName(bot, runnerName, charsmax(runnerName));
@@ -2888,9 +2913,6 @@ public Fw_FmPlayerPreThinkPost(id)
 	pev(id, pev_velocity, g_Velocity[id]);
 	//console_print(id, "sequence: %d, pev_gaitsequence: %d", pev(id, pev_sequence), pev(id, pev_gaitsequence));
 	
-	if (!IsBot(id) && g_RecordRun[id])
-		RecordRunFrame(id);
-
 	// Store pressed keys here, cos HUD updating is called not so frequently
 	HudStorePressedKeys(id);
 
@@ -2996,6 +3018,7 @@ public Fw_FmPlayerTouchTeleport(tp, id) {
 		g_RampFrameCounter[id] = 0;
 		g_HBFrameCounter[id] = 0;
     }
+
 }
 
 public Fw_FmPlayerTouchPush(push, id)
@@ -3128,6 +3151,9 @@ public Fw_FmPlayerPostThinkPre(id)
 		cappedVelocity[2] = currVelocity[2];
 		set_pev(id, pev_velocity, cappedVelocity);
 	}
+
+	if (!IsBot(id) && g_RecordRun[id])
+		RecordRunFrame(id);
 
 	if (!g_RestoreSolidStates)
 		return;
