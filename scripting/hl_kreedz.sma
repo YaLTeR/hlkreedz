@@ -246,6 +246,7 @@ new pcvar_kz_autorecord;
 new pcvar_kz_max_concurrent_replays;
 new pcvar_kz_max_replay_duration;
 new pcvar_kz_replay_setup_time;
+new pcvar_kz_denied_sound;
 
 new g_FwLightStyle;
 
@@ -326,6 +327,7 @@ public plugin_init()
 
 	pcvar_sv_ag_match_running = get_cvar_pointer("sv_ag_match_running");
 
+	pcvar_kz_denied_sound = register_cvar("kz_denied_sound", "1");
 
 	register_dictionary("telemenu.txt");
 	register_dictionary("common.txt");
@@ -1080,7 +1082,7 @@ CmdReplay(id, szTopType[])
 	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
 	//formatex(g_ReplayFile[id], charsmax(replayFile), "%s", replayFile);
 	//console_print(id, "rank %d's idNumbers: '%s', replay file: '%s'", replayRank, idNumbers, replayFile);
-	
+
 	minutes = floatround(stats[STATS_TIME], floatround_floor) / 60;
 	seconds = stats[STATS_TIME] - (60 * minutes);
 
@@ -1123,7 +1125,7 @@ CmdReplay(id, szTopType[])
 
 		client_print(id, print_chat, "%s", replayingMsg);
 	}
-	
+
 	if (!g_ReplayFramesIdx[id])
 	{
 		new replay[REPLAY];
@@ -1620,7 +1622,7 @@ public TASCmdHandler(id)
 			g_PlayerTASed[id] = get_gametime();
 		}
 	}
-	
+
 	new ret;
 	ExecuteForward(mfwd_hlkz_cheating, ret, id);
 
@@ -2031,7 +2033,10 @@ StartClimb(id)
 {
 	if (g_CheatCommandsGuard[id])
 	{
+		if(get_pcvar_num(pcvar_kz_denied_sound))
+		{
 		client_cmd(id, "spk \"vox/access denied\"");
+		}
 		ShowMessage(id, "Using timer while cheating is prohibited");
 		return;
 	}
@@ -2068,13 +2073,19 @@ FinishClimb(id)
 {
 	if (g_CheatCommandsGuard[id])
 	{
+		if(get_pcvar_num(pcvar_kz_denied_sound))
+		{
 		client_cmd(id, "spk \"vox/access denied\"");
+		}
 		ShowMessage(id, "Using timer while cheating is prohibited");
 		return;
 	}
 	if (!get_bit(g_baIsClimbing, id))
 	{
+		if(get_pcvar_num(pcvar_kz_denied_sound))
+		{
 		client_cmd(id, "spk \"vox/access denied\"");
+		}
 		ShowMessage(id, "You must press the start button first");
 		return;
 	}
@@ -2427,19 +2438,19 @@ GetSpectatorList(id, hud[], sendTo[])
 {
 	new szName[33];
 	new bool:send = false;
-	
+
 	sendTo[id] = true;
-	
+
 	GetColorlessName(id, szName, charsmax(szName));
 	format(hud, 45, "Spectating %s:\n", szName);
-	
+
 	for (new dead = 1; dead <= g_MaxPlayers; dead++)
 	{
 		if (is_user_connected(dead))
 		{
 			if (is_user_alive(dead))
 				continue;
-			
+
 			if (pev(dead, pev_iuser2) == id)
 			{
 				if(!(get_pcvar_num(pcvar_kz_speclist_admin_invis) && get_user_flags(dead, 0) & ADMIN_IMMUNITY))
@@ -2767,7 +2778,7 @@ public Fw_FmPlayerPreThinkPost(id)
 	pev(id, pev_view_ofs, g_ViewOfs[id]);
 	pev(id, pev_velocity, g_Velocity[id]);
 	//console_print(id, "sequence: %d, pev_gaitsequence: %d", pev(id, pev_sequence), pev(id, pev_gaitsequence));
-	
+
 	if (!IsBot(id) && g_RecordRun[id])
 		RecordRunFrame(id);
 
@@ -3559,7 +3570,7 @@ UpdateRecords(id, Float:kztime, szTopType[])
 				client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You failed your %s time by %02d:%"),
 					PLUGIN_TAG, szTopType, minutes, seconds);
 			}
-		
+
 			return;
 		}
 
@@ -3807,7 +3818,7 @@ SaveRecordedRun(id, szTopType[])
 GetEntitysBot(ent)
 {
 	for (new i = 1; i <= sizeof(g_BotEntity) - 1; i++)
-	{	
+	{
 		if (ent == g_BotEntity[i])
 			return i;
 	}
@@ -3818,7 +3829,7 @@ GetEntitysBot(ent)
 GetOwnersBot(id)
 {
 	for (new i = 1; i <= sizeof(g_BotOwner) - 1; i++)
-	{	
+	{
 		if (id == g_BotOwner[i])
 			return i;
 	}
