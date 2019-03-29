@@ -1213,6 +1213,7 @@ SpawnBot(id)
 		    dllfunc(DLLFunc_ClientConnect, bot, botName, ip, ptr);
 		    dllfunc(DLLFunc_ClientPutInServer, bot);
 		    set_pev(bot, pev_flags, pev(bot, pev_flags) | FL_FAKECLIENT);
+		    set_bit(g_bit_is_bot, bot);
 
 		    entity_set_float(bot, EV_FL_takedamage, 1.0);
 		    entity_set_float(bot, EV_FL_health, 100.0);
@@ -1280,6 +1281,7 @@ SpawnDummyBot(id)
 		    dllfunc(DLLFunc_ClientConnect, bot, botName, ip, ptr);
 		    dllfunc(DLLFunc_ClientPutInServer, bot);
 		    set_pev(bot, pev_flags, pev(id, pev_flags) | FL_FAKECLIENT);
+		    set_bit(g_bit_is_bot, bot);
 
 		    entity_set_float(bot, EV_FL_takedamage, 1.0);
 		    entity_set_float(bot, EV_FL_health, 100.0);
@@ -2606,7 +2608,8 @@ FinishTimer(id)
 	client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s finished in %02d:%", "(CPs: %d | TPs: %d) %s"),
 		PLUGIN_TAG, name, minutes, seconds, g_CpCounters[id][COUNTER_CP], g_CpCounters[id][COUNTER_TP], pureRun);
 
-	if (!get_pcvar_num(pcvar_kz_nostat))
+	if (!get_pcvar_num(pcvar_kz_nostat) && !IsBot(id))
+		// Bots are not gonna set new records yet, unless some bhop AI is created for fun
 		if (!g_CpCounters[id][COUNTER_CP] && !g_CpCounters[id][COUNTER_TP])
 		{
 			if (get_bit(g_baIsPureRunning, id))
