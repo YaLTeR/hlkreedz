@@ -1178,6 +1178,7 @@ CmdReplay(id, szTopType[])
 		ArrayGetArray(g_ReplayFrames[id], 0, replay0);
 		// ((1483.79 - 1452.84) / 7630) * 1
 		new Float:demoFramerate = 1.0 / ((replay[RP_TIME] - replay0[RP_TIME]) / float(i)) * float(g_ReplayFpsMultiplier[id]);
+		//console_print(id, "%.3f = 1.0 / ((%.3f - %.3f) / %.3f) * %.3f", demoFramerate, replay[RP_TIME], replay0[RP_TIME], float(i), float(g_ReplayFpsMultiplier[id]));
 
 		g_ReplayNum++;
 		SpawnBot(id);
@@ -3493,9 +3494,6 @@ public Fw_FmPlayerPostThinkPre(id)
 		cappedVelocity[2] = currVelocity[2];
 		set_pev(id, pev_velocity, cappedVelocity);
 	}
-
-	if (!IsBot(id) && g_RecordRun[id])
-		RecordRunFrame(id);
 
 	if (!g_RestoreSolidStates)
 		return;
