@@ -55,8 +55,7 @@
 #define TASKID_ICON 5633445
 #define TASKID_WELCOME 43321
 #define TASKID_KICK_REPLAYBOT 9572626
-#define TASKID_CAM_UNFREEZE 15622952
-#define TASKID_SEND_ATTACK_REFRESH 5789373
+#define TASKID_CAM_UNFREEZE 1622952
 
 #define MAIN_MENU_ID	"HL KreedZ Menu"
 #define TELE_MENU_ID	"HL KreedZ Teleport Menu"
@@ -98,7 +97,8 @@ enum _:CP_TYPES
 	CP_TYPE_CURRENT,
 	CP_TYPE_OLD,
 	CP_TYPE_CUSTOM_START, // kz_set_custom_start position.
-	CP_TYPE_START,        // Standard spawn or the start button.
+	CP_TYPE_START,        // Start button.
+	CP_TYPE_DEFAULT_START // Standard spawn
 }
 
 enum _:CP_DATA
@@ -207,7 +207,6 @@ new g_SyncHudSpecList;
 new g_MaxPlayers;
 new g_PauseSprite;
 new g_TaskEnt;
-new g_TimesRestoreCam;
 
 new g_Map[64];
 new g_ConfigsDir[256];
@@ -412,8 +411,6 @@ public plugin_init()
 	g_TaskEnt = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
 	set_pev(g_TaskEnt, pev_classname, engfunc(EngFunc_AllocString, "timer_entity"));
 	set_pev(g_TaskEnt, pev_nextthink, get_gametime() + 1.01);
-
-	g_TimesRestoreCam = 10;
 
 	g_MaxPlayers = get_maxplayers();
 
@@ -822,7 +819,9 @@ public client_putinserver(id)
 
 	//query_client_cvar(id, "kz_nightvision", "ClCmdNightvision"); // TODO save user variables in a file and retrieve them when they connect to server
 
-	g_ControlPoints[id][CP_TYPE_START] = g_MapDefaultStart;
+	new Float:time = get_gametime();
+	//console_print(0, "[%.3f] Setting map default start for %d", time, id);
+	g_ControlPoints[id][CP_TYPE_DEFAULT_START] = g_MapDefaultStart;
 
 	g_ReplayFrames[id] = ArrayCreate(REPLAY);
 
@@ -976,6 +975,8 @@ CmdStart(id)
 
 	if (CanTeleport(id, CP_TYPE_START))
 		Teleport(id, CP_TYPE_START);
+	else if (CanTeleport(id, CP_TYPE_DEFAULT_START))
+		Teleport(id, CP_TYPE_DEFAULT_START);
 }
 
 CmdPause(id)
@@ -1441,7 +1442,7 @@ public npc_think(id)
 
 	    if (g_ConsolePrintNextFrames[owner] > 0)
 	    {
-	    	console_print(1, "[t=%d %.5f] dp: %.2f, px: %.2f, py: %.2f, pz: %.2f, s: %.2f, btns: %d", g_ReplayFramesIdx[owner], demoTime, get_distance_f(botCurrPos, botPrevPos), replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2], botCurrHSpeed, replay[RP_BUTTONS]);
+	    	console_print(owner, "[t=%d %.5f] dp: %.2f, px: %.2f, py: %.2f, pz: %.2f, s: %.2f, btns: %d", g_ReplayFramesIdx[owner], demoTime, get_distance_f(botCurrPos, botPrevPos), replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2], botCurrHSpeed, replay[RP_BUTTONS]);
 	    	g_ConsolePrintNextFrames[owner]--;
 	    }
 	    /*
@@ -1575,164 +1576,6 @@ public RestoreSpecCam(payLoad[], taskId)
 		//console_print(spec, "Spec %s o(%.2f, %.2f, %.2f), a(%.2f, %.2f, %.2f)", specName, origin[0], origin[1], origin[2], angles[0], angles[1], angles[2]);
 	}
 }
-
-/*
-public UnfreezeSpecCam(bot)
-{
-	//new bot = id - TASKID_CAM_UNFREEZE;
-	new Float:time = get_gametime();
-	console_print(1, "[%.4f] UnfreezeSpecCam :: bot id: %d", time, bot);
-	new bool:launchTask = false, j = 0;
-	new runningPlayers[MAX_PLAYERS + 1];
-
-	for (new i = 1; i <= g_MaxPlayers; i++)
-	{
-		//if (pev(spec, pev_iuser2) == bot)
-		if (IsAlive(i) && !pev(i, pev_iuser1))
-		{
-			// Not dead and not spectating
-			new runnerName[33];
-			GetColorlessName(bot, runnerName, charsmax(runnerName));
-			console_print(1, "runningPlayers[%d] = %d (name = %s)", j, i, runnerName);
-			runningPlayers[j] = i;
-			j++;
-		}
-	}
-
-	for (new spec = 1; spec <= g_MaxPlayers; spec++)
-	{
-		if (is_user_connected(spec))
-		{
-			// Iterate from 1 to g_MaxPlayers, if it doesn't exist or is not playing don't do anything
-			if (is_user_alive(spec))
-				continue;
-			
-			if (pev(spec, pev_iuser2) == bot)
-			{
-				// This spectator is watching the frozen bot (not really, what is frozen is the cam, the bot is moving)
-				client_cmd(spec, "+attack; wait; -attack;");
-				g_FrozenSpectators[spec] = bot;
-				new runnerName[33], specName[33];
-				GetColorlessName(bot, runnerName, charsmax(runnerName));
-				GetColorlessName(spec, specName, charsmax(specName));
-				//console_print(spec, "UnfreezeSpecCam :: Executing +attack;wait;-attack on spectator %s (bot id = #%d)", specName, bot);
-
-				new Float:angles[3];
-				new Float:botAngles[3];
-				pev(spec, pev_v_angle, angles);
-				pev(bot, pev_v_angle, botAngles);
-				console_print(spec, "UnfreezeSpecCam :: Spectator %s angles: (%.2f, %.2f, %.2f)", specName, angles[0], angles[1], angles[2]);
-				console_print(spec, "UnfreezeSpecCam :: Bot %s angles: (%.2f, %.2f, %.2f)", runnerName, botAngles[0], botAngles[1], botAngles[2]);
-
-				if (runningPlayers[0] != bot)
-				{
-					set_pev(spec, pev_iuser2, runningPlayers[0]);
-				}
-				else if (runningPlayers[1])
-				{
-					// There's another player other than the bot running, so change the POV to that
-					set_pev(spec, pev_iuser2, runningPlayers[1]);
-				}
-				// FIXME: launch task from here directly, more tasks may be launched but
-				// less code corresponding to iterating g_FrozenSpectators
-				launchTask = true;
-			}
-		}
-	}
-
-	// Change the POV back to the bot that the player was spectating
-	if (launchTask)
-	{
-		// Try several times to change the POV, because sometimes it just won't set the POV back
-		new Float:baseTime = 0.01;
-		for (new delaySecond = 0; delaySecond < g_TimesRestoreCam; delaySecond++)
-		{
-			new Float:extraTime = float(delaySecond) / 20;
-			new Float:delay = floatadd(baseTime, extraTime);
-			//console_print(1, "Calling RestoreSpecCam %3.2f seconds after freeze (extraTime = %3.2f, baseTime = %3.2f)", delay, extraTime, baseTime);
-			// e.g: execute the task every 0.1 seconds
-			// starting from 0.03 seconds after the POV changed,
-			// and do this for 0.5 seconds (so execute it 5 times)
-			new payLoad[1];
-			payLoad[0] = delaySecond;
-			console_print(1, "UnfreezeSpecCam :: delaySecond=%d, delay=%d", delaySecond, delay);
-			set_task(delay, "RestoreSpecCam", TASKID_CAM_UNFREEZE + bot, payLoad, sizeof(payLoad));
-			if (delaySecond < g_TimesRestoreCam)
-			{
-				// Only send this a few times at the first iterations
-				new Float:timeToSendAttack = delay + 0.03;
-				set_task(timeToSendAttack, "SendAttackRefresh", TASKID_SEND_ATTACK_REFRESH + bot);
-			}
-		}
-	}
-}
-
-public RestoreSpecCam(payLoad[], id)
-{
-	// The id is the sum of the real task id and the bot id, so we subtract to get the bot
-	new bot = id - TASKID_CAM_UNFREEZE;
-	new round = payLoad[0];
-	new Float:time = get_gametime();
-	new owner = g_BotOwner[bot];
-	console_print(owner, "[%.4f] RestoreSpecCam :: round=%d, g_TimesRestoreCam=%d, bot=%d", time, round, g_TimesRestoreCam, bot);
-	for (new i = 1; i <= sizeof(g_FrozenSpectators) - 1; i++)
-	{
-		if (g_FrozenSpectators[i] && g_FrozenSpectators[i] == bot)
-		{
-			new runnerName[33];
-			GetColorlessName(bot, runnerName, charsmax(runnerName));
-			//console_print(i, "RestoreSpecCam :: Setting POV back to the bot %s", runnerName);
-			
-			new specName[33];
-			new Float:angles[3], Float:botAngles[3];
-			GetColorlessName(i, specName, charsmax(specName));
-			pev(i, pev_v_angle, angles);
-			pev(bot, pev_v_angle, botAngles);
-			console_print(i, "RestoreSpecCam :: Spectator %s angles: (%.2f, %.2f, %.2f)", specName, angles[0], angles[1], angles[2]);
-			console_print(i, "RestoreSpecCam :: Bot %s angles: (%.2f, %.2f, %.2f)", runnerName, botAngles[0], botAngles[1], botAngles[2]);
-			set_pev(i, pev_v_angle, botAngles);
-
-			// Set the target of the spectator back to the bot they were watching on freeze
-			set_pev(i, pev_iuser2, bot);
-
-			if (round + 1 == g_TimesRestoreCam)
-			{
-				// Last pass of this task, time to clear the data, as it's supossed not to be frozen now
-				g_FrozenSpectators[i] = 0;
-			}
-		}
-	}
-}
-
-// This sends the [+attack; wait; -attack] commands to refresh the spectator view
-public SendAttackRefresh(id) {
-	new bot = id - TASKID_SEND_ATTACK_REFRESH;
-	new Float:time = get_gametime();
-	new owner = g_BotOwner[bot];
-	console_print(owner, "[%.4f] SendAttackRefresh :: bot=%d", time, bot);
-	for (new i = 1; i <= sizeof(g_FrozenSpectators) - 1; i++)
-	{
-		if (g_FrozenSpectators[i] && g_FrozenSpectators[i] == bot)
-		{
-			new runnerName[33];
-			GetColorlessName(bot, runnerName, charsmax(runnerName));
-			//console_print(i, "SendAttackRefresh :: Refreshing cam by sending attack command to spectators of %s", runnerName);
-			
-			new specName[33];
-			new Float:angles[3], Float:botAngles[3];
-			GetColorlessName(i, specName, charsmax(specName));
-			pev(i, pev_v_angle, angles);
-			pev(bot, pev_v_angle, botAngles);
-			console_print(i, "SendAttackRefresh :: Spectator %s angles: (%.2f, %.2f, %.2f)", specName, angles[0], angles[1], angles[2]);
-			console_print(i, "SendAttackRefresh :: Bot %s angles: (%.2f, %.2f, %.2f)", runnerName, botAngles[0], botAngles[1], botAngles[2]);
-			set_pev(i, pev_v_angle, botAngles);
-
-			// Make the spectator cam react, either to change the POV to another runner or just to refresh it if nobody running
-			client_cmd(i, "+attack; wait; -attack;");
-		}
-	}
-}
-*/
 
 public CmdPrintNextFrames(id)
 {
@@ -2164,6 +2007,8 @@ bool:CanTeleport(id, cp, bool:showMessages = true)
 		return false;
 	}
 
+	new Float:time = get_gametime();
+	console_print(0, "[%.3f] CanTeleport::g_ControlPoints[%d][%d] = %d; valid = %d", time, id, cp, g_ControlPoints[id][cp], g_ControlPoints[id][cp][CP_VALID]);
 	if (!g_ControlPoints[id][cp][CP_VALID])
 	{
 		if (showMessages)
@@ -2172,7 +2017,8 @@ bool:CanTeleport(id, cp, bool:showMessages = true)
 			case CP_TYPE_CURRENT: ShowMessage(id, "You don't have checkpoint created");
 			case CP_TYPE_OLD: ShowMessage(id, "You don't have previous checkpoint created");
 			case CP_TYPE_CUSTOM_START: ShowMessage(id, "You don't have a custom start point set");
-			case CP_TYPE_START: ShowMessage(id, "You don't have start checkpoint created and the map doesn't have a default one");
+			case CP_TYPE_START: ShowMessage(id, "You don't have start checkpoint created");
+			case CP_TYPE_DEFAULT_START: ShowMessage(id, "The map doesn't have a default start checkpoint set");
 			}
 		return false;
 	}
@@ -2264,6 +2110,11 @@ Teleport(id, cp)
 		g_CpCounters[id][COUNTER_TP]++;
 		ShowMessage(id, "Go checkpoint #%d", g_CpCounters[id][COUNTER_TP]);
 	}
+	else if (cp == CP_TYPE_DEFAULT_START)
+	{
+		ResetPlayer(id, false, true);
+		ShowMessage(id, "Teleported to the default start position");
+	}
 }
 
 TeleportAfterRespawn(id)
@@ -2282,6 +2133,8 @@ TeleportAfterRespawn(id)
 		{
 			if (CanTeleport(id, CP_TYPE_START, false))
 				Teleport(id, CP_TYPE_START);
+			else if (CanTeleport(id, CP_TYPE_DEFAULT_START, false))
+				Teleport(id, CP_TYPE_DEFAULT_START);
 
 			return;
 		}
@@ -2291,6 +2144,8 @@ TeleportAfterRespawn(id)
 			Teleport(id, CP_TYPE_CURRENT);
 		else if (CanTeleport(id, CP_TYPE_START, false))
 			Teleport(id, CP_TYPE_START);
+		else if (CanTeleport(id, CP_TYPE_DEFAULT_START, false))
+			Teleport(id, CP_TYPE_DEFAULT_START);
 	}
 }
 
@@ -3660,8 +3515,16 @@ public CmdSetStartHandler(id)
 		return PLUGIN_HANDLED;
 	}
 
-	CreateCp(id, CP_TYPE_START);
-	g_MapDefaultStart = g_ControlPoints[id][CP_TYPE_START];
+	CreateCp(id, CP_TYPE_DEFAULT_START);
+	g_MapDefaultStart = g_ControlPoints[id][CP_TYPE_DEFAULT_START];
+
+	new uniqueid[32], name[32];
+	GetUserUniqueId(id, uniqueid, charsmax(uniqueid));
+	GetColorlessName(id, name, charsmax(name));
+	new Float:time = get_gametime();
+	console_print(0, "[%.3f] %s (%s) is setting a default start point for %s (point = {%.2f, %.2f, %.2f})",
+			time, name, uniqueid, g_Map,
+			g_MapDefaultStart[CP_ORIGIN][0], g_MapDefaultStart[CP_ORIGIN][1], g_MapDefaultStart[CP_ORIGIN][2]);
 
 	fprintf(file, "Start: %d, { %f, %f, %f }, { %f, %f, %f }, { %f, %f, %f }, { %f, %f, %f }, %f, %f, %d\n",
 		g_MapDefaultStart[CP_FLAGS],
@@ -3675,7 +3538,7 @@ public CmdSetStartHandler(id)
 
 	// Propagate to clients
 	for (new i = 1; i <= g_MaxPlayers; i++)
-		g_ControlPoints[i][CP_TYPE_START] = g_MapDefaultStart;
+		g_ControlPoints[i][CP_TYPE_DEFAULT_START] = g_MapDefaultStart;
 
 	ShowMessage(id, "Map start position set");
 
@@ -3856,6 +3719,9 @@ LoadMapSettings()
 	new file = fopen(g_MapIniFile, "rt");
 	if (!file)
 		return;
+
+	//new Float:time = get_gametime();
+	//console_print(0, "[%.3f] Loading map default start", time);
 
 	new buffer[1024], pos;
 	while (!feof(file))
