@@ -83,6 +83,9 @@ new const g_szTops[][] =
 	"Pure", "Pro", "Noob"
 };
 
+const XO_WEAPON = 4;
+const m_pPlayer = 41;
+
 enum _:REPLAY
 {
 	Float:RP_TIME,
@@ -381,6 +384,19 @@ public plugin_init()
 	RegisterHam(Ham_BloodColor, "player", "Fw_HamBloodColorPre");
 	RegisterHam(Ham_TakeDamage, "player", "Fw_HamTakeDamagePlayerPre");
 	RegisterHam(Ham_TakeDamage, "player", "Fw_HamTakeDamagePlayerPost", 1);
+	// TODO: get tripmines entity id when placed, get its position and check if the player is jumping on a tripmine
+	// TODO: do the same as above but for satchels
+	// TODO: same as above but check if it has exploded and damaged a player, causing some boost on the player
+    RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_tripmine",	"Fw_HamBoostAttack");
+    RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_crossbow",	"Fw_HamBoostAttack");
+    RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_egon",		"Fw_HamBoostAttack");
+    RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_rpg",		"Fw_HamBoostAttack");
+    RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
+    RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_snark",		"Fw_HamBoostAttack");
+    RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_9mmAR",		"Fw_HamBoostAttack");
+    RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_gauss",		"Fw_HamBoostAttack");
+    // While the TODOs get done, we penalize the player who places a satchel, that may be used for another player to jump on it
+    RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
 
 	register_forward(FM_ClientKill,"Fw_FmClientKillPre");
 	register_forward(FM_ClientCommand, "Fw_FmClientCommandPost", 1);
@@ -2008,7 +2024,7 @@ bool:CanTeleport(id, cp, bool:showMessages = true)
 	}
 
 	new Float:time = get_gametime();
-	console_print(0, "[%.3f] CanTeleport::g_ControlPoints[%d][%d] = %d; valid = %d", time, id, cp, g_ControlPoints[id][cp], g_ControlPoints[id][cp][CP_VALID]);
+	//console_print(0, "[%.3f] CanTeleport::g_ControlPoints[%d][%d] = %d; valid = %d", time, id, cp, g_ControlPoints[id][cp], g_ControlPoints[id][cp][CP_VALID]);
 	if (!g_ControlPoints[id][cp][CP_VALID])
 	{
 		if (showMessages)
@@ -3005,6 +3021,14 @@ public Fw_HamTakeDamagePlayerPost(victim, inflictor, agressor, Float:damage, dam
 	}
 }
 
+public Fw_HamBoostAttack(weaponId)
+{
+	new ownerId = pev(weaponId, pev_owner);
+	//console_print(1, "Fw_HamBoostAttack::%d", ownerId);
+	clr_bit(g_baIsPureRunning, ownerId);
+	return PLUGIN_CONTINUE;
+}
+
 public Fw_FmClientKillPre(id)
 {
 	if (get_pcvar_num(pcvar_kz_nokill))
@@ -3256,6 +3280,13 @@ public Fw_FmPlayerTouchHealthBooster(hb, id)
 
 public Fw_FmPlayerPostThinkPre(id)
 {
+	if ((pev(id, pev_button) & IN_JUMP) && hl_get_user_longjump(id))
+	{
+		// TODO: check whether the player has really longjumped, not if it has the LJ module
+		// and has performed a jump that may be just a normal jump and not a longjump-assisted one
+		clr_bit(g_baIsPureRunning, id);
+	}
+
 	new Float:currVelocity[3];
 	pev(id, pev_velocity, currVelocity);
 	new Float:endSpeed = floatsqroot(floatpower(currVelocity[0], 2.0) + floatpower(currVelocity[1], 2.0));
