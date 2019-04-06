@@ -83,8 +83,38 @@ new const g_szTops[][] =
 	"Pure", "Pro", "Noob"
 };
 
-const XO_WEAPON = 4;
-const m_pPlayer = 41;
+new const g_itemNames[][] =
+{
+	"ammo_357",
+	"ammo_9mmAR",
+	"ammo_9mmbox",
+	"ammo_9mmclip",
+	"ammo_ARgrenades",
+	"ammo_buckshot",
+	"ammo_crossbow",
+	"ammo_gaussclip",
+	"ammo_glockclip",
+	"ammo_mp5clip",
+	"ammo_mp5grenades",
+	"ammo_rpgclip",
+	"item_battery",
+	"item_healthkit",
+	"item_longjump",
+	"weapon_hornetgun",
+	"weapon_python",
+	"weapon_357",
+	"weapon_crossbow",
+	"weapon_snark",
+	"weapon_tripmine",
+	"weapon_satchel",
+	"weapon_handgrenade",
+	"weapon_9mmAR",
+	"weapon_gauss",
+	"weapon_mp5",
+	"weapon_rpg",
+	"weapon_egon",
+	"weapon_shotgun"
+};
 
 enum _:REPLAY
 {
@@ -262,6 +292,7 @@ new pcvar_kz_max_replay_duration;
 new pcvar_kz_replay_setup_time;
 new pcvar_kz_spec_unfreeze;
 new pcvar_kz_denied_sound;
+new pcvar_sv_items_respawn_time;
 
 new g_FwLightStyle;
 
@@ -345,6 +376,8 @@ public plugin_init()
 
 	pcvar_kz_denied_sound = register_cvar("kz_denied_sound", "1");
 
+	pcvar_sv_items_respawn_time = register_cvar("sv_items_respawn_time", "0"); // 0 = unchanged, x>0 = x seconds
+
 	register_dictionary("telemenu.txt");
 	register_dictionary("common.txt");
 
@@ -386,7 +419,6 @@ public plugin_init()
 	RegisterHam(Ham_TakeDamage, "player", "Fw_HamTakeDamagePlayerPost", 1);
 	// TODO: get tripmines entity id when placed, get its position and check if the player is jumping on a tripmine
 	// TODO: do the same as above but for satchels
-	// TODO: same as above but check if it has exploded and damaged a player, causing some boost on the player
     RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_tripmine",	"Fw_HamBoostAttack");
     RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_crossbow",	"Fw_HamBoostAttack");
     RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_egon",		"Fw_HamBoostAttack");
@@ -397,6 +429,10 @@ public plugin_init()
     RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_gauss",		"Fw_HamBoostAttack");
     // While the TODOs get done, we penalize the player who places a satchel, that may be used for another player to jump on it
     RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
+
+    if (get_pcvar_float(pcvar_sv_items_respawn_time) > 0)
+    	for (new i = 0; i < sizeof(g_itemNames); i++)
+    		RegisterHam(Ham_Respawn, g_itemNames[i], "Fw_HamItemRespawn", 1);
 
 	register_forward(FM_ClientKill,"Fw_FmClientKillPre");
 	register_forward(FM_ClientCommand, "Fw_FmClientCommandPost", 1);
@@ -3026,6 +3062,14 @@ public Fw_HamBoostAttack(weaponId)
 	new ownerId = pev(weaponId, pev_owner);
 	//console_print(1, "Fw_HamBoostAttack::%d", ownerId);
 	clr_bit(g_baIsPureRunning, ownerId);
+	return PLUGIN_CONTINUE;
+}
+
+public Fw_HamItemRespawn(itemId)
+{
+	new Float:respawnTime = get_pcvar_float(pcvar_sv_items_respawn_time);
+	//console_print(1, "respawning item %d in %.2f", itemId, respawnTime);
+	set_pev(itemId, pev_nextthink, get_gametime() + respawnTime);
 	return PLUGIN_CONTINUE;
 }
 
