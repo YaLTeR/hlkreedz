@@ -99,7 +99,11 @@ new const g_itemNames[][] =
 	"ammo_rpgclip",
 	"item_battery",
 	"item_healthkit",
-	"item_longjump",
+	"item_longjump"
+};
+
+new const g_weaponNames[][] =
+{
 	"weapon_hornetgun",
 	"weapon_python",
 	"weapon_357",
@@ -159,6 +163,12 @@ enum BUTTON_TYPE
 	BUTTON_START,
 	BUTTON_FINISH,
 	BUTTON_NOT,
+}
+
+enum _:WEAPON
+{
+	WEAPON_CLASSNAME[32],
+	Float:WEAPON_ORIGIN[3]
 }
 
 new g_bit_is_connected, g_bit_is_alive, g_bit_invis, g_bit_waterinvis;
@@ -228,6 +238,8 @@ new bool:g_hasSlopebugged[MAX_PLAYERS + 1];
 new bool:g_StoppedSlidingRamp[MAX_PLAYERS + 1];
 new g_RampFrameCounter[MAX_PLAYERS + 1];
 new g_HBFrameCounter[MAX_PLAYERS + 1]; // frame counter for healthbooster trigger_multiple
+
+new g_MapWeapons[256][WEAPON]; // weapons that are in the map, with their origin and angles
 
 new g_HudRGB[3];
 new g_SyncHudTimer;
@@ -428,11 +440,16 @@ public plugin_init()
     RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_9mmAR",		"Fw_HamBoostAttack");
     RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_gauss",		"Fw_HamBoostAttack");
     // While the TODOs get done, we penalize the player who places a satchel, that may be used for another player to jump on it
-    RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
+    //RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
 
     if (get_pcvar_float(pcvar_sv_items_respawn_time) > 0)
+    {
     	for (new i = 0; i < sizeof(g_itemNames); i++)
     		RegisterHam(Ham_Respawn, g_itemNames[i], "Fw_HamItemRespawn", 1);
+
+    	for (new j = 0; j < sizeof(g_weaponNames); j++)
+    		register_touch(g_weaponNames[j], "worldspawn",	"Fw_FmWeaponRespawn");
+    }
 
 	register_forward(FM_ClientKill,"Fw_FmClientKillPre");
 	register_forward(FM_ClientCommand, "Fw_FmClientCommandPost", 1);
@@ -3060,16 +3077,57 @@ public Fw_HamTakeDamagePlayerPost(victim, inflictor, agressor, Float:damage, dam
 public Fw_HamBoostAttack(weaponId)
 {
 	new ownerId = pev(weaponId, pev_owner);
-	//console_print(1, "Fw_HamBoostAttack::%d", ownerId);
 	clr_bit(g_baIsPureRunning, ownerId);
+
 	return PLUGIN_CONTINUE;
 }
 
 public Fw_HamItemRespawn(itemId)
 {
 	new Float:respawnTime = get_pcvar_float(pcvar_sv_items_respawn_time);
-	//console_print(1, "respawning item %d in %.2f", itemId, respawnTime);
 	set_pev(itemId, pev_nextthink, get_gametime() + respawnTime);
+
+	return PLUGIN_CONTINUE;
+}
+
+public Fw_FmWeaponRespawn(weaponId, worldspawnId)
+{
+	// Tried setting the nextthink of weapons like we do with items, but that didn't work,
+	// so we set a task and make it call the weapon's spawn function
+	new weapon[WEAPON];
+	pev(weaponId, pev_classname, weapon[WEAPON_CLASSNAME], charsmax(weapon[WEAPON_CLASSNAME]));
+	pev(weaponId, pev_origin, weapon[WEAPON_ORIGIN]);
+
+	new i, bool:found = false, Float:subtract[3];
+	for (i = 0; i < sizeof(g_MapWeapons); i++)
+	{
+		if (!g_MapWeapons[i][WEAPON_CLASSNAME])
+			break;
+
+		if (equal(g_MapWeapons[i][WEAPON_CLASSNAME], weapon[WEAPON_CLASSNAME]))
+		{
+			// The height at which the weapon is placed seems to be slightly changed
+			// after the weapon is taken FOR FIRST TIME in the map. It's like the next time
+			// the entity spawns a little lower in the Z axis, more sticked to the ground.
+			// After the first take, all the entities of that weapon class that spawn there
+			// will have the same Z value though
+			xs_vec_sub(g_MapWeapons[i][WEAPON_ORIGIN], weapon[WEAPON_ORIGIN], subtract);
+			if (!subtract[0] && !subtract[1] && xs_fabs(subtract[2]) <= 0.1)
+			{
+				found = true;
+				break;
+			}
+		}
+	}
+
+	if (!found)
+		g_MapWeapons[i] = weapon;
+	else
+	{
+		new Float:respawnTime = get_pcvar_float(pcvar_sv_items_respawn_time);
+		set_pev(weaponId, pev_nextthink, get_gametime() + respawnTime);
+	}
+
 	return PLUGIN_CONTINUE;
 }
 
