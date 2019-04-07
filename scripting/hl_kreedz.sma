@@ -1751,6 +1751,10 @@ CmdRespawn(id)
 		ShowMessage(id, "You must be alive to use this command");
 		return;
 	}
+	new bool:isDeathmatchMap = false;
+	for (new i = 0; i < sizeof(g_DeathmatchMaps); i++)
+		if (equal(g_Map, g_DeathmatchMaps[i]) && get_bit(g_baIsClimbing, id))
+			ResetPlayer(id, false, true);
 
 	g_InForcedRespawn = true;	// this blocks teleporting to CP after respawn
 
