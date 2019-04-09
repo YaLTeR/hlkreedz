@@ -3632,7 +3632,7 @@ public RemoveFuncFriction()
 	server_print("[%s] %d func_friction entities removed", PLUGIN_TAG, i);
 }
 
-public CmdSetStartHandler(id)
+public CmdSetStartHandler(id, level, cid)
 {
 	if (!IsAlive(id) || pev(id, pev_iuser1))
 	{
@@ -3645,59 +3645,65 @@ public CmdSetStartHandler(id)
 		return PLUGIN_HANDLED;
 	}
 
-	new file = fopen(g_MapIniFile, "wt");
-	if (!file)
+	if (cmd_access(id, level, cid, 1))
 	{
-		ShowMessage(id, "Failed to write map ini file");
-		return PLUGIN_HANDLED;
+		new file = fopen(g_MapIniFile, "wt");
+		if (!file)
+		{
+			ShowMessage(id, "Failed to write map ini file");
+			return PLUGIN_HANDLED;
+		}
+
+		CreateCp(id, CP_TYPE_DEFAULT_START);
+		g_MapDefaultStart = g_ControlPoints[id][CP_TYPE_DEFAULT_START];
+
+		new uniqueid[32], name[32];
+		GetUserUniqueId(id, uniqueid, charsmax(uniqueid));
+		GetColorlessName(id, name, charsmax(name));
+		new Float:time = get_gametime();
+		console_print(0, "[%.3f] %s (%s) is setting a default start point for %s (point = {%.2f, %.2f, %.2f})",
+				time, name, uniqueid, g_Map,
+				g_MapDefaultStart[CP_ORIGIN][0], g_MapDefaultStart[CP_ORIGIN][1], g_MapDefaultStart[CP_ORIGIN][2]);
+
+		fprintf(file, "Start: %d, { %f, %f, %f }, { %f, %f, %f }, { %f, %f, %f }, { %f, %f, %f }, %f, %f, %d\n",
+			g_MapDefaultStart[CP_FLAGS],
+			g_MapDefaultStart[CP_ORIGIN][0], g_MapDefaultStart[CP_ORIGIN][1], g_MapDefaultStart[CP_ORIGIN][2],
+			g_MapDefaultStart[CP_ANGLES][0], g_MapDefaultStart[CP_ANGLES][1], g_MapDefaultStart[CP_ANGLES][2],
+			g_MapDefaultStart[CP_VIEWOFS][0], g_MapDefaultStart[CP_VIEWOFS][1], g_MapDefaultStart[CP_VIEWOFS][2],
+			g_MapDefaultStart[CP_VELOCITY][0], g_MapDefaultStart[CP_VELOCITY][1], g_MapDefaultStart[CP_VELOCITY][2],
+			g_MapDefaultStart[CP_HEALTH], g_MapDefaultStart[CP_ARMOR], g_MapDefaultStart[CP_LONGJUMP]);
+
+		fclose(file);
+
+		// Propagate to clients
+		for (new i = 1; i <= g_MaxPlayers; i++)
+			g_ControlPoints[i][CP_TYPE_DEFAULT_START] = g_MapDefaultStart;
+
+		ShowMessage(id, "Map start position set");
 	}
-
-	CreateCp(id, CP_TYPE_DEFAULT_START);
-	g_MapDefaultStart = g_ControlPoints[id][CP_TYPE_DEFAULT_START];
-
-	new uniqueid[32], name[32];
-	GetUserUniqueId(id, uniqueid, charsmax(uniqueid));
-	GetColorlessName(id, name, charsmax(name));
-	new Float:time = get_gametime();
-	console_print(0, "[%.3f] %s (%s) is setting a default start point for %s (point = {%.2f, %.2f, %.2f})",
-			time, name, uniqueid, g_Map,
-			g_MapDefaultStart[CP_ORIGIN][0], g_MapDefaultStart[CP_ORIGIN][1], g_MapDefaultStart[CP_ORIGIN][2]);
-
-	fprintf(file, "Start: %d, { %f, %f, %f }, { %f, %f, %f }, { %f, %f, %f }, { %f, %f, %f }, %f, %f, %d\n",
-		g_MapDefaultStart[CP_FLAGS],
-		g_MapDefaultStart[CP_ORIGIN][0], g_MapDefaultStart[CP_ORIGIN][1], g_MapDefaultStart[CP_ORIGIN][2],
-		g_MapDefaultStart[CP_ANGLES][0], g_MapDefaultStart[CP_ANGLES][1], g_MapDefaultStart[CP_ANGLES][2],
-		g_MapDefaultStart[CP_VIEWOFS][0], g_MapDefaultStart[CP_VIEWOFS][1], g_MapDefaultStart[CP_VIEWOFS][2],
-		g_MapDefaultStart[CP_VELOCITY][0], g_MapDefaultStart[CP_VELOCITY][1], g_MapDefaultStart[CP_VELOCITY][2],
-		g_MapDefaultStart[CP_HEALTH], g_MapDefaultStart[CP_ARMOR], g_MapDefaultStart[CP_LONGJUMP]);
-
-	fclose(file);
-
-	// Propagate to clients
-	for (new i = 1; i <= g_MaxPlayers; i++)
-		g_ControlPoints[i][CP_TYPE_DEFAULT_START] = g_MapDefaultStart;
-
-	ShowMessage(id, "Map start position set");
 
 	return PLUGIN_HANDLED;
 }
 
-public CmdClearStartHandler(id)
+public CmdClearStartHandler(id, level, cid)
 {
-	new file = fopen(g_MapIniFile, "wt");
-	if (!file)
+	if (cmd_access(id, level, cid, 1))
 	{
-		ShowMessage(id, "Failed to write map ini file");
-		return PLUGIN_HANDLED;
+		new file = fopen(g_MapIniFile, "wt");
+		if (!file)
+		{
+			ShowMessage(id, "Failed to write map ini file");
+			return PLUGIN_HANDLED;
+		}
+
+		// In the future we will store health boxes here. Now just wipe out this file
+
+		fclose(file);
+
+		g_MapDefaultStart[CP_VALID] = false;
+
+		ShowMessage(id, "Map start position cleared");
 	}
-
-	// In the future we will store health boxes here. Now just wipe out this file
-
-	fclose(file);
-
-	g_MapDefaultStart[CP_VALID] = false;
-
-	ShowMessage(id, "Map start position cleared");
 
 	return PLUGIN_HANDLED;
 }

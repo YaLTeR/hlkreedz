@@ -28,6 +28,7 @@ new const g_DeathmatchMaps[][] =
 	"ag_park",
 	"agctf_ag_crossfire",
 	"agctf_bootcamp",
+	"agctf_brazilian",
 	"agctf_dabo",
 	"agctf_daydream",
 	"agctf_duff",
@@ -48,6 +49,7 @@ new const g_DeathmatchMaps[][] =
 	"boot_camp",
 	"boot_campx",
 	"bootbox",
+	"bounce",
 	"brave",
 	"cabrito",
 	"cold_faces",
@@ -77,6 +79,8 @@ new const g_DeathmatchMaps[][] =
 	"homeworld",
 	"isotonic",
 	"justwar2",
+	"karnak",
+	"lambda_bunker",
 	"last_call",
 	"lost_village",
 	"lost_village2",
@@ -224,9 +228,11 @@ public GetNumberArg()
 	read_args(cmdArg, charsmax(cmdArg));
 
 	new bool:prevWasDigit = false;
-    for (new i = 0; cmdArg[i]; i++) {
-        if (isdigit(cmdArg[i])) {
-            formatex(numberPart, charsmax(numberPart), "%s%s", numberPart, cmdArg[i]);
+    for (new i = 0; cmdArg[i]; i++)
+    {
+        if (isdigit(cmdArg[i]))
+        {
+            add(numberPart, charsmax(numberPart), cmdArg[i], 1);
             prevWasDigit = true;
         }
         else if (prevWasDigit)
@@ -242,14 +248,16 @@ public Float:GetFloatArg()
 	read_args(cmdArg, charsmax(cmdArg));
 
 	new bool:prevWasDigit = false;
-    for (new i = 0; cmdArg[i]; i++) {
-        if (isdigit(cmdArg[i])) {
-            formatex(numberPart, charsmax(numberPart), "%s%s", numberPart, cmdArg[i]);
+    for (new i = 0; cmdArg[i]; i++)
+    {
+        if (isdigit(cmdArg[i]))
+        {
+            add(numberPart, charsmax(numberPart), cmdArg[i], 1);
             prevWasDigit = true;
         }
         else if (prevWasDigit) {
         	if (equal(cmdArg[i], "."))
-        		formatex(numberPart, charsmax(numberPart), "%s.", numberPart);
+        		add(numberPart, charsmax(numberPart), ".", 1);
         	else
         		break; // e.g.: say "/speedcap 499.5 some text and 123 numbers here" --> get out when parsing the '499.5'
         }
@@ -274,8 +282,10 @@ public GetRangeArg(range[2])
 	else
 	{	
 		new bool:prevWasDigit = false;
-	    for (new i = 0, j = 0; cmdArg[i] && j < 2; i++) {
-	        if (isdigit(cmdArg[i])) {
+	    for (new i = 0, j = 0; cmdArg[i] && j < 2; i++)
+	    {
+	        if (isdigit(cmdArg[i]))
+	        {
 	        	new aux[32];
 	            formatex(aux, charsmax(aux), "%s%s", numberPart[j], cmdArg[i]);
 	            numberPart[j] = aux;
