@@ -20,12 +20,6 @@
 #include <hl>
 #include <hl_kreedz_util>
 
-
-#define PLUGIN "HL KreedZ Beta"
-#define PLUGIN_TAG "HLKZ"
-#define VERSION "0.34" // take into account replays' version byte when updating version
-#define AUTHOR "KORD_12.7 & Lev & YaLTeR & naz"
-
 // Compilation options
 //#define _DEBUG		// Enable debug output at server console.
 
@@ -57,11 +51,16 @@
 #define TASKID_KICK_REPLAYBOT 9572626
 #define TASKID_CAM_UNFREEZE 1622952
 
-#define MAIN_MENU_ID	"HL KreedZ Menu"
-#define TELE_MENU_ID	"HL KreedZ Teleport Menu"
+new const PLUGIN[] = "HL KreedZ Beta";
+new const PLUGIN_TAG[] = "HLKZ";
+new const VERSION[] = "0.34";
+new const AUTHOR[] = "KORD_12.7 & Lev & YaLTeR & naz";
 
-new const configsSubDir[] = "/hl_kreedz";
-new const pluginCfgFileName[] = "hl_kreedz.cfg";
+new const MAIN_MENU_ID[] = "HL KreedZ Menu";
+new const TELE_MENU_ID[] = "HL KreedZ Teleport Menu";
+
+new const CONFIGS_SUB_DIR[] = "/hl_kreedz";
+new const PLUGIN_CFG_FILENAME[] = "hl_kreedz.cfg";
 
 //new const staleStatTime = 30 * 24 * 60 * 60;	// Keep old stat for this amount of time
 //new const keepStatPlayers = 100;				// Keep this amount of players in stat even if stale
@@ -76,11 +75,6 @@ new const g_szStops[][] =
 {
 	"hlkz_finish", "counter_off", "clockstopbutton", "clockstop", "but_stop", "counter_stop_button",
 	"multi_stop", "stop_counter", "m_counter_end_emi"
-};
-
-new const g_szTops[][] =
-{
-	"Pure", "Pro", "Noob"
 };
 
 new const g_itemNames[][] =
@@ -256,9 +250,9 @@ new g_TaskEnt;
 new g_Map[64];
 new g_ConfigsDir[256];
 new g_ReplaysDir[256];
-new g_StatsFileNub[256];
-new g_StatsFilePro[256];
-new g_StatsFilePure[256];
+new g_StatsFile[RUN_TYPE][256];
+new g_TopType[RUN_TYPE][32];
+new Array:g_ArrayStats[RUN_TYPE];
 
 new g_MapIniFile[256];
 new g_MapDefaultStart[CP_DATA];
@@ -312,10 +306,6 @@ new pcvar_sv_ag_match_running;
 
 new mfwd_hlkz_cheating;
 new mfwd_hlkz_worldrecord;
-
-new Array:g_ArrayStatsNub;
-new Array:g_ArrayStatsPro;
-new Array:g_ArrayStatsPure;
 
 
 public plugin_precache()
@@ -388,7 +378,7 @@ public plugin_init()
 
 	pcvar_kz_denied_sound = register_cvar("kz_denied_sound", "1");
 
-	pcvar_sv_items_respawn_time = register_cvar("sv_items_respawn_time", "0"); // 0 = unchanged, x>0 = x seconds
+	pcvar_sv_items_respawn_time = register_cvar("sv_items_respawn_time", "0"); // 0 = unchanged, n > 0 = n seconds
 
 	register_dictionary("telemenu.txt");
 	register_dictionary("common.txt");
@@ -399,6 +389,8 @@ public plugin_init()
 
 	register_clcmd("kz_set_custom_start", "CmdSetCustomStartHandler", -1, "- sets the custom start position");
 	register_clcmd("kz_clear_custom_start", "CmdClearCustomStartHandler", -1, "- clears the custom start position");
+
+	// TODO remove these below or make them admin-only to set the availability of these commands for client usage, clients will use say commands instead of console ones to set these variables
 	register_clcmd("kz_start_message", "CmdShowStartMsg", -1, "<0|1> - toggles the message that appears when starting the timer");
 	register_clcmd("kz_time_decimals", "CmdTimeDecimals", -1, "<1-6> - sets a number of decimals to be displayed for times (seconds)");
 	register_clcmd("kz_nightvision", "CmdNightvision", -1, "<0-2> - sets nightvision mode. 0=off, 1=flashlight-like, 2=map-global");
@@ -431,25 +423,25 @@ public plugin_init()
 	RegisterHam(Ham_TakeDamage, "player", "Fw_HamTakeDamagePlayerPost", 1);
 	// TODO: get tripmines entity id when placed, get its position and check if the player is jumping on a tripmine
 	// TODO: do the same as above but for satchels
-    RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_tripmine",	"Fw_HamBoostAttack");
-    RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_crossbow",	"Fw_HamBoostAttack");
-    RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_egon",		"Fw_HamBoostAttack");
-    RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_rpg",		"Fw_HamBoostAttack");
-    RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
-    RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_snark",		"Fw_HamBoostAttack");
-    RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_9mmAR",		"Fw_HamBoostAttack");
-    RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_gauss",		"Fw_HamBoostAttack");
-    // While the TODOs get done, we penalize the player who places a satchel, that may be used for another player to jump on it
-    //RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
+  RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_tripmine",	"Fw_HamBoostAttack");
+  RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_crossbow",	"Fw_HamBoostAttack");
+  RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_egon",		"Fw_HamBoostAttack");
+  RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_rpg",		"Fw_HamBoostAttack");
+  RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
+  RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_snark",		"Fw_HamBoostAttack");
+  RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_9mmAR",		"Fw_HamBoostAttack");
+  RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_gauss",		"Fw_HamBoostAttack");
+  // While the TODOs get done, we penalize the player who places a satchel, that may be used for another player to jump on it
+  //RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
 
-    if (get_pcvar_float(pcvar_sv_items_respawn_time) > 0)
-    {
-    	for (new i = 0; i < sizeof(g_itemNames); i++)
-    		RegisterHam(Ham_Respawn, g_itemNames[i], "Fw_HamItemRespawn", 1);
+  if (get_pcvar_float(pcvar_sv_items_respawn_time) > 0)
+  {
+  	for (new i = 0; i < sizeof(g_itemNames); i++)
+  		RegisterHam(Ham_Respawn, g_itemNames[i], "Fw_HamItemRespawn", 1);
 
-    	for (new j = 0; j < sizeof(g_weaponNames); j++)
-    		register_touch(g_weaponNames[j], "worldspawn",	"Fw_FmWeaponRespawn");
-    }
+  	for (new j = 0; j < sizeof(g_weaponNames); j++)
+  		register_touch(g_weaponNames[j], "worldspawn",	"Fw_FmWeaponRespawn");
+  }
 
 	register_forward(FM_ClientKill,"Fw_FmClientKillPre");
 	register_forward(FM_ClientCommand, "Fw_FmClientCommandPost", 1);
@@ -491,9 +483,9 @@ public plugin_init()
 	g_SyncHudSpeedometer = CreateHudSyncObj();
 	g_SyncHudSpecList = CreateHudSyncObj();
 
-	g_ArrayStatsNub = ArrayCreate(STATS);
-	g_ArrayStatsPro = ArrayCreate(STATS);
-	g_ArrayStatsPure = ArrayCreate(STATS);
+	g_ArrayStats[NOOB] = ArrayCreate(STATS);
+	g_ArrayStats[PRO] = ArrayCreate(STATS);
+	g_ArrayStats[PURE] = ArrayCreate(STATS);
 
 	g_ReplayNum = 0;
 }
@@ -506,7 +498,7 @@ public plugin_cfg()
 
 	// Execute custom config file
 	new cfg[256];
-	formatex(cfg, charsmax(cfg), "%s/%s", g_ConfigsDir, pluginCfgFileName);
+	formatex(cfg, charsmax(cfg), "%s/%s", g_ConfigsDir, PLUGIN_CFG_FILENAME);
 	if (file_exists(cfg))
 	{
 		server_cmd("exec %s", cfg);
@@ -514,7 +506,7 @@ public plugin_cfg()
 	}
 
 	// Dive into our custom directory
-	add(g_ConfigsDir, charsmax(g_ConfigsDir), configsSubDir);
+	add(g_ConfigsDir, charsmax(g_ConfigsDir), CONFIGS_SUB_DIR);
 	if (!dir_exists(g_ConfigsDir))
 		mkdir(g_ConfigsDir);
 
@@ -522,13 +514,17 @@ public plugin_cfg()
 	if (!dir_exists(g_ReplaysDir))
 		mkdir(g_ReplaysDir);
 
+	GetTopType(NOOB, g_TopType[NOOB]);
+	GetTopType(PRO,  g_TopType[PRO]);
+	GetTopType(PURE, g_TopType[PURE]);
+
 	// Load stats
-	formatex(g_StatsFileNub, charsmax(g_StatsFileNub), "%s/%s_%s.dat", g_ConfigsDir, g_Map, "nub");
-	formatex(g_StatsFilePro, charsmax(g_StatsFilePro), "%s/%s_%s.dat", g_ConfigsDir, g_Map, "pro");
-	formatex(g_StatsFilePure, charsmax(g_StatsFilePure), "%s/%s_%s.dat", g_ConfigsDir, g_Map, "pure");
-	LoadRecords(g_szTops[0]);
-	LoadRecords(g_szTops[1]);
-	LoadRecords(g_szTops[2]);
+	formatex(g_StatsFile[NOOB], charsmax(g_StatsFile[NOOB]), "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[PURE]);
+	formatex(g_StatsFile[PRO], charsmax(g_StatsFile[PRO]), "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[PRO]);
+	formatex(g_StatsFile[PURE], charsmax(g_StatsFile[PURE]), "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[NOOB]);
+	LoadRecords(PURE);
+	LoadRecords(PRO);
+	LoadRecords(NOOB);
 
 	// Load map settings
 	formatex(g_MapIniFile, charsmax(g_MapIniFile), "%s/%s.ini", g_ConfigsDir, g_Map);
@@ -553,9 +549,9 @@ public plugin_cfg()
 
 public plugin_end()
 {
-	ArrayDestroy(g_ArrayStatsNub);
-	ArrayDestroy(g_ArrayStatsPro);
-	ArrayDestroy(g_ArrayStatsPure);
+	ArrayDestroy(g_ArrayStats[NOOB]);
+	ArrayDestroy(g_ArrayStats[PRO]);
+	ArrayDestroy(g_ArrayStats[PURE]);
 }
 
 
@@ -838,9 +834,9 @@ public ActionKzMenu(id, key)
 	case 5:
 		switch (key)
 		{
-		case 1: ShowTopClimbers(id, g_szTops[0]);
-		case 2: ShowTopClimbers(id, g_szTops[1]);
-		case 3: ShowTopClimbers(id, g_szTops[2]);
+		case 1: ShowTopClimbers(id, PURE);
+		case 2: ShowTopClimbers(id, PRO);
+		case 3: ShowTopClimbers(id, NOOB);
 		}
 	}
 
@@ -1135,27 +1131,23 @@ CmdReplaySmoothen(id)
 }
 */
 CmdReplayPure(id)
-	CmdReplay(id, g_szTops[0]);
+	CmdReplay(id, PURE);
 
 CmdReplayPro(id)
-	CmdReplay(id, g_szTops[1]);
+	CmdReplay(id, PRO);
 
 CmdReplayNoob(id)
-	CmdReplay(id, g_szTops[2]);
+	CmdReplay(id, NOOB);
 
-CmdReplay(id, szTopType[])
+CmdReplay(id, RUN_TYPE:runType)
 {
 	static authid[32], replayFile[256], idNumbers[24], stats[STATS], time[32];
 	new minutes, Float:seconds, replayRank = GetNumberArg();
 	new maxReplays = get_pcvar_num(pcvar_kz_max_concurrent_replays);
 	new Float:setupTime = get_pcvar_float(pcvar_kz_replay_setup_time);
 
-	LoadRecords(szTopType);
-
-	new Array:arr;
-	if 		(equali(szTopType, g_szTops[0]))	arr = g_ArrayStatsPure;
-	else if (equali(szTopType, g_szTops[1]))	arr = g_ArrayStatsPro;
-	else										arr = g_ArrayStatsNub;
+	LoadRecords(runType);
+	new Array:arr = g_ArrayStats[runType];
 
 	for (new i = 0; i < ArraySize(arr); i++)
 	{
@@ -1168,8 +1160,9 @@ CmdReplay(id, szTopType[])
 		}
 	}
 
-	new replayingMsg[96], replayFailedMsg[96];
+	new replayingMsg[96], replayFailedMsg[96], szTopType[32];
 	ConvertSteamID32ToNumbers(authid, idNumbers);
+	formatex(szTopType, charsmax(szTopType), g_TopType[runType]);
 	strtolower(szTopType);
 	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
 	//formatex(g_ReplayFile[id], charsmax(replayFile), "%s", replayFile);
@@ -1184,7 +1177,7 @@ CmdReplay(id, szTopType[])
 	formatex(replayFailedMsg, charsmax(replayFailedMsg), "[%s] Sorry, no replay available for %s's %s run", PLUGIN_TAG, stats[STATS_NAME], szTopType);
 
 	new file = fopen(replayFile, "rb");
-	if (!file && equali(szTopType, "pro") && ComparePro2PureTime(stats[STATS_ID], stats[STATS_TIME]) == 0)
+	if (!file && runType == PRO && ComparePro2PureTime(stats[STATS_ID], stats[STATS_TIME]) == 0)
 	{
 		formatex(replayFile, charsmax(replayFile), "%s/%s_%s_pure.dat", g_ReplaysDir, g_Map, idNumbers);
 		file = fopen(replayFile, "rb");
@@ -1924,13 +1917,13 @@ public CmdSayHandler(id, level, cid)
 		CmdNightvision(id);
 
 	else if (containi(args[1], "pure") == 0)
-		ShowTopClimbers(id, g_szTops[0]);
+		ShowTopClimbers(id, g_TopType[PURE]);
 
 	else if (containi(args[1], "pro") == 0)
-		ShowTopClimbers(id, g_szTops[1]);
+		ShowTopClimbers(id, g_TopType[PRO]);
 
 	else if (containi(args[1], "nub") == 0 || containi(args[1], "noob") == 0)
-		ShowTopClimbers(id, g_szTops[2]);
+		ShowTopClimbers(id, g_TopType[NOOB]);
 
 	else if (containi(args[1], "top") == 0)
 		DisplayKzMenu(id, 5);
@@ -2543,14 +2536,15 @@ FinishTimer(id)
 		{
 			if (get_bit(g_baIsPureRunning, id))
 			{
-				UpdateRecords(id, kztime, g_szTops[0]);
-				UpdateRecords(id, kztime, g_szTops[1]);
+				// Update both: pure and pro
+				UpdateRecords(id, kztime, PURE);
+				UpdateRecords(id, kztime, PRO);
 			}
 			else
-				UpdateRecords(id, kztime, g_szTops[1]);
+				UpdateRecords(id, kztime, PRO);
 		}
 		else
-			UpdateRecords(id, kztime, g_szTops[2]);
+			UpdateRecords(id, kztime, NOOB);
 
 	clr_bit(g_baIsClimbing, id);
 	clr_bit(g_baIsPureRunning, id);
@@ -3929,27 +3923,15 @@ GetUserUniqueId(id, uniqueid[], len)
 	}
 }
 
-LoadRecords(szTopType[])
+LoadRecords(RUN_TYPE:topType)
 {
-	new file;
-	if (equali(szTopType, g_szTops[0]))
-		file = fopen(g_StatsFilePure, "r");
-	else if (equali(szTopType, g_szTops[1]))
-		file = fopen(g_StatsFilePro, "r");
-	else
-		file = fopen(g_StatsFileNub, "r");
+	new File = fopen(g_StatsFile[topType], "r");
 	if (!file) return;
 
 	new data[1024], stats[STATS], uniqueid[32], name[32], cp[24], tp[24];
 	new kztime[24], timestamp[24];
 
-	new Array:arr;
-	if (equali(szTopType, g_szTops[0]))
-		arr = g_ArrayStatsPure;
-	else if (equali(szTopType, g_szTops[1]))
-		arr = g_ArrayStatsPro;
-	else
-		arr = g_ArrayStatsNub;
+	new Array:arr = g_ArrayStats[topType];
 	ArrayClear(arr);
 
 	while (!feof(file))
@@ -3975,25 +3957,13 @@ LoadRecords(szTopType[])
 	fclose(file);
 }
 
-SaveRecords(szTopType[])
+SaveRecords(RUN_TYPE:topType)
 {
-	new file;
-	if (equali(szTopType, g_szTops[0]))
-		file = fopen(g_StatsFilePure, "w+");
-	else if (equali(szTopType, g_szTops[1]))
-		file = fopen(g_StatsFilePro, "w+");
-	else
-		file = fopen(g_StatsFileNub, "w+");
+	new file = fopen(g_StatsFile[topType], "w+");
 	if (!file) return;
 
 	new stats[STATS];
-	new Array:arr;
-	if (equali(szTopType, g_szTops[0]))
-		arr = g_ArrayStatsPure;
-	else if (equali(szTopType, g_szTops[1]))
-		arr = g_ArrayStatsPro;
-	else
-		arr = g_ArrayStatsNub;
+	new Array:arr = g_ArrayStats[topType];
 
 	for (new i; i < ArraySize(arr); i++)
 	{
@@ -4014,29 +3984,14 @@ SaveRecords(szTopType[])
 // Refactor if somehow more than 2 tops have to be passed
 // The second top is only in case you do a Pure that is
 // better than your Pro record, so it gets updated in both
-UpdateRecords(id, Float:kztime, szTopType[])
+UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 {
 	new uniqueid[32], name[32], rank;
 	new stats[STATS], insertItemId = -1, deleteItemId = -1;
 	new minutes, Float:seconds, Float:slower, Float:faster;
-	LoadRecords(szTopType);
+	LoadRecords(topType);
 
-	new Array:arr, type;
-	if (equali(szTopType, g_szTops[0]))
-	{
-		arr = g_ArrayStatsPure;
-		type = 0;
-	}
-	else if (equali(szTopType, g_szTops[1]))
-	{
-		arr = g_ArrayStatsPro;
-		type = 1;
-	}
-	else
-	{
-		arr = g_ArrayStatsNub;
-		type = 2;
-	}
+	new Array:arr = g_ArrayStats[topType];
 
 	GetUserUniqueId(id, uniqueid, charsmax(uniqueid));
 	GetColorlessName(id, name, charsmax(name));
@@ -4058,10 +4013,10 @@ UpdateRecords(id, Float:kztime, szTopType[])
 			slower = kztime - stats[STATS_TIME];
 			minutes = floatround(slower, floatround_floor) / 60;
 			seconds = slower - (60 * minutes);
-			if (!(get_bit(g_baIsPureRunning, id) && type == 1))
+			if (!(get_bit(g_baIsPureRunning, id) && topType == PRO))
 			{
 				client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You failed your %s time by %02d:%"),
-					PLUGIN_TAG, szTopType, minutes, seconds);
+					PLUGIN_TAG, g_TopType[topType], minutes, seconds);
 			}
 
 			return;
@@ -4071,7 +4026,7 @@ UpdateRecords(id, Float:kztime, szTopType[])
 		minutes = floatround(faster, floatround_floor) / 60;
 		seconds = faster - (60 * minutes);
 		client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You improved your %s time by %02d:%"),
-			PLUGIN_TAG, szTopType, minutes, seconds);
+			PLUGIN_TAG, g_TopType[topType], minutes, seconds);
 
 		deleteItemId = i;
 
@@ -4103,17 +4058,17 @@ UpdateRecords(id, Float:kztime, szTopType[])
 	if (rank <= get_pcvar_num(pcvar_kz_top_records))
 	{
 		client_cmd(0, "spk woop");
-		client_print(0, print_chat, "[%s] %s is now on place %d in %s 15", PLUGIN_TAG, name, rank, szTopType);
+		client_print(0, print_chat, "[%s] %s is now on place %d in %s 15", PLUGIN_TAG, name, rank, g_TopType[topType]);
 	}
 	else
-		client_print(0, print_chat, "[%s] %s's rank is %d of %d among %s players", PLUGIN_TAG, name, rank, ArraySize(arr), szTopType);
+		client_print(0, print_chat, "[%s] %s's rank is %d of %d among %s players", PLUGIN_TAG, name, rank, ArraySize(arr), g_TopType[topType]);
 
-	SaveRecords(szTopType);
+	SaveRecords(topType);
 
 	if (rank == 1)
 	{
 		new ret;
-		ExecuteForward(mfwd_hlkz_worldrecord, ret, id, kztime, type, arr);
+		ExecuteForward(mfwd_hlkz_worldrecord, ret, id, kztime, topType, arr);
 	}
 
 	if (g_RecordRun[id])
@@ -4122,22 +4077,16 @@ UpdateRecords(id, Float:kztime, szTopType[])
 		g_RecordRun[id] = 0;
 		//ArrayClear(g_RunFrames[id]);
 		//console_print(id, "stopped recording");
-		SaveRecordedRun(id, szTopType);
+		SaveRecordedRun(id, topType);
 	}
 }
 
-ShowTopClimbers(id, szTopType[])
+ShowTopClimbers(id, RUN_TYPE:topType)
 {
 	new buffer[1536], len;
 	new stats[STATS], date[32], time[32], minutes, Float:seconds;
-	LoadRecords(szTopType);
-	new Array:arr;
-	if (equali(szTopType, g_szTops[0]))
-		arr = g_ArrayStatsPure;
-	else if (equali(szTopType, g_szTops[1]))
-		arr = g_ArrayStatsPro;
-	else
-		arr = g_ArrayStatsNub;
+	LoadRecords(topType);
+	new Array:arr = g_ArrayStats[topType];
 
 	new cvarDefaultRecords = get_pcvar_num(pcvar_kz_top_records);
 	new cvarMaxRecords = get_pcvar_num(pcvar_kz_top_records_max);
@@ -4163,7 +4112,7 @@ ShowTopClimbers(id, szTopType[])
 
 
 
-	if (equali(szTopType, g_szTops[2]))
+	if (topType == NOOB)
 		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time       CP  TP         Date        Demo\n\n");
 	else
 		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time              Date        Demo\n\n");
@@ -4185,17 +4134,19 @@ ShowTopClimbers(id, szTopType[])
 		// Check if there's demo for this record
 		formatex(authid, charsmax(authid), "%s", stats[STATS_ID]);
 		ConvertSteamID32ToNumbers(authid, idNumbers);
-		strtolower(szTopType);
+
+		new szTopType[32];
+		formatex(szTopType, charsmax(szTopType), g_TopType[topType]);
 		formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
 		new hasDemo = file_exists(replayFile);
-		if (!hasDemo && equali(szTopType, "pro") && ComparePro2PureTime(stats[STATS_ID], stats[STATS_TIME]) == 0)
+		if (!hasDemo && topType == PRO && ComparePro2PureTime(stats[STATS_ID], stats[STATS_TIME]) == 0)
 		{
 	    	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_pure.dat", g_ReplaysDir, g_Map, idNumbers);
 	        hasDemo = file_exists(replayFile);
 		}
 		ucfirst(szTopType);
 
-		if (equali(szTopType, g_szTops[2]))
+		if (topType == NOOB)
 			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s  %3d %3d        %s   %s\n", i + 1, stats[STATS_NAME], time, stats[STATS_CP], stats[STATS_TP], date, hasDemo ? "yes" : "no");
 		else
 			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s         %s   %s\n", i + 1, stats[STATS_NAME], time, date, hasDemo ? "yes" : "no");
@@ -4213,9 +4164,9 @@ ShowTopClimbers(id, szTopType[])
 ComparePro2PureTime(runnerId[], Float:runnerTime)
 {
 	new stats[STATS];
-	for (new i = 0; i < ArraySize(g_ArrayStatsPure); i++)
+	for (new i = 0; i < ArraySize(g_ArrayStats[PURE]); i++)
 	{
-		ArrayGetArray(g_ArrayStatsPure, i, stats);
+		ArrayGetArray(g_ArrayStats[PURE], i, stats);
 
 		if (equal(stats[STATS_ID], runnerId))
 			return floatcmp(runnerTime, stats[STATS_TIME]);
@@ -4296,14 +4247,13 @@ RecordRunFrame(id)
 	}
 }
 
-SaveRecordedRun(id, szTopType[])
+SaveRecordedRun(id, RUN_TYPE:topType)
 {
 	static authid[32], replayFile[256], idNumbers[24];
 	get_user_authid(id, authid, charsmax(authid));
 
 	ConvertSteamID32ToNumbers(authid, idNumbers);
-	strtolower(szTopType);
-	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
+	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, g_TopType[topType]);
 	//console_print(id, "saving run to: '%s'", replayFile);
 
 	g_RecordRun[id] = fopen(replayFile, "wb");

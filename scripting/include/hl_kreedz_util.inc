@@ -13,7 +13,14 @@ enum _:STATS
 	STATS_CP,
 	STATS_TP,
 	Float:STATS_TIME,	// Timer value
-	STATS_TIMESTAMP,	// Date
+	STATS_TIMESTAMP 	// Date
+}
+
+enum RUN_TYPE
+{
+	NOOB,
+	PRO,
+	PURE
 }
 
 new const g_DeathmatchMaps[][] =
@@ -363,3 +370,15 @@ public ConvertSteamID32to64(steamId32[], result[])
     }
 }
 */
+
+GetTopType(RUN_TYPE:runType, topType[]) {
+	switch (runType)
+	{
+		// TODO I think the same term should be used everywhere, but I also think that "noob" would be more correct than "nub",
+		// and leaderboard files for the NOOB top already have _nub in the name... so I guess it should be kept like that
+		// not to have to check everytime for both "noob" and "nub" or lose backwards compatibility 
+		case NOOB: formatex(topType, charsmax(topType), "nub");
+		case PRO:  formatex(topType, charsmax(topType), "pro");
+		case PURE: formatex(topType, charsmax(topType), "pure");
+	}
+}
