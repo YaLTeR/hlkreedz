@@ -13,6 +13,7 @@
 
 #include <amxmodx>
 #include <amxmisc>
+#include <celltrie>
 #include <engine>
 #include <fakemeta_util>
 #include <fun>
@@ -63,6 +64,7 @@ new const TELE_MENU_ID[] = "HL KreedZ Teleport Menu";
 new const CONFIGS_SUB_DIR[] = "/hl_kreedz";
 new const PLUGIN_CFG_FILENAME[] = "hl_kreedz.cfg";
 new const MYSQL_LOG_FILENAME[] = "kz_mysql.log";
+new const MAP_POOL_FILE[] = "cup_map_pool.ini";
 
 //new const staleStatTime = 30 * 24 * 60 * 60;	// Keep old stat for this amount of time
 //new const keepStatPlayers = 100;				// Keep this amount of players in stat even if stale
@@ -323,6 +325,10 @@ new pcvar_sv_ag_match_running;
 new mfwd_hlkz_cheating;
 new mfwd_hlkz_worldrecord;
 
+new pcvar_kz_cup_maps;
+new Trie:g_CupMapPool; // mapName->isAvailable (aka not banned)
+new g_BannedMaps[MAX_PLAYERS + 1]; // how many maps has each player banned
+
 
 public plugin_precache()
 {
@@ -407,12 +413,20 @@ public plugin_init()
 	pcvar_kz_mysql_pass = register_cvar("kz_mysql_pass", ""); // Password of the MySQL user
 	pcvar_kz_mysql_db = register_cvar("kz_mysql_db", ""); // MySQL database name
 
+  pcvar_kz_cup_maps = register_cvar("kz_cup_maps", "7");
+
 	register_dictionary("telemenu.txt");
 	register_dictionary("common.txt");
 
 	register_clcmd("kz_teleportmenu", "CmdTeleportMenuHandler", ADMIN_CFG, "- displays kz teleport menu");
 	register_clcmd("kz_setstart", "CmdSetStartHandler", ADMIN_CFG, "- set start position");
 	register_clcmd("kz_clearstart", "CmdClearStartHandler", ADMIN_CFG, "- clear start position");
+  register_clcmd("kz_cup", "CmdCupHandler", ADMIN_CFG, "- start a cup match between 2 players");
+  register_clcmd("kz_map_add", "CmdMapInsertHandler", ADMIN_CFG, "- adds a map to the map pool");
+  register_clcmd("kz_map_insert", "CmdMapInsertHandler", ADMIN_CFG, "- adds a map to the map pool");
+  register_clcmd("kz_map_del", "CmdMapDeleteHandler", ADMIN_CFG, "- removes a map from the map pool");
+  register_clcmd("kz_map_delete", "CmdMapDeleteHandler", ADMIN_CFG, "- removes a map from the map pool");
+  register_clcmd("kz_map_remove", "CmdMapDeleteHandler", ADMIN_CFG, "- removes a map from the map pool");
 
 	register_clcmd("kz_set_custom_start", "CmdSetCustomStartHandler", -1, "- sets the custom start position");
 	register_clcmd("kz_clear_custom_start", "CmdClearCustomStartHandler", -1, "- clears the custom start position");
@@ -604,6 +618,10 @@ public plugin_cfg()
 	// Load map settings
 	formatex(g_MapIniFile, charsmax(g_MapIniFile), "%s/%s.ini", g_ConfigsDir, g_Map);
 	LoadMapSettings();
+
+	// Load map pool for kz_cup
+	formatex(g_MapPoolFile, charsmax(g_MapPoolFile), "%s/%s", g_ConfigsDir, MAP_POOL_FILE);
+	LoadMapPool();
 
 	// Create healer
 	if (get_pcvar_num(pcvar_kz_autoheal))
@@ -3750,6 +3768,46 @@ public CmdClearStartHandler(id, level, cid)
 	return PLUGIN_HANDLED;
 }
 
+public CmdCupHandler(id, level, cid)
+{
+  if (cmd_access(id, level, cid, 1))
+  {
+      new target1[32], target2[32], 
+      read_argv(1, target1, charsmax(target1));
+      read_argv(2, target2, charsmax(target2));
+
+      new player1 = cmd_target(id, target1, CMDTARGET_ALLOW_SELF, CMDTARGET_NO_BOTS);
+      new player2 = cmd_target(id, target2, CMDTARGET_ALLOW_SELF, CMDTARGET_NO_BOTS);
+  
+      if (!player1)
+        ShowMessage(id, "Cannot find the first player specified in the kz_cup command");
+        return PLUGIN_HANDLED;
+      }
+
+      if (!player2)
+        ShowMessage(id, "Cannot find the second player specified in the kz_cup command");
+        return PLUGIN_HANDLED;
+      }
+  }
+
+  return PLUGIN_HANDLED;
+}
+
+public CmdMapInsertHandler()
+{
+  if (cmd_access(id, level, cid, 1))
+  {
+      new map1[32], map2[32], map3[32], map4[32], map5[32];
+      read_argv(1, map1, charsmax(map1));
+      read_argv(2, map2, charsmax(map2));
+      read_argv(3, map2, charsmax(map2));
+      read_argv(4, map2, charsmax(map2));
+
+  }
+
+  return PLUGIN_HANDLED;
+}
+
 public CmdSetCustomStartHandler(id)
 {
 	if (!IsAlive(id) || pev(id, pev_iuser1))
@@ -3936,6 +3994,21 @@ LoadMapSettings()
 		g_MapDefaultStart[CP_VALID] = true;
 	}
 
+	fclose(file);
+}
+
+LoadMapPool()
+{
+	new file = fopen("map_pool","r");
+	if (!file) return;
+
+	g_CupMapPool = TrieCreate();
+
+	new mapName[32];
+	while(fgets(file, mapName, charsmax(mapName)))
+	{
+		TrieSetCell(g_CupMapPool, mapName, true);
+	}
 	fclose(file);
 }
 
