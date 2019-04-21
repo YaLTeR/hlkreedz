@@ -53,7 +53,8 @@
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.34";
+new const VERSION[] = "0.35";
+new const BUILD = 35; // Should not be decreased. This is for replays, to know which version they're in, in case the stored binary data (or format) changes
 new const AUTHOR[] = "KORD_12.7 & Lev & YaLTeR & naz";
 
 new const MAIN_MENU_ID[] = "HL KreedZ Menu";
@@ -117,6 +118,7 @@ new const g_weaponNames[][] =
 
 enum _:REPLAY
 {
+  //RP_VERSION,
 	Float:RP_TIME,
 	Float:RP_ORIGIN[3],
 	Float:RP_ANGLES[3],
@@ -1298,8 +1300,8 @@ CmdReplay(id, RUN_TYPE:runType)
 		ArrayClear(g_ReplayFrames[id]);
 		//console_print(id, "gonna read the replay file");
 
-		//new version;
-		//fread(file, version, BLOCK_BYTE);
+		//new buildNumber;
+		//fread(file, version, BLOCK_SHORT);
 		//console_print(1, "replaying demo of version %d", version);
 
 		new i = 0;
@@ -4366,7 +4368,7 @@ SaveRecordedRun(id, RUN_TYPE:topType)
 	g_RecordRun[id] = fopen(replayFile, "wb");
 	//console_print(id, "opened replay file");
 
-	//fwrite(g_RecordRun[id], GetVersionNumber(), BLOCK_BYTE); // version
+	//fwrite(g_RecordRun[id], BUILD, BLOCK_SHORT); // version
 
 	new frameState[REPLAY];
 	for (new i; i < ArraySize(g_RunFrames[id]); i++)
@@ -4411,8 +4413,9 @@ GetOwnersBot(id)
  * This is to save as metadata in the replay files so we can know what version they're
  * to make proper changes to them (e.g.: convert from one version to another 'cos
  * replay data format is changed).
- * // FIXME: lol, 0.34 will yield the same number as 3.4
+ * // Now using the BUILD number instead
  */
+ /*
 GetVersionNumber()
 {
 	new szVersion[32], numberPart[32];
@@ -4428,6 +4431,7 @@ GetVersionNumber()
 	//console_print(1, "%s --> %s --> %d", szVersion, numberPart, str_to_num(numberPart));
 	return str_to_num(numberPart);
 }
+*/
 
 
 
