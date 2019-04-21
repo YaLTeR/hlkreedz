@@ -396,7 +396,7 @@ public plugin_init()
 
 	pcvar_sv_items_respawn_time = register_cvar("sv_items_respawn_time", "0"); // 0 = unchanged, n > 0 = n seconds
 
-	// 0 = store data in files and only store leaderboards, 1 = store data in MySQL and store much more data (not only leaderboards), 2 store data in both (files and mysql)
+	// 0 = store data in files and only store leaderboards, 1 = store data in MySQL and store much more data (not only leaderboards), 2 store data in both (files and mysql) and retrieve from file only if it fails to retrieve from DB
 	pcvar_kz_mysql = register_cvar("kz_mysql", "0");
 	// How many threads to use with MySQL, so it can use that many threads per frame to query stuff (1 query per thread?). This depends on the CPU you have in the server I guess
 	pcvar_kz_mysql_threads = register_cvar("kz_mysql_threads", "1");
@@ -3973,8 +3973,7 @@ GetUserUniqueId(id, uniqueid[], len)
 
 LoadRecords(RUN_TYPE:topType)
 {
-  new mySQLStore = get_pcvar_num(pcvar_kz_mysql);
-	if (mySQLStore)
+	if (get_pcvar_num(pcvar_kz_mysql))
 	{
     new query[1248];
     formatex(query, charsmax(query), "SELECT p.unique_id, pn.name, r.checkpoints, r.teleports, r.time, r.date \
@@ -3998,11 +3997,15 @@ LoadRecords(RUN_TYPE:topType)
     data[0] = topType;
     mysql_query(g_DbConnection, "SelectRunsHandler", query, data, sizeof(data));
 	}
-	
-  if (mySQLStore != 1)
-	{
-		new file = fopen(g_StatsFile[topType], "r");
-		if (!file) return;
+  else
+    LoadRecordsFromFile(topType)
+
+}
+
+LoadRecordsFromFile(RUN_TYPE:topType)
+{
+    new file = fopen(g_StatsFile[topType], "r");
+    if (!file) return;
 
     new data[1024], stats[STATS], uniqueid[32], name[32], cp[24], tp[24];
     new kztime[24], timestamp[24];
@@ -4010,28 +4013,27 @@ LoadRecords(RUN_TYPE:topType)
     new Array:arr = g_ArrayStats[topType];
     ArrayClear(arr);
 
-		while (!feof(file))
-		{
-			fgets(file, data, charsmax(data));
-			if (!strlen(data))
-				continue;
+    while (!feof(file))
+    {
+      fgets(file, data, charsmax(data));
+      if (!strlen(data))
+        continue;
 
-			parse(data, uniqueid, charsmax(uniqueid), name, charsmax(name),
-				cp, charsmax(cp), tp, charsmax(tp), kztime, charsmax(kztime), timestamp, charsmax(timestamp));
+      parse(data, uniqueid, charsmax(uniqueid), name, charsmax(name),
+        cp, charsmax(cp), tp, charsmax(tp), kztime, charsmax(kztime), timestamp, charsmax(timestamp));
 
-			stats[STATS_TIMESTAMP] = str_to_num(timestamp);
+      stats[STATS_TIMESTAMP] = str_to_num(timestamp);
 
-			copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
-			copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
-			stats[STATS_CP] = str_to_num(cp);
-			stats[STATS_TP] = str_to_num(tp);
-			stats[STATS_TIME] = _:str_to_float(kztime);
+      copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
+      copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
+      stats[STATS_CP] = str_to_num(cp);
+      stats[STATS_TP] = str_to_num(tp);
+      stats[STATS_TIME] = _:str_to_float(kztime);
 
-			ArrayPushArray(arr, stats);
-		}
+      ArrayPushArray(arr, stats);
+    }
 
-		fclose(file);
-	}
+    fclose(file);
 }
 
 SaveRecordsFile(RUN_TYPE:topType)
@@ -4456,6 +4458,10 @@ public SelectRunsHandler(failstate, error[], errNo, data[], size, Float:queuetim
     if (failstate != TQUERY_SUCCESS)
     {
         log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectRunsHandler(): [%d] - [%s] - [%s]", errNo, error, data);
+
+        if (get_pcvar_num(pcvar_kz_mysql) == 2)
+          LoadRecordsFromFile(data[0]);
+
         return;
     }
 
