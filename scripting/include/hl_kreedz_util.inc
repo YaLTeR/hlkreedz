@@ -371,6 +371,7 @@ public ConvertSteamID32to64(steamId32[], result[])
 }
 */
 
+// Returns the passed string now filled with the corresponding text
 GetTopType(RUN_TYPE:runType, topType[]) {
 	switch (runType)
 	{
@@ -380,5 +381,19 @@ GetTopType(RUN_TYPE:runType, topType[]) {
 		case NOOB: formatex(topType, charsmax(topType), "nub");
 		case PRO:  formatex(topType, charsmax(topType), "pro");
 		case PURE: formatex(topType, charsmax(topType), "pure");
+	}
+}
+
+// Returns a RUN_TYPE
+GetTopType(topType[]) {
+	new type[64];
+	formatex(type, charsmax(type), topType);
+	strtolower(type);
+	switch (type)
+	{
+		case "nub" : return NOOB;
+		case "noob": return NOOB;
+		case "pro" : return PRO;
+		case "pure": return PURE;
 	}
 }

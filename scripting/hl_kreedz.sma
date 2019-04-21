@@ -61,6 +61,7 @@ new const TELE_MENU_ID[] = "HL KreedZ Teleport Menu";
 
 new const CONFIGS_SUB_DIR[] = "/hl_kreedz";
 new const PLUGIN_CFG_FILENAME[] = "hl_kreedz.cfg";
+new const MYSQL_LOG_FILENAME[] = "kz_mysql.log";
 
 //new const staleStatTime = 30 * 24 * 60 * 60;	// Keep old stat for this amount of time
 //new const keepStatPlayers = 100;				// Keep this amount of players in stat even if stale
@@ -247,7 +248,9 @@ new g_MaxPlayers;
 new g_PauseSprite;
 new g_TaskEnt;
 
+new g_MapId;
 new g_Map[64];
+new g_EscapedMap[128]
 new g_ConfigsDir[256];
 new g_ReplaysDir[256];
 new g_StatsFile[RUN_TYPE][256];
@@ -299,6 +302,17 @@ new pcvar_kz_replay_setup_time;
 new pcvar_kz_spec_unfreeze;
 new pcvar_kz_denied_sound;
 new pcvar_sv_items_respawn_time;
+new pcvar_kz_mysql;
+new pcvar_kz_mysql_threads;
+new pcvar_kz_mysql_thread_fps;
+new pcvar_kz_mysql_collect_time_ms;
+new pcvar_kz_mysql_host;
+new pcvar_kz_mysql_user;
+new pcvar_kz_mysql_pass;
+new pcvar_kz_mysql_db;
+
+new Handle:g_DbHost;
+new Handle:g_DbConnection;
 
 new g_FwLightStyle;
 
@@ -379,6 +393,17 @@ public plugin_init()
 	pcvar_kz_denied_sound = register_cvar("kz_denied_sound", "1");
 
 	pcvar_sv_items_respawn_time = register_cvar("sv_items_respawn_time", "0"); // 0 = unchanged, n > 0 = n seconds
+
+	// 0 = store data in files and only store leaderboards, 1 = store data in MySQL and store much more data (not only leaderboards), 2 store data in both (files and mysql)
+	pcvar_kz_mysql = register_cvar("kz_mysql", "0");
+	// How many threads to use with MySQL, so it can use that many threads per frame to query stuff (1 query per thread?). This depends on the CPU you have in the server I guess
+	pcvar_kz_mysql_threads = register_cvar("kz_mysql_threads", "1");
+	pcvar_kz_mysql_thread_fps = register_cvar("kz_mysql_thread_fps", "25"); // MySQLT module only admits values between 4 and 33 fps
+	pcvar_kz_mysql_collect_time_ms = register_cvar("kz_mysql_collect_time_ms", "75"); // MySQLT module only admits values between 30 and 300 ms
+	pcvar_kz_mysql_host = register_cvar("kz_mysql_host", ""); // IP:port, FQDN:port, etc.
+	pcvar_kz_mysql_user = register_cvar("kz_mysql_user", ""); // Name of the MySQL user that will be used to read/write data in the DB
+	pcvar_kz_mysql_pass = register_cvar("kz_mysql_pass", ""); // Password of the MySQL user
+	pcvar_kz_mysql_db = register_cvar("kz_mysql_db", ""); // MySQL database name
 
 	register_dictionary("telemenu.txt");
 	register_dictionary("common.txt");
@@ -484,7 +509,7 @@ public plugin_init()
 	g_SyncHudSpecList = CreateHudSyncObj();
 
 	g_ArrayStats[NOOB] = ArrayCreate(STATS);
-	g_ArrayStats[PRO] = ArrayCreate(STATS);
+	g_ArrayStats[PRO]  = ArrayCreate(STATS);
 	g_ArrayStats[PURE] = ArrayCreate(STATS);
 
 	g_ReplayNum = 0;
@@ -514,13 +539,61 @@ public plugin_cfg()
 	if (!dir_exists(g_ReplaysDir))
 		mkdir(g_ReplaysDir);
 
+	if (get_pcvar_num(pcvar_kz_mysql))
+	{
+		new const sql_host[261], sql_user[32], sql_pass[32], sql_db[256];
+		get_pcvar_string(pcvar_kz_mysql_host, sql_host, charsmax(sql_host));
+		get_pcvar_string(pcvar_kz_mysql_user, sql_user, charsmax(sql_user));
+		get_pcvar_string(pcvar_kz_mysql_pass, sql_pass, charsmax(sql_pass));
+		get_pcvar_string(pcvar_kz_mysql_db, sql_db, charsmax(sql_db));
+
+		g_DbHost = mysql_makehost(sql_host, sql_user, sql_pass, sql_db);
+
+    new error[32], errNo;
+    g_DbConnection = mysql_connect(g_DbHost, errNo, error, 31)
+    if (errNo) {
+      log_to_file(MYSQL_LOG_FILENAME, "ERROR: [%d] - [%s]", errNo, error);
+			server_print("The hl_kreedz.amxx plugin has MySQL storage activated, but failed to connect to MySQL. You can see the error in the %s file", MYSQL_LOG_FILENAME);
+			pause("ad");
+			return;
+    }
+
+    mysql_escape_string(g_EscapedMap, charsmax(g_EscapedMap), g_Map);
+
+    new threadFPS = get_pcvar_num(pcvar_kz_mysql_thread_fps);
+    new threadThinkTime = 1000 / threadFPS;
+  	mysql_performance(get_pcvar_num(pcvar_kz_mysql_collect_time_ms), threadThinkTime, get_pcvar_num(pcvar_kz_mysql_threads));
+
+    // Insert the current map if doesn't exist
+    new what[4], insertMapQuery[720], selectMapQuery[720];
+    formatex(what, charsmax(what), "map");
+    formatex(insertMapQuery, charsmax(insertMapQuery), "INSERT INTO map (name) \
+                                      SELECT '%s' \
+                                      FROM (select 1) as a \
+                                      WHERE NOT EXISTS( \
+                                          SELECT name \
+                                          FROM map \
+                                          WHERE name = '%s' \
+                                      ) \
+                                      LIMIT 1", g_EscapedMap, g_EscapedMap);
+
+    mysql_query(g_DbConnection, "DefaultInsertHandler", insertMapQuery, what, sizeof(what));
+
+    formatex(selectMapQuery, charsmax(selectMapQuery), "SELECT id FROM map WHERE name = '%s'", g_EscapedMap); // FIXME check if the escaped name may differ from the one in DB
+    mysql_query(g_DbConnection, "SelectMapIdHandler", selectMapQuery);
+
+    // TODO: Insert server location data
+    // TODO: Insert the `server` if doesn't exist
+    // TODO: Insert the `server_map` if doesn't exist
+	}
+
 	GetTopType(NOOB, g_TopType[NOOB]);
 	GetTopType(PRO,  g_TopType[PRO]);
 	GetTopType(PURE, g_TopType[PURE]);
 
 	// Load stats
 	formatex(g_StatsFile[NOOB], charsmax(g_StatsFile[NOOB]), "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[PURE]);
-	formatex(g_StatsFile[PRO], charsmax(g_StatsFile[PRO]), "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[PRO]);
+	formatex(g_StatsFile[PRO],  charsmax(g_StatsFile[PRO]),  "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[PRO]);
 	formatex(g_StatsFile[PURE], charsmax(g_StatsFile[PURE]), "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[NOOB]);
 	LoadRecords(PURE);
 	LoadRecords(PRO);
@@ -1507,34 +1580,7 @@ public npc_think(id)
 	    	console_print(owner, "[t=%d %.5f] dp: %.2f, px: %.2f, py: %.2f, pz: %.2f, s: %.2f, btns: %d", g_ReplayFramesIdx[owner], demoTime, get_distance_f(botCurrPos, botPrevPos), replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2], botCurrHSpeed, replay[RP_BUTTONS]);
 	    	g_ConsolePrintNextFrames[owner]--;
 	    }
-	    /*
-	    else
-	    {		
-			if (equali(g_Map, "agtricks"))
-			{
-				if (g_ReplayFramesIdx[owner] < 10 // 1st tp
-					|| (g_ReplayFramesIdx[owner] > 1970 && g_ReplayFramesIdx[owner] < 1985)
-					|| (g_ReplayFramesIdx[owner] > 3950 && g_ReplayFramesIdx[owner] < 3965)
-					|| (g_ReplayFramesIdx[owner] > 4575 && g_ReplayFramesIdx[owner] < 4590)
-					|| (g_ReplayFramesIdx[owner] > 5800 && g_ReplayFramesIdx[owner] < 5815))
-				{
-			    	console_print(1, "[t=%d %.5f] dp: %.2f, px: %.2f, py: %.2f, pz: %.2f, s: %.2f, btns: %d", g_ReplayFramesIdx[owner], demoTime, get_distance_f(botCurrPos, botPrevPos), replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2], botCurrHSpeed, replay[RP_BUTTONS]);
-				}
 
-			}
-			else if (g_Unfreeze[bot] && g_Unfreeze[bot] == 1)
-				console_print(1, "[t=%d %.5f] dp: %.2f, px: %.2f, py: %.2f, pz: %.2f, s: %.2f, btns: %d", g_ReplayFramesIdx[owner], demoTime, get_distance_f(botCurrPos, botPrevPos), replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2], botCurrHSpeed, replay[RP_BUTTONS]);
-	    }
-	    
-
-		if (!isCustomFrame)
-		{
-			for (new i = 0; i < g_ReplayFpsMultiplier[owner] - 1; i++)
-			{
-				g_ArtificialFrames[owner][id] = float(i + 1) * frameDuration / float(g_ReplayFpsMultiplier[owner] + 1);
-			}
-		}
-		*/
 	    g_LastFrameTime[owner] = replay[RP_TIME] + frameDuration;
 	    engfunc(EngFunc_RunPlayerMove, bot, replay[RP_ANGLES], botVelocity[0], botVelocity[1], botVelocity[2], replay[RP_BUTTONS], 0, 4);
 	    g_ReplayFramesIdx[owner]++;
@@ -3787,14 +3833,14 @@ public CmdSpeed(id)
 
 public CmdSpeedcap(id)
 {
-	new Float:allowed_speedcap = get_pcvar_float(pcvar_kz_speedcap);
+	new Float:allowedSpeedcap = get_pcvar_float(pcvar_kz_speedcap);
 	new Float:speedcap = GetFloatArg();
-	//console_print(id, "allowed_speedcap = %.2f; speedcap = %.2f", allowed_speedcap, speedcap);
+	//console_print(id, "allowedSpeedcap = %.2f; speedcap = %.2f", allowedSpeedcap, speedcap);
 
-	if (allowed_speedcap && speedcap > allowed_speedcap)
+	if (allowedSpeedcap && speedcap > allowedSpeedcap)
 	{
 		g_Speedcap[id] = speedcap;
-		ShowMessage(id, "Server doesn't allow a higher speedcap than %.2f", allowed_speedcap);
+		ShowMessage(id, "Server doesn't allow a higher speedcap than %.2f", allowedSpeedcap);
 	} else {
 		g_Speedcap[id] = speedcap;
 	}
@@ -3925,39 +3971,68 @@ GetUserUniqueId(id, uniqueid[], len)
 
 LoadRecords(RUN_TYPE:topType)
 {
-	new File = fopen(g_StatsFile[topType], "r");
-	if (!file) return;
-
-	new data[1024], stats[STATS], uniqueid[32], name[32], cp[24], tp[24];
-	new kztime[24], timestamp[24];
-
-	new Array:arr = g_ArrayStats[topType];
-	ArrayClear(arr);
-
-	while (!feof(file))
+  new mySQLStore = get_pcvar_num(pcvar_kz_mysql);
+	if (mySQLStore)
 	{
-		fgets(file, data, charsmax(data));
-		if (!strlen(data))
-			continue;
-
-		parse(data, uniqueid, charsmax(uniqueid), name, charsmax(name),
-			cp, charsmax(cp), tp, charsmax(tp), kztime, charsmax(kztime), timestamp, charsmax(timestamp));
-
-		stats[STATS_TIMESTAMP] = str_to_num(timestamp);
-
-		copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
-		copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
-		stats[STATS_CP] = str_to_num(cp);
-		stats[STATS_TP] = str_to_num(tp);
-		stats[STATS_TIME] = _:str_to_float(kztime);
-
-		ArrayPushArray(arr, stats);
+    new query[1248];
+    formatex(query, charsmax(query), "SELECT p.unique_id, pn.name, r.checkpoints, r.teleports, r.time, r.date \
+                                        FROM run r \
+                                        INNER JOIN player p ON p.id = r.player \
+                                        INNER JOIN player_name pn ON pn.player = r.player AND pn.date = r.date \
+                                        INNER JOIN map m ON m.id = r.map \
+                                        WHERE \
+                                              r.is_valid = true \
+                                          AND m.name = '%s' \
+                                          AND r.type = '%s' \
+                                          AND r.time = (SELECT MIN(r2.time) \
+                                                        FROM run r2 \
+                                                        WHERE \
+                                                              r2.player = r.player \
+                                                          AND r2.map = r.map \
+                                                          AND r2.type = r.type) \
+                                        ORDER BY r.time ASC", g_EscapedMap, g_TopType[topType]);
+    // This query takes around 50ms to run (min 30ms, max 72ms, out of 50 queries)
+    new data[1];
+    data[0] = topType;
+    mysql_query(g_DbConnection, "SelectRunsHandler", query, data, sizeof(data));
 	}
+	
+  if (mySQLStore != 1)
+	{
+		new file = fopen(g_StatsFile[topType], "r");
+		if (!file) return;
 
-	fclose(file);
+    new data[1024], stats[STATS], uniqueid[32], name[32], cp[24], tp[24];
+    new kztime[24], timestamp[24];
+
+    new Array:arr = g_ArrayStats[topType];
+    ArrayClear(arr);
+
+		while (!feof(file))
+		{
+			fgets(file, data, charsmax(data));
+			if (!strlen(data))
+				continue;
+
+			parse(data, uniqueid, charsmax(uniqueid), name, charsmax(name),
+				cp, charsmax(cp), tp, charsmax(tp), kztime, charsmax(kztime), timestamp, charsmax(timestamp));
+
+			stats[STATS_TIMESTAMP] = str_to_num(timestamp);
+
+			copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
+			copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
+			stats[STATS_CP] = str_to_num(cp);
+			stats[STATS_TP] = str_to_num(tp);
+			stats[STATS_TIME] = _:str_to_float(kztime);
+
+			ArrayPushArray(arr, stats);
+		}
+
+		fclose(file);
+	}
 }
 
-SaveRecords(RUN_TYPE:topType)
+SaveRecordsFile(RUN_TYPE:topType)
 {
 	new file = fopen(g_StatsFile[topType], "w+");
 	if (!file) return;
@@ -3979,6 +4054,33 @@ SaveRecords(RUN_TYPE:topType)
 	}
 
 	fclose(file);
+}
+
+// Here instead of writing the whole file again, we just insert a few rows in the DB, so it's much less expensive in this case
+SaveRecordDB(RUN_TYPE:topType, STATS:stats)
+{
+  new data[2];
+  data[0] = topType;
+  data[1] = stats;
+
+  new escapedUniqueId[64];
+  mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), stats[STATS_ID]);
+
+  new query[592];
+  formatex(query, charsmax(query), "INSERT INTO player (unique_id) \
+                                    SELECT '%s' \
+                                    FROM (select 1) as a \
+                                    WHERE NOT EXISTS( \
+                                        SELECT unique_id \
+                                        FROM player \
+                                        WHERE unique_id = '%s' \
+                                    ) \
+                                    LIMIT 1", escapedUniqueId, escapedUniqueId);
+
+  // Here one callback will call another, and that one will call another, and another...
+  // because we have to wait until the previous data has been inserted, and only if it has been inserted at all
+  // so we insert the player if doesn't exist, then the name they were using at that time, then the run corresponding to that player
+  mysql_query(g_DbConnection, "SelectRunPlayerId", query, data, sizeof(data));
 }
 
 // Refactor if somehow more than 2 tops have to be passed
@@ -4063,7 +4165,12 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	else
 		client_print(0, print_chat, "[%s] %s's rank is %d of %d among %s players", PLUGIN_TAG, name, rank, ArraySize(arr), g_TopType[topType]);
 
-	SaveRecords(topType);
+  new mySQLStore = get_pcvar_num(pcvar_kz_mysql);
+  if (mySQLStore)
+    SaveRecordDB(topType, stats);
+  
+  if (mySQLStore != 1)
+    SaveRecordsFile(topType);
 
 	if (rank == 1)
 	{
@@ -4320,4 +4427,193 @@ GetVersionNumber()
 
 	//console_print(1, "%s --> %s --> %d", szVersion, numberPart, str_to_num(numberPart));
 	return str_to_num(numberPart);
+}
+
+
+
+//*******************************************************
+//*                                                     *
+//* MySQL query handling                                *
+//*                                                     *
+//*******************************************************
+
+public DefaultInsertHandler(failstate, error[], errNo, what[], size, Float:queuetime)
+{
+    if (failstate != TQUERY_SUCCESS)
+    {
+        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ DefaultInsertHandler(): [%d] - [%s] - [%s]", errNo, error, what);
+        return;
+    }
+    server_print("[%.3f] Inserted %s, QueueTime:[%.3f]", get_gametime(), what, queuetime);
+}
+
+public SelectRunsHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+    if (failstate != TQUERY_SUCCESS)
+    {
+        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectRunsHandler(): [%d] - [%s] - [%s]", errNo, error, data);
+        return;
+    }
+
+    new RUN_TYPE:topType = data[0];
+    new stats[STATS], uniqueId[32], name[32], cp, tp, Float:kztime, timestamp;
+
+    new Array:arr = g_ArrayStats[topType];
+    ArrayClear(arr);
+
+    while (mysql_more_results())
+    {
+      mysql_read_result(0, uniqueId, charsmax(uniqueId));
+      mysql_read_result(1, name, charsmax(name));
+      cp = mysql_read_result(2);
+      tp = mysql_read_result(3);
+      mysql_read_result(4, kztime);
+      timestamp = mysql_read_result(5);
+
+      // FIXME check if this language allows to dump the data directly to the stats array
+
+      stats[STATS_TIMESTAMP] = timestamp;
+      copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueId);
+      copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
+      stats[STATS_CP] = cp;
+      stats[STATS_TP] = tp;
+      stats[STATS_TIME] = _:kztime;
+
+      ArrayPushArray(arr, stats);
+
+      mysql_next_row();
+    }
+
+    server_print("[%.3f] Selected %s runs, QueueTime:[%.3f]", get_gametime(), g_TopType[topType], queuetime);
+}
+
+// Gets the player id from the `player` table so we can use it to insert stuff in the `player_name` table
+public SelectRunPlayerId(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+    if (failstate != TQUERY_SUCCESS)
+    {
+        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectRunPlayerId(): [%d] - [%s] - [%s]", errNo, error, data);
+        return;
+    }
+    new RUN_TYPE:topType = data[0];
+    new STATS:stats = data[1];
+
+    server_print("[%.3f] Inserted runner %s, QueueTime:[%.3f]", get_gametime(), stats[STATS_ID], queuetime);
+
+    if (stats[STATS_ID])
+    {
+      new escapedUniqueId[64], query[108];
+      mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), stats[STATS_ID]);
+      formatex(query, charsmax(query), "SELECT id FROM player WHERE unique_id = '%s'", escapedUniqueId);
+
+      // Here one callback will call another, and that one will call another, and another...
+      // because we have to wait until the previous data has been inserted, and only if it has been inserted at all
+      // so we insert the player if doesn't exist, then the name they were using at that time, then the run corresponding to that player
+      mysql_query(g_DbConnection, "InsertRunPlayerName", query, data, sizeof(data));
+    }
+    else
+    {
+      // Something new must have been inserted in SaveRecordDB because there's no unique_id...
+      // so we get directly the last inserted id
+      new playerId = mysql_get_insert_id();
+      DoQueryInsertRunPlayerName(data, playerId);
+    }
+}
+
+// Gets the player id from the SELECT query result
+public InsertRunPlayerName(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+    if (failstate != TQUERY_SUCCESS)
+    {
+        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ InsertRunPlayerName(): [%d] - [%s] - [%s]", errNo, error, data);
+        return;
+    }
+    new RUN_TYPE:topType = data[0];
+    new STATS:stats = data[1];
+    new playerId;
+
+    if (mysql_more_results())
+    {
+      playerId = mysql_read_result(0);
+    }
+
+    server_print("[%.3f] Selected runner #%d, QueueTime:[%.3f]", get_gametime(), playerId, queuetime);
+
+    DoQueryInsertRunPlayerName(data, playerId);
+}
+
+// Launches the query to insert the player name that was in use when the record was one
+DoQueryInsertRunPlayerName(data[], playerId)
+{
+    new STATS:stats = data[1];
+
+    new escapedName[64], query[720];
+    mysql_escape_string(escapedName, charsmax(escapedName), stats[STATS_NAME]);
+    formatex(query, charsmax(query), "INSERT INTO player_name (player, name, date) \
+                                      SELECT %d, '%s', %i \
+                                      FROM (select 1) as a \
+                                      WHERE NOT EXISTS( \
+                                          SELECT player, name, date \
+                                          FROM player_name \
+                                          WHERE player = %d AND name = '%s' AND date = %i \
+                                      ) \
+                                      LIMIT 1", playerId, escapedName, stats[STATS_TIMESTAMP], playerId, escapedName, stats[STATS_TIMESTAMP]);
+
+    new newData[3];
+    newData[0] = data[0];
+    newData[1] = data[1];
+    newData[2] = playerId;
+
+    mysql_query(g_DbConnection, "InsertRun", query, newData, sizeof(newData));
+}
+
+// Launches the query to insert the run
+public InsertRun(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+    if (failstate != TQUERY_SUCCESS)
+    {
+        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ InsertRun(): [%d] - [%s] - [%s]", errNo, error, data);
+        return;
+    }
+    new RUN_TYPE:topType = data[0];
+    new STATS:stats = data[1];
+    new playerId = data[2];
+
+    server_print("[%.3f] Inserted runner %s, QueueTime:[%.3f]", get_gametime(), stats[STATS_ID], queuetime);
+
+    new escapedUniqueId[64], query[592];
+    mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), stats[STATS_ID]);
+    formatex(query, charsmax(query), "INSERT INTO run (player, map, type, time, date, checkpoints, teleports) \
+                                      SELECT %d, %d, '%s', %.6f, %i, %d, %d \
+                                      FROM (select 1) as a \
+                                      WHERE NOT EXISTS( \
+                                          SELECT player, map, type, time, date, checkpoints, teleports \
+                                          FROM run \
+                                          WHERE player = %d AND date = %i AND type = '%s' \
+                                      ) \
+                                      LIMIT 1",
+                                      playerId, g_MapId, g_TopType[topType], stats[STATS_TIME], stats[STATS_TIMESTAMP], stats[STATS_CP], stats[STATS_TP]
+                                      playerId, stats[STATS_TIMESTAMP], g_TopType[topType]);
+
+    new what[4];
+    formatex(what, charsmax(what), "run");
+
+    mysql_query(g_DbConnection, "DefaultInsertHandler", query, what, sizeof(what));
+}
+
+// Gets the map id corresponding to the map that is currently being played
+public SelectMapIdHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+    if (failstate != TQUERY_SUCCESS)
+    {
+        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectMapIdHandler(): [%d] - [%s]", errNo, error);
+        return;
+    }
+
+    if (mysql_more_results())
+    {
+      g_MapId = mysql_read_result(0);
+    }
+
+    server_print("[%.3f] Selected map #%d, QueueTime:[%.3f]", get_gametime(), g_MapId, queuetime);
 }

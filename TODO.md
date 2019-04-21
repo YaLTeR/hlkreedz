@@ -27,7 +27,7 @@ HLKreedz TODO:
 - [ ] Add an admin command for record removal, which updates the tops in real-time for all players.
 - [ ] Add an admin MOTD showing all connected players' variable states (e.g.: naz - LJStats ON, Speed OFF, NV mode 2, speclist OFF, etc.).
 - [ ] Custom training stages for HLDM maps like crossfire, boot_camp, stalkyard, etc. In these maps, a special menu pops up to enable a specific training area (e.g.: crossfire from mp5 balcony to crossbow balcony to gauss), so it teleports the player to the specific start button and disables the other buttons in the map while that training area is selected.
-- [ ] Add database support, so we can have data organized and easily display through web, discord, telegram, etc.
+- [x] Add database support, so we can have data organized and easily display through web, Discord, Telegram, ingame, etc.
 - [ ] Implement a command to see personal stats (un/played maps, how many 1st positions, etc.) when SQL is implemented.
 - [ ] Implement map staging:
 	- [ ] Add an ingame editor to place trigger_multiple blocks that start/end a stage, so different stages of a map can be measured when running (like can be seen when watching a HL speedrun in Twitch).
