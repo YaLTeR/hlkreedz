@@ -20,6 +20,7 @@
 #include <hamsandwich>
 #include <hl>
 #include <hl_kreedz_util>
+#include <mysqlt>
 
 // Compilation options
 //#define _DEBUG		// Enable debug output at server console.
@@ -254,7 +255,7 @@ new g_TaskEnt;
 
 new g_MapId;
 new g_Map[64];
-new g_EscapedMap[128]
+new g_EscapedMap[128];
 new g_ConfigsDir[256];
 new g_ReplaysDir[256];
 new g_StatsFile[RUN_TYPE][256];
@@ -263,6 +264,7 @@ new Array:g_ArrayStats[RUN_TYPE];
 
 new g_MapIniFile[256];
 new g_MapDefaultStart[CP_DATA];
+new g_MapPoolFile[256];
 new g_MapDefaultLightStyle[32];
 
 new g_SpectatePreSpecMode;
@@ -353,7 +355,7 @@ public plugin_init()
 		return;
 	}
 
-	pcvar_kz_uniqueid = register_cvar("kz_uniqueid", "1");	// 1 - name, 2 - ip, 3 - steamid
+	pcvar_kz_uniqueid = register_cvar("kz_uniqueid", "3");	// 1 - name, 2 - ip, 3 - steamid
 	pcvar_kz_spawn_mainmenu = register_cvar("kz_spawn_mainmenu", "1");
 	pcvar_kz_messages = register_cvar("kz_messages", "2");	// 0 - none, 1 - chat, 2 - hud
 	pcvar_kz_hud_rgb = register_cvar("kz_hud_rgb", "255 160 0");
@@ -413,7 +415,7 @@ public plugin_init()
 	pcvar_kz_mysql_pass = register_cvar("kz_mysql_pass", ""); // Password of the MySQL user
 	pcvar_kz_mysql_db = register_cvar("kz_mysql_db", ""); // MySQL database name
 
-  pcvar_kz_cup_maps = register_cvar("kz_cup_maps", "7");
+	pcvar_kz_cup_maps = register_cvar("kz_cup_maps", "7");
 
 	register_dictionary("telemenu.txt");
 	register_dictionary("common.txt");
@@ -421,12 +423,12 @@ public plugin_init()
 	register_clcmd("kz_teleportmenu", "CmdTeleportMenuHandler", ADMIN_CFG, "- displays kz teleport menu");
 	register_clcmd("kz_setstart", "CmdSetStartHandler", ADMIN_CFG, "- set start position");
 	register_clcmd("kz_clearstart", "CmdClearStartHandler", ADMIN_CFG, "- clear start position");
-  register_clcmd("kz_cup", "CmdCupHandler", ADMIN_CFG, "- start a cup match between 2 players");
-  register_clcmd("kz_map_add", "CmdMapInsertHandler", ADMIN_CFG, "- adds a map to the map pool");
-  register_clcmd("kz_map_insert", "CmdMapInsertHandler", ADMIN_CFG, "- adds a map to the map pool");
-  register_clcmd("kz_map_del", "CmdMapDeleteHandler", ADMIN_CFG, "- removes a map from the map pool");
-  register_clcmd("kz_map_delete", "CmdMapDeleteHandler", ADMIN_CFG, "- removes a map from the map pool");
-  register_clcmd("kz_map_remove", "CmdMapDeleteHandler", ADMIN_CFG, "- removes a map from the map pool");
+	register_clcmd("kz_cup", "CmdCupHandler", ADMIN_CFG, "- start a cup match between 2 players");
+	register_clcmd("kz_map_add", "CmdMapInsertHandler", ADMIN_CFG, "- adds a map to the map pool");
+	register_clcmd("kz_map_insert", "CmdMapInsertHandler", ADMIN_CFG, "- adds a map to the map pool");
+	register_clcmd("kz_map_del", "CmdMapDeleteHandler", ADMIN_CFG, "- removes a map from the map pool");
+	register_clcmd("kz_map_delete", "CmdMapDeleteHandler", ADMIN_CFG, "- removes a map from the map pool");
+	register_clcmd("kz_map_remove", "CmdMapDeleteHandler", ADMIN_CFG, "- removes a map from the map pool");
 
 	register_clcmd("kz_set_custom_start", "CmdSetCustomStartHandler", -1, "- sets the custom start position");
 	register_clcmd("kz_clear_custom_start", "CmdClearCustomStartHandler", -1, "- clears the custom start position");
@@ -464,25 +466,25 @@ public plugin_init()
 	RegisterHam(Ham_TakeDamage, "player", "Fw_HamTakeDamagePlayerPost", 1);
 	// TODO: get tripmines entity id when placed, get its position and check if the player is jumping on a tripmine
 	// TODO: do the same as above but for satchels
-  RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_tripmine",	"Fw_HamBoostAttack");
-  RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_crossbow",	"Fw_HamBoostAttack");
-  RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_egon",		"Fw_HamBoostAttack");
-  RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_rpg",		"Fw_HamBoostAttack");
-  RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
-  RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_snark",		"Fw_HamBoostAttack");
-  RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_9mmAR",		"Fw_HamBoostAttack");
-  RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_gauss",		"Fw_HamBoostAttack");
-  // While the TODOs get done, we penalize the player who places a satchel, that may be used for another player to jump on it
-  //RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_tripmine",	"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_crossbow",	"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_egon",		"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_rpg",		"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_snark",		"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_9mmAR",		"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_gauss",		"Fw_HamBoostAttack");
+	// While the TODOs get done, we penalize the player who places a satchel, that may be used for another player to jump on it
+	//RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
 
-  if (get_pcvar_float(pcvar_sv_items_respawn_time) > 0)
-  {
-  	for (new i = 0; i < sizeof(g_itemNames); i++)
-  		RegisterHam(Ham_Respawn, g_itemNames[i], "Fw_HamItemRespawn", 1);
+	if (get_pcvar_float(pcvar_sv_items_respawn_time) > 0)
+	{
+		for (new i = 0; i < sizeof(g_itemNames); i++)
+			RegisterHam(Ham_Respawn, g_itemNames[i], "Fw_HamItemRespawn", 1);
 
-  	for (new j = 0; j < sizeof(g_weaponNames); j++)
-  		register_touch(g_weaponNames[j], "worldspawn",	"Fw_FmWeaponRespawn");
-  }
+		for (new j = 0; j < sizeof(g_weaponNames); j++)
+			register_touch(g_weaponNames[j], "worldspawn",	"Fw_FmWeaponRespawn");
+	}
 
 	register_forward(FM_ClientKill,"Fw_FmClientKillPre");
 	register_forward(FM_ClientCommand, "Fw_FmClientCommandPost", 1);
@@ -557,60 +559,61 @@ public plugin_cfg()
 
 	if (get_pcvar_num(pcvar_kz_mysql))
 	{
-		new const sql_host[261], sql_user[32], sql_pass[32], sql_db[256];
-		get_pcvar_string(pcvar_kz_mysql_host, sql_host, charsmax(sql_host));
-		get_pcvar_string(pcvar_kz_mysql_user, sql_user, charsmax(sql_user));
-		get_pcvar_string(pcvar_kz_mysql_pass, sql_pass, charsmax(sql_pass));
-		get_pcvar_string(pcvar_kz_mysql_db, sql_db, charsmax(sql_db));
+		new dbHost[261], dbUser[32], dbPass[32], dbName[256];
+		get_pcvar_string(pcvar_kz_mysql_host, dbHost, charsmax(dbHost));
+		get_pcvar_string(pcvar_kz_mysql_user, dbUser, charsmax(dbUser));
+		get_pcvar_string(pcvar_kz_mysql_pass, dbPass, charsmax(dbPass));
+		get_pcvar_string(pcvar_kz_mysql_db, dbName, charsmax(dbName));
 
-		g_DbHost = mysql_makehost(sql_host, sql_user, sql_pass, sql_db);
+		g_DbHost = mysql_makehost(dbHost, dbUser, dbPass, dbName);
 
-    new error[32], errNo;
-    g_DbConnection = mysql_connect(g_DbHost, errNo, error, 31)
-    if (errNo) {
-      log_to_file(MYSQL_LOG_FILENAME, "ERROR: [%d] - [%s]", errNo, error);
+		new error[32], errNo;
+		g_DbConnection = mysql_connect(g_DbHost, errNo, error, 31);
+		if (errNo)
+		{
+			log_to_file(MYSQL_LOG_FILENAME, "ERROR: [%d] - [%s]", errNo, error);
 			server_print("The hl_kreedz.amxx plugin has MySQL storage activated, but failed to connect to MySQL. You can see the error in the %s file", MYSQL_LOG_FILENAME);
 			pause("ad");
 			return;
-    }
+		}
 
-    mysql_escape_string(g_EscapedMap, charsmax(g_EscapedMap), g_Map);
+		mysql_escape_string(g_EscapedMap, charsmax(g_EscapedMap), g_Map);
 
-    new threadFPS = get_pcvar_num(pcvar_kz_mysql_thread_fps);
-    new threadThinkTime = 1000 / threadFPS;
-  	mysql_performance(get_pcvar_num(pcvar_kz_mysql_collect_time_ms), threadThinkTime, get_pcvar_num(pcvar_kz_mysql_threads));
+		new threadFPS = get_pcvar_num(pcvar_kz_mysql_thread_fps);
+		new threadThinkTime = 1000 / threadFPS;
+		mysql_performance(get_pcvar_num(pcvar_kz_mysql_collect_time_ms), threadThinkTime, get_pcvar_num(pcvar_kz_mysql_threads));
 
-    // Insert the current map if doesn't exist
-    new what[4], insertMapQuery[720], selectMapQuery[720];
-    formatex(what, charsmax(what), "map");
-    formatex(insertMapQuery, charsmax(insertMapQuery), "INSERT INTO map (name) \
-                                      SELECT '%s' \
-                                      FROM (select 1) as a \
-                                      WHERE NOT EXISTS( \
-                                          SELECT name \
-                                          FROM map \
-                                          WHERE name = '%s' \
-                                      ) \
-                                      LIMIT 1", g_EscapedMap, g_EscapedMap);
+		// Insert the current map if doesn't exist
+		new what[4], insertMapQuery[704], selectMapQuery[176];
+		formatex(what, charsmax(what), "map");
+		formatex(insertMapQuery, charsmax(insertMapQuery), "INSERT INTO map (name) \
+		                                  SELECT '%s' \
+		                                  FROM (select 1) as a \
+		                                  WHERE NOT EXISTS( \
+		                                      SELECT name \
+		                                      FROM map \
+		                                      WHERE name = '%s' \
+		                                  ) \
+		                                  LIMIT 1", g_EscapedMap, g_EscapedMap);
 
-    mysql_query(g_DbConnection, "DefaultInsertHandler", insertMapQuery, what, sizeof(what));
+		mysql_query(g_DbConnection, "DefaultInsertHandler", insertMapQuery, what, sizeof(what));
 
-    formatex(selectMapQuery, charsmax(selectMapQuery), "SELECT id FROM map WHERE name = '%s'", g_EscapedMap); // FIXME check if the escaped name may differ from the one in DB
-    mysql_query(g_DbConnection, "SelectMapIdHandler", selectMapQuery);
+		formatex(selectMapQuery, charsmax(selectMapQuery), "SELECT id FROM map WHERE name = '%s'", g_EscapedMap); // FIXME check if the escaped name may differ from the one in DB
+		mysql_query(g_DbConnection, "SelectMapIdHandler", selectMapQuery);
 
-    // TODO: Insert server location data
-    // TODO: Insert the `server` if doesn't exist
-    // TODO: Insert the `server_map` if doesn't exist
+		// TODO: Insert server location data
+		// TODO: Insert the `server` if doesn't exist
+		// TODO: Insert the `server_map` if doesn't exist
 	}
 
-	GetTopType(NOOB, g_TopType[NOOB]);
-	GetTopType(PRO,  g_TopType[PRO]);
-	GetTopType(PURE, g_TopType[PURE]);
+	GetTopTypeString(NOOB, g_TopType[NOOB]);
+	GetTopTypeString(PRO,  g_TopType[PRO]);
+	GetTopTypeString(PURE, g_TopType[PURE]);
 
 	// Load stats
-	formatex(g_StatsFile[NOOB], charsmax(g_StatsFile[NOOB]), "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[PURE]);
-	formatex(g_StatsFile[PRO],  charsmax(g_StatsFile[PRO]),  "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[PRO]);
-	formatex(g_StatsFile[PURE], charsmax(g_StatsFile[PURE]), "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[NOOB]);
+	formatex(g_StatsFile[NOOB], charsmax(g_StatsFile[]), "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[PURE]);
+	formatex(g_StatsFile[PRO],  charsmax(g_StatsFile[]),  "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[PRO]);
+	formatex(g_StatsFile[PURE], charsmax(g_StatsFile[]), "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[NOOB]);
 	LoadRecords(PURE);
 	LoadRecords(PRO);
 	LoadRecords(NOOB);
@@ -1656,9 +1659,9 @@ public UnfreezeSpecCam(bot)
 				new taskId = spec * 32;
 				set_task(0.03, "RestoreSpecCam", TASKID_CAM_UNFREEZE + taskId    , payLoad, sizeof(payLoad));
 				set_task(0.12, "RestoreSpecCam", TASKID_CAM_UNFREEZE + taskId + 1, payLoad, sizeof(payLoad));
-				//set_task(0.20, "RestoreSpecCam", TASKID_CAM_UNFREEZE + taskId + 2, payLoad, sizeof(payLoad));
-				//set_task(0.28 ,"RestoreSpecCam", TASKID_CAM_UNFREEZE + taskId + 3, payLoad, sizeof(payLoad));
-				//set_task(0.36, "RestoreSpecCam", TASKID_CAM_UNFREEZE + taskId + 4, payLoad, sizeof(payLoad));
+				set_task(0.20, "RestoreSpecCam", TASKID_CAM_UNFREEZE + taskId + 2, payLoad, sizeof(payLoad));
+				//set_task(0.24 ,"RestoreSpecCam", TASKID_CAM_UNFREEZE + taskId + 3, payLoad, sizeof(payLoad));
+				set_task(0.32, "RestoreSpecCam", TASKID_CAM_UNFREEZE + taskId + 4, payLoad, sizeof(payLoad));
 			}
 		}
 	}
@@ -1983,13 +1986,13 @@ public CmdSayHandler(id, level, cid)
 		CmdNightvision(id);
 
 	else if (containi(args[1], "pure") == 0)
-		ShowTopClimbers(id, g_TopType[PURE]);
+		ShowTopClimbers(id, PURE);
 
 	else if (containi(args[1], "pro") == 0)
-		ShowTopClimbers(id, g_TopType[PRO]);
+		ShowTopClimbers(id, PRO);
 
 	else if (containi(args[1], "nub") == 0 || containi(args[1], "noob") == 0)
-		ShowTopClimbers(id, g_TopType[NOOB]);
+		ShowTopClimbers(id, NOOB);
 
 	else if (containi(args[1], "top") == 0)
 		DisplayKzMenu(id, 5);
@@ -3772,19 +3775,21 @@ public CmdCupHandler(id, level, cid)
 {
   if (cmd_access(id, level, cid, 1))
   {
-      new target1[32], target2[32], 
+      new target1[32], target2[32];
       read_argv(1, target1, charsmax(target1));
       read_argv(2, target2, charsmax(target2));
 
-      new player1 = cmd_target(id, target1, CMDTARGET_ALLOW_SELF, CMDTARGET_NO_BOTS);
-      new player2 = cmd_target(id, target2, CMDTARGET_ALLOW_SELF, CMDTARGET_NO_BOTS);
+      new player1 = cmd_target(id, target1, CMDTARGET_ALLOW_SELF | CMDTARGET_NO_BOTS);
+      new player2 = cmd_target(id, target2, CMDTARGET_ALLOW_SELF | CMDTARGET_NO_BOTS);
   
       if (!player1)
+      {
         ShowMessage(id, "Cannot find the first player specified in the kz_cup command");
         return PLUGIN_HANDLED;
       }
 
       if (!player2)
+      {
         ShowMessage(id, "Cannot find the second player specified in the kz_cup command");
         return PLUGIN_HANDLED;
       }
@@ -3793,7 +3798,7 @@ public CmdCupHandler(id, level, cid)
   return PLUGIN_HANDLED;
 }
 
-public CmdMapInsertHandler()
+public CmdMapInsertHandler(id, level, cid)
 {
   if (cmd_access(id, level, cid, 1))
   {
@@ -4071,11 +4076,11 @@ LoadRecords(RUN_TYPE:topType)
     mysql_query(g_DbConnection, "SelectRunsHandler", query, data, sizeof(data));
 	}
   else
-    LoadRecordsFromFile(topType)
+    LoadRecordsFile(topType);
 
 }
 
-LoadRecordsFromFile(RUN_TYPE:topType)
+LoadRecordsFile(RUN_TYPE:topType)
 {
     new file = fopen(g_StatsFile[topType], "r");
     if (!file) return;
@@ -4134,11 +4139,12 @@ SaveRecordsFile(RUN_TYPE:topType)
 }
 
 // Here instead of writing the whole file again, we just insert a few rows in the DB, so it's much less expensive in this case
-SaveRecordDB(RUN_TYPE:topType, STATS:stats)
+SaveRecordDB(RUN_TYPE:topType, stats[STATS])
 {
-  new data[2];
+  new data[2+sizeof(stats)];
   data[0] = topType;
-  data[1] = stats;
+  add(data, sizeof(stats)+2, stats);
+  //data[1] = stats;
 
   new escapedUniqueId[64];
   mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), stats[STATS_ID]);
@@ -4301,6 +4307,11 @@ ShowTopClimbers(id, RUN_TYPE:topType)
 	else
 		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time              Date        Demo\n\n");
 
+	new szTopType[32], szTopTypeUCFirst[32];
+	formatex(szTopType, charsmax(szTopType), g_TopType[topType]);
+	formatex(szTopType, charsmax(szTopType), g_TopType[topType]);
+	ucfirst(szTopTypeUCFirst);
+
 	for (new i = recMin; i < recMax && charsmax(buffer) - len > 0; i++)
 	{
 		static authid[32], idNumbers[24], replayFile[256];
@@ -4319,8 +4330,6 @@ ShowTopClimbers(id, RUN_TYPE:topType)
 		formatex(authid, charsmax(authid), "%s", stats[STATS_ID]);
 		ConvertSteamID32ToNumbers(authid, idNumbers);
 
-		new szTopType[32];
-		formatex(szTopType, charsmax(szTopType), g_TopType[topType]);
 		formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
 		new hasDemo = file_exists(replayFile);
 		if (!hasDemo && topType == PRO && ComparePro2PureTime(stats[STATS_ID], stats[STATS_TIME]) == 0)
@@ -4328,7 +4337,6 @@ ShowTopClimbers(id, RUN_TYPE:topType)
 	    	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_pure.dat", g_ReplaysDir, g_Map, idNumbers);
 	        hasDemo = file_exists(replayFile);
 		}
-		ucfirst(szTopType);
 
 		if (topType == NOOB)
 			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s  %3d %3d        %s   %s\n", i + 1, stats[STATS_NAME], time, stats[STATS_CP], stats[STATS_TP], date, hasDemo ? "yes" : "no");
@@ -4339,7 +4347,7 @@ ShowTopClimbers(id, RUN_TYPE:topType)
 	len += formatex(buffer[len], charsmax(buffer) - len, "\n%s %s", PLUGIN, VERSION);
 
 	new header[24];
-	formatex(header, charsmax(header), "%s %d-%d Climbers", szTopType, recMin ? recMin : 1, recMax);
+	formatex(header, charsmax(header), "%s %d-%d Climbers", szTopTypeUCFirst, recMin ? recMin : 1, recMax);
 	show_motd(id, buffer, header);
 
 	return PLUGIN_HANDLED;
@@ -4533,7 +4541,7 @@ public SelectRunsHandler(failstate, error[], errNo, data[], size, Float:queuetim
         log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectRunsHandler(): [%d] - [%s] - [%s]", errNo, error, data);
 
         if (get_pcvar_num(pcvar_kz_mysql) == 2)
-          LoadRecordsFromFile(data[0]);
+          LoadRecordsFile(data[0]);
 
         return;
     }
@@ -4579,7 +4587,8 @@ public SelectRunPlayerId(failstate, error[], errNo, data[], size, Float:queuetim
         return;
     }
     new RUN_TYPE:topType = data[0];
-    new STATS:stats = data[1];
+    new stats[STATS];
+    copy(stats, sizeof(stats), data[1]);
 
     server_print("[%.3f] Inserted runner %s, QueueTime:[%.3f]", get_gametime(), stats[STATS_ID], queuetime);
 
@@ -4628,7 +4637,8 @@ public InsertRunPlayerName(failstate, error[], errNo, data[], size, Float:queuet
 // Launches the query to insert the player name that was in use when the record was one
 DoQueryInsertRunPlayerName(data[], playerId)
 {
-    new STATS:stats = data[1];
+    new stats[STATS];
+    copy(stats, sizeof(stats), data[1]);
 
     new escapedName[64], query[720];
     mysql_escape_string(escapedName, charsmax(escapedName), stats[STATS_NAME]);
@@ -4642,10 +4652,10 @@ DoQueryInsertRunPlayerName(data[], playerId)
                                       ) \
                                       LIMIT 1", playerId, escapedName, stats[STATS_TIMESTAMP], playerId, escapedName, stats[STATS_TIMESTAMP]);
 
-    new newData[3];
+    new newData[sizeof(stats)+2];
     newData[0] = data[0];
-    newData[1] = data[1];
-    newData[2] = playerId;
+    newData[1] = playerId;
+    newData[2] = data[1];
 
     mysql_query(g_DbConnection, "InsertRun", query, newData, sizeof(newData));
 }
@@ -4659,8 +4669,9 @@ public InsertRun(failstate, error[], errNo, data[], size, Float:queuetime)
         return;
     }
     new RUN_TYPE:topType = data[0];
-    new STATS:stats = data[1];
-    new playerId = data[2];
+    new playerId = data[1];
+    new stats[STATS];
+    copy(stats, sizeof(stats), data[2]);
 
     server_print("[%.3f] Inserted runner %s, QueueTime:[%.3f]", get_gametime(), stats[STATS_ID], queuetime);
 
@@ -4675,7 +4686,7 @@ public InsertRun(failstate, error[], errNo, data[], size, Float:queuetime)
                                           WHERE player = %d AND date = %i AND type = '%s' \
                                       ) \
                                       LIMIT 1",
-                                      playerId, g_MapId, g_TopType[topType], stats[STATS_TIME], stats[STATS_TIMESTAMP], stats[STATS_CP], stats[STATS_TP]
+                                      playerId, g_MapId, g_TopType[topType], stats[STATS_TIME], stats[STATS_TIMESTAMP], stats[STATS_CP], stats[STATS_TP],
                                       playerId, stats[STATS_TIMESTAMP], g_TopType[topType]);
 
     new what[4];

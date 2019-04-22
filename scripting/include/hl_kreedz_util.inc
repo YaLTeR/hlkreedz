@@ -372,7 +372,7 @@ public ConvertSteamID32to64(steamId32[], result[])
 */
 
 // Returns the passed string now filled with the corresponding text
-GetTopType(RUN_TYPE:runType, topType[]) {
+GetTopTypeString(RUN_TYPE:runType, topType[]) {
 	switch (runType)
 	{
 		// TODO I think the same term should be used everywhere, but I also think that "noob" would be more correct than "nub",
