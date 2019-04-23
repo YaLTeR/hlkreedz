@@ -44,9 +44,9 @@ public hlkz_worldrecord(id, Float:flTime, type, Array:arr)
 
 	switch (type)
 	{
-		case 0: szType = "pure";
+		case 2: szType = "pure";
 		case 1: szType = "pro";
-		case 2: return;
+		case 0: return;
 	}
 	formatex(szTime, charsmax(szTime), "%02d:%06.3f", minutes, seconds);
 
