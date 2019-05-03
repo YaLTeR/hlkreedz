@@ -83,7 +83,7 @@ new const g_szStops[][] =
 	"multi_stop", "stop_counter", "m_counter_end_emi"
 };
 
-new const g_itemNames[][] =
+new const g_ItemNames[][] =
 {
 	"ammo_357",
 	"ammo_9mmAR",
@@ -93,31 +93,41 @@ new const g_itemNames[][] =
 	"ammo_buckshot",
 	"ammo_crossbow",
 	"ammo_gaussclip",
-	"ammo_glockclip",
-	"ammo_mp5clip",
-	"ammo_mp5grenades",
 	"ammo_rpgclip",
 	"item_battery",
 	"item_healthkit",
 	"item_longjump"
 };
 
-new const g_weaponNames[][] =
+new const g_WeaponNames[][] =
 {
-	"weapon_hornetgun",
-	"weapon_python",
 	"weapon_357",
-	"weapon_crossbow",
-	"weapon_snark",
-	"weapon_tripmine",
-	"weapon_satchel",
-	"weapon_handgrenade",
 	"weapon_9mmAR",
-	"weapon_gauss",
-	"weapon_mp5",
-	"weapon_rpg",
+	"weapon_9mmhandgun",
+	"weapon_crossbow",
+	"weapon_crowbar",
 	"weapon_egon",
-	"weapon_shotgun"
+	"weapon_gauss",
+	"weapon_handgrenade",
+	"weapon_hornetgun",
+	"weapon_rpg",
+	"weapon_satchel",
+	"weapon_shotgun",
+	"weapon_snark",
+	"weapon_tripmine"
+};
+
+new const g_BoostWeapons[][] = {
+	"weapon_9mmAR",
+	"weapon_crossbow",
+	"weapon_egon",
+	"weapon_gauss",
+	"weapon_handgrenade",
+	"weapon_hornetgun", // no boost, but it could be used to block a moving entity (door, lift, etc.) 
+	"weapon_rpg",
+	"weapon_satchel",
+	"weapon_snark",
+	"weapon_tripmine"
 };
 
 enum _:REPLAY
@@ -333,6 +343,8 @@ new mfwd_hlkz_worldrecord;
 new Trie:g_CupMapPool; // mapName->isAvailable (aka not banned)
 new g_BannedMaps[MAX_PLAYERS + 1]; // how many maps has each player banned
 
+new bool:g_isAnyBoostWeaponInMap;
+
 
 public plugin_precache()
 {
@@ -470,24 +482,26 @@ public plugin_init()
 	RegisterHam(Ham_TakeDamage, "player", "Fw_HamTakeDamagePlayerPost", 1);
 	// TODO: get tripmines entity id when placed, get its position and check if the player is jumping on a tripmine
 	// TODO: do the same as above but for satchels
-	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_tripmine",	"Fw_HamBoostAttack");
-	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_crossbow",	"Fw_HamBoostAttack");
-	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_egon",		"Fw_HamBoostAttack");
-	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_rpg",		"Fw_HamBoostAttack");
-	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
-	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_snark",		"Fw_HamBoostAttack");
-	RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_9mmAR",		"Fw_HamBoostAttack");
-	RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_gauss",		"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_crossbow",		"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_egon",			"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_handgrenade",	"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_hornetgun",		"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_rpg",			"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_satchel",		"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_snark",			"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_tripmine",		"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_9mmAR",			"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_gauss",			"Fw_HamBoostAttack");
 	// While the TODOs get done, we penalize the player who places a satchel, that may be used for another player to jump on it
 	//RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
 
 	if (get_pcvar_float(pcvar_sv_items_respawn_time) > 0)
 	{
-		for (new i = 0; i < sizeof(g_itemNames); i++)
-			RegisterHam(Ham_Respawn, g_itemNames[i], "Fw_HamItemRespawn", 1);
+		for (new i = 0; i < sizeof(g_ItemNames); i++)
+			RegisterHam(Ham_Respawn, g_ItemNames[i], "Fw_HamItemRespawn", 1);
 
-		for (new j = 0; j < sizeof(g_weaponNames); j++)
-			register_touch(g_weaponNames[j], "worldspawn",	"Fw_FmWeaponRespawn");
+		for (new j = 0; j < sizeof(g_WeaponNames); j++)
+			register_touch(g_WeaponNames[j], "worldspawn",	"Fw_FmWeaponRespawn");
 	}
 
 	register_forward(FM_ClientKill,"Fw_FmClientKillPre");
@@ -575,8 +589,15 @@ public plugin_cfg()
 	formatex(g_MapIniFile, charsmax(g_MapIniFile), "%s/%s.ini", g_ConfigsDir, g_Map);
 	LoadMapSettings();
 
+	g_isAnyBoostWeaponInMap = false;
+	CheckMapWeapons();
+
 	if (get_pcvar_num(pcvar_kz_stop_moving_platforms))
+	{
+		// This has to be done here, if the map entities have already started moving,
+		// then they simply won't stop, LOL, so stop them before that happens
 		StopMovingPlatforms();
+	}
 
 	// Load map pool for kz_cup
 	formatex(g_MapPoolFile, charsmax(g_MapPoolFile), "%s/%s", g_ConfigsDir, MAP_POOL_FILE);
@@ -599,6 +620,7 @@ public plugin_end()
 	ArrayDestroy(g_ArrayStats[NOOB]);
 	ArrayDestroy(g_ArrayStats[PRO]);
 	ArrayDestroy(g_ArrayStats[PURE]);
+	TrieDestroy(g_CupMapPool);
 }
 
 // To be executed after cvars in amxx.cfg and other configs have been set,
@@ -3162,7 +3184,11 @@ public Fw_HamTakeDamagePlayerPost(victim, inflictor, agressor, Float:damage, dam
 public Fw_HamBoostAttack(weaponId)
 {
 	new ownerId = pev(weaponId, pev_owner);
-	clr_bit(g_baIsPureRunning, ownerId);
+
+	if ((!g_isAnyBoostWeaponInMap && get_bit(g_baIsClimbing, ownerId)) || equali(g_Map, "agtricks"))
+		ResetPlayer(ownerId, false, false); // "agstart full" is not allowed on maps without weapons
+	else
+		clr_bit(g_baIsPureRunning, ownerId);
 
 	return PLUGIN_CONTINUE;
 }
@@ -3702,7 +3728,7 @@ kz_create_button(id, type, Float:pOrigin[3] = {0.0, 0.0, 0.0})
 }
 // */
 
-public RemoveFuncFriction()
+RemoveFuncFriction()
 {
 	new frictionEntity = FM_NULLENT, i = 0;
 	while(frictionEntity = find_ent_by_class(frictionEntity, "func_friction"))
@@ -3719,15 +3745,27 @@ StopMovingPlatforms()
 	new classNames[][] = {"func_rotating", "func_train"};
 	for (new i = 0; i < sizeof(classNames); i++)
 	{
-		new movingPlatform = find_ent_by_class(0, classNames[i]), j = 0;
-		while(movingPlatform > 0)
+		new movingPlatform = FM_NULLENT, j = 0;
+		while(movingPlatform = find_ent_by_class(movingPlatform, classNames[i]))
 		{
 			set_pev(movingPlatform, pev_speed, 0.0);
-			movingPlatform = find_ent_by_class(movingPlatform, classNames[i]);
 			j++;
 		}
 		server_print("[%s] %d %s entities have been stopped", PLUGIN_TAG, j, classNames[i]);
 	}
+}
+
+CheckMapWeapons()
+{
+	for (new i = 0; i < sizeof(g_BoostWeapons); i++)
+	{
+		if (find_ent_by_class(-1, g_BoostWeapons[i]))
+		{
+			g_isAnyBoostWeaponInMap = true;
+			break;
+		}
+	}
+	server_print("[%s] The current map %s weapons to boost with", PLUGIN_TAG, g_isAnyBoostWeaponInMap ? "has" : "doesn't have");
 }
 
 public CmdSetStartHandler(id, level, cid)
@@ -4058,7 +4096,7 @@ LoadMapSettings()
 
 LoadMapPool()
 {
-	new file = fopen("map_pool","r");
+	new file = fopen(MAP_POOL_FILE, "rt");
 	if (!file) return;
 
 	g_CupMapPool = TrieCreate();
