@@ -317,6 +317,8 @@ new pcvar_kz_mysql_host;
 new pcvar_kz_mysql_user;
 new pcvar_kz_mysql_pass;
 new pcvar_kz_mysql_db;
+new pcvar_kz_cup_maps;
+new pcvar_kz_stop_moving_platforms;
 
 new Handle:g_DbHost;
 new Handle:g_DbConnection;
@@ -328,7 +330,6 @@ new pcvar_sv_ag_match_running;
 new mfwd_hlkz_cheating;
 new mfwd_hlkz_worldrecord;
 
-new pcvar_kz_cup_maps;
 new Trie:g_CupMapPool; // mapName->isAvailable (aka not banned)
 new g_BannedMaps[MAX_PLAYERS + 1]; // how many maps has each player banned
 
@@ -417,6 +418,8 @@ public plugin_init()
 	pcvar_kz_mysql_db = register_cvar("kz_mysql_db", ""); // MySQL database name
 
 	pcvar_kz_cup_maps = register_cvar("kz_cup_maps", "7");
+
+	pcvar_kz_stop_moving_platforms = register_cvar("kz_stop_moving_platforms", "0");
 
 	register_dictionary("telemenu.txt");
 	register_dictionary("common.txt");
@@ -572,6 +575,9 @@ public plugin_cfg()
 	formatex(g_MapIniFile, charsmax(g_MapIniFile), "%s/%s.ini", g_ConfigsDir, g_Map);
 	LoadMapSettings();
 
+	if (get_pcvar_num(pcvar_kz_stop_moving_platforms))
+		StopMovingPlatforms();
+
 	// Load map pool for kz_cup
 	formatex(g_MapPoolFile, charsmax(g_MapPoolFile), "%s/%s", g_ConfigsDir, MAP_POOL_FILE);
 	LoadMapPool();
@@ -599,6 +605,13 @@ public plugin_end()
 // important for the DB connection to be up before loading any top
 public InitTopsAndDB()
 {
+	if (get_pcvar_num(pcvar_kz_remove_func_friction))
+		RemoveFuncFriction();
+
+	// Create healer
+	if (get_pcvar_num(pcvar_kz_autoheal))
+		CreateGlobalHealer();
+
 	//console_print(0, "[%s] kz_mysql: %d", PLUGIN_TAG, get_pcvar_num(pcvar_kz_mysql));
 	if (get_pcvar_num(pcvar_kz_mysql))
 	{
@@ -653,13 +666,6 @@ public InitTopsAndDB()
 	LoadRecords(PURE);
 	LoadRecords(PRO);
 	LoadRecords(NOOB);
-
-	// Create healer
-	if (get_pcvar_num(pcvar_kz_autoheal))
-		CreateGlobalHealer();
-
-	if (get_pcvar_num(pcvar_kz_remove_func_friction))
-		RemoveFuncFriction();
 }
 
 
@@ -3698,13 +3704,30 @@ kz_create_button(id, type, Float:pOrigin[3] = {0.0, 0.0, 0.0})
 
 public RemoveFuncFriction()
 {
-	new iEnt = FM_NULLENT, i = 0;
-	while( (iEnt = find_ent_by_class(iEnt, "func_friction")) )
+	new frictionEntity = FM_NULLENT, i = 0;
+	while(frictionEntity = find_ent_by_class(frictionEntity, "func_friction"))
 	{
-		remove_entity(iEnt);
+		remove_entity(frictionEntity);
 		i++;
 	}
 	server_print("[%s] %d func_friction entities removed", PLUGIN_TAG, i);
+}
+
+// Stops from moving the blocks that move automatically without player interaction
+StopMovingPlatforms()
+{
+	new classNames[][] = {"func_rotating", "func_train"};
+	for (new i = 0; i < sizeof(classNames); i++)
+	{
+		new movingPlatform = find_ent_by_class(0, classNames[i]), j = 0;
+		while(movingPlatform > 0)
+		{
+			set_pev(movingPlatform, pev_speed, 0.0);
+			movingPlatform = find_ent_by_class(movingPlatform, classNames[i]);
+			j++;
+		}
+		server_print("[%s] %d %s entities have been stopped", PLUGIN_TAG, j, classNames[i]);
+	}
 }
 
 public CmdSetStartHandler(id, level, cid)
@@ -4805,3 +4828,35 @@ public SelectMapIdHandler(failstate, error[], errNo, data[], size, Float:queueti
 
     server_print("[%.3f] Selected map #%d, QueueTime:[%.3f]", get_gametime(), g_MapId, queuetime);
 }
+
+
+/*
+
+Query to get Pure WR Top:
+SELECT p.id, p.realname, (SELECT COUNT(*)
+                          FROM (SELECT r1.map, r1.player, MIN(r1.time) as wr
+                                FROM run r1
+                                WHERE r1.player = p.id AND r1.type = 'pure'
+                                GROUP BY r1.map, r1.player) t1
+                          INNER JOIN (SELECT r2.map, MIN(r2.time) AS wr
+                                      FROM run r2
+                                      WHERE r2.type = 'pure'
+                                      GROUP BY r2.map) t2
+                                      ON t1.map = t2.map AND t1.wr = t2.wr) wr_count
+FROM player p
+HAVING wr_count > 0
+ORDER BY wr_count DESC
+
+
+Query to get Pure WRs of a given player:
+SELECT m.name, r.player, t1.time
+FROM (SELECT r1.map, MIN(r1.time) as time
+      FROM run r1
+      WHERE r1.type = 'pure'
+      GROUP BY r1.map) t1
+INNER JOIN run r ON r.map = t1.map AND r.time = t1.time AND r.type = 'pure'
+INNER JOIN map m ON m.id = t1.map
+WHERE r.player = 72
+ORDER BY m.name ASC
+
+*/
