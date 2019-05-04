@@ -130,6 +130,18 @@ new const g_BoostWeapons[][] = {
 	"weapon_tripmine"
 };
 
+// Entities thay may be still alive without the owner being online
+// and affect another player in a way they can take advantage for a run
+new const g_DamageBoostEntities[][] = {
+	"bolt",					// DMG_BLAST
+	"grenade",				// DMG_BLAST
+	"hornet",				// DMG_BULLET
+	"monster_satchel",		// DMG_BLAST
+	"monster_snark",		// DMG_SLASH
+	"monster_tripmine",		// DMG_BLAST
+	"rpg_rocket"			// DMG_BLAST
+};
+
 enum _:REPLAY
 {
   //RP_VERSION,
@@ -480,8 +492,6 @@ public plugin_init()
 	RegisterHam(Ham_BloodColor, "player", "Fw_HamBloodColorPre");
 	RegisterHam(Ham_TakeDamage, "player", "Fw_HamTakeDamagePlayerPre");
 	RegisterHam(Ham_TakeDamage, "player", "Fw_HamTakeDamagePlayerPost", 1);
-	// TODO: get tripmines entity id when placed, get its position and check if the player is jumping on a tripmine
-	// TODO: do the same as above but for satchels
 	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_crossbow",		"Fw_HamBoostAttack");
 	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_egon",			"Fw_HamBoostAttack");
 	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_handgrenade",	"Fw_HamBoostAttack");
@@ -492,8 +502,7 @@ public plugin_init()
 	RegisterHam(Ham_Weapon_PrimaryAttack,	"weapon_tripmine",		"Fw_HamBoostAttack");
 	RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_9mmAR",			"Fw_HamBoostAttack");
 	RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_gauss",			"Fw_HamBoostAttack");
-	// While the TODOs get done, we penalize the player who places a satchel, that may be used for another player to jump on it
-	//RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_satchel",	"Fw_HamBoostAttack");
+	RegisterHam(Ham_Weapon_SecondaryAttack,	"weapon_satchel",		"Fw_HamBoostAttack");
 
 	if (get_pcvar_float(pcvar_sv_items_respawn_time) > 0)
 	{
@@ -514,9 +523,13 @@ public plugin_init()
 	unregister_forward(FM_LightStyle, g_FwLightStyle);
 	register_forward(FM_Touch, "Fw_FmTouchPre");
 	register_forward(FM_CmdStart, "Fw_FmCmdStartPre");
-	register_touch("trigger_teleport", "player", "Fw_FmPlayerTouchTeleport");
-	register_touch("trigger_push", "player", "Fw_FmPlayerTouchPush");
-	register_touch("trigger_multiple", "player", "Fw_FmPlayerTouchHealthBooster");
+	register_touch("hornet", 			"player", "Fw_FmPlayerTouchMonster");
+	register_touch("monster_satchel", 	"player", "Fw_FmPlayerTouchMonster");
+	register_touch("monster_snark", 	"player", "Fw_FmPlayerTouchMonster");
+	register_touch("monster_tripmine", 	"player", "Fw_FmPlayerTouchMonster");
+	register_touch("trigger_teleport", 	"player", "Fw_FmPlayerTouchTeleport");
+	register_touch("trigger_push", 		"player", "Fw_FmPlayerTouchPush");
+	register_touch("trigger_multiple", 	"player", "Fw_FmPlayerTouchHealthBooster");
 
 	mfwd_hlkz_cheating = CreateMultiForward("hlkz_cheating", ET_IGNORE, FP_CELL);
 	mfwd_hlkz_worldrecord = CreateMultiForward("hlkz_worldrecord", ET_IGNORE, FP_CELL, FP_FLOAT, FP_CELL, FP_CELL);
@@ -3140,18 +3153,18 @@ public Fw_HamBloodColorPre(id)
 	return HAM_IGNORED;
 }
 
-public Fw_HamTakeDamagePlayerPre(victim, inflictor, agressor, Float:damage, damagebits)
+public Fw_HamTakeDamagePlayerPre(victim, inflictor, aggressor, Float:damage, damagebits)
 {
 	pev(victim, pev_health, g_LastHealth);
 
 	if (get_pcvar_num(pcvar_kz_nodamage))
 	{
-		if ((damagebits == DMG_GENERIC && !agressor && damage == 300.0) || (agressor != victim && IsPlayer(agressor)))
+		if ((damagebits == DMG_GENERIC && !aggressor && damage == 300.0) || (aggressor != victim && IsPlayer(aggressor)))
 		{
 			// Hack for admins to shoot users with python
-			if (agressor && victim &&
-				(get_user_weapon(agressor) == HLW_PYTHON) &&
-				(get_user_flags(agressor) & ADMIN_LEVEL_A) &&
+			if (aggressor && victim &&
+				(get_user_weapon(aggressor) == HLW_PYTHON) &&
+				(get_user_flags(aggressor) & ADMIN_LEVEL_A) &&
 				(get_user_flags(victim) & ADMIN_USER ))
 			{
 				SetHamParamFloat(4, 100500.0);
@@ -3165,10 +3178,31 @@ public Fw_HamTakeDamagePlayerPre(victim, inflictor, agressor, Float:damage, dama
 	return HAM_IGNORED;
 }
 
-public Fw_HamTakeDamagePlayerPost(victim, inflictor, agressor, Float:damage, damagebits)
+public Fw_HamTakeDamagePlayerPost(victim, inflictor, aggressor, Float:damage, damagebits)
 {
 	static Float:fHealth;
 	pev(victim, pev_health, fHealth);
+
+	if (damagebits & DMG_BLAST || damagebits & DMG_SLASH || damagebits & DMG_BULLET)
+	{ // Check damage types in the g_DamageBoostEntities[][] declaration
+		new classNameInflictor[32];
+		pev(inflictor, pev_classname, classNameInflictor, charsmax(classNameInflictor));
+		for (new i = 0; i < sizeof(g_DamageBoostEntities); i++)
+		{
+			if (equal(classNameInflictor, g_DamageBoostEntities[i]))
+			{
+				// No check for the aggressor, because I imagine one could throw
+				// a nade far up, reconnect, start the timer, and then that nade
+				// just falls into the ground, explodes and boosts player in some
+				// direction with the damage inflicted
+				PunishPlayerCheatingWithWeapons(victim);
+			}
+		}
+	}
+
+	// If someone gets boosted by the attack of another player, punish the boosted victim xD
+	if (IsPlayer(aggressor))
+		PunishPlayerCheatingWithWeapons(victim);
 
 	if (fHealth > 2147483400.0)
 	{
@@ -3184,12 +3218,7 @@ public Fw_HamTakeDamagePlayerPost(victim, inflictor, agressor, Float:damage, dam
 public Fw_HamBoostAttack(weaponId)
 {
 	new ownerId = pev(weaponId, pev_owner);
-
-	if ((!g_isAnyBoostWeaponInMap && get_bit(g_baIsClimbing, ownerId)) || equali(g_Map, "agtricks"))
-		ResetPlayer(ownerId, false, false); // "agstart full" is not allowed on maps without weapons
-	else
-		clr_bit(g_baIsPureRunning, ownerId);
-
+	PunishPlayerCheatingWithWeapons(ownerId);
 	return PLUGIN_CONTINUE;
 }
 
@@ -3441,6 +3470,23 @@ public Fw_FmTouchPre(iEntity1, iEntity2)
 	// Would also do in case the player is iEntity2 and not iEntity1, but turns out that
 	// if a player touches something, it will enter twice in this forward, once with player
 	// as iEntity1 and entity (worldspawn or whatever) as iEntity2 and the next time viceversa
+}
+
+public Fw_FmPlayerTouchMonster(monster, id)
+{
+    if (!is_user_alive(id) || !pev_valid(monster))
+    	return;
+
+    new Float:playerFeetZ = g_Origin[id][2] + ((pev(id, pev_flags) & FL_DUCKING) ? -18.0 : -36.0);
+    new Float:monsterOrigin[3];
+    pev(monster, pev_origin, monsterOrigin);
+
+    if (playerFeetZ > monsterOrigin[2] + 6.0) // 6.0 = half the height of the tripmine/snark/satchel
+    {
+    	// The player is touching a snark/tripmine and it's higher, so it's stepping on it...
+    	// not allowed to do that, cheater! now we downgrade the run or reset the timer
+		PunishPlayerCheatingWithWeapons(id);
+    }
 }
 
 public Fw_FmPlayerTouchTeleport(tp, id) {
@@ -4600,6 +4646,14 @@ GetOwnersBot(id)
 			return i;
 	}
 	return 0;
+}
+
+PunishPlayerCheatingWithWeapons(id)
+{
+	if ((!g_isAnyBoostWeaponInMap && get_bit(g_baIsClimbing, id)) || equali(g_Map, "agtricks"))
+		ResetPlayer(id, false, false); // "agstart full" is not allowed on maps without weapons
+	else
+		clr_bit(g_baIsPureRunning, id); // downgrade run from pure to pro
 }
 
 /**
