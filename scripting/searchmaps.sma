@@ -527,11 +527,13 @@ public get_listing() {
 
 	if (!equal(filename,"null")) {
 		while((numword = read_file(filename,numword,linestr,32,stextsize)) != 0) {
-			strtolower(linestr)
 			if(numword >= MAX_MAPS){
 				log_amx("MAX_MAPS has been exceeded, not all maps are able to load for searching")
 				break
 			}
+			replace(linestr, charsmax(linestr), ".bsp", "")
+			strtolower(linestr)
+
 			if (!equali(linestr, "")) {
 				copy(T_LMaps[totalmaps], 32, linestr)
 				totalmaps++
