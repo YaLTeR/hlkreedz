@@ -48,6 +48,8 @@
 
 #define FL_ONGROUND_ALL (FL_ONGROUND | FL_PARTIALGROUND | FL_INWATER | FL_CONVEYOR | FL_FLOAT)
 
+#define MIN_DISTANCE_RESPAWN_ADVANTAGE 1300.0
+
 #define TASKID_ICON 5633445
 #define TASKID_WELCOME 43321
 #define TASKID_KICK_REPLAYBOT 9572626
@@ -295,6 +297,7 @@ new bool:g_InForcedRespawn;
 new Float:g_LastHealth;
 new bool:g_RestoreSolidStates;
 new bool:g_bMatchRunning;
+new bool:g_bCanTakeAdvantageOfRespawn;
 
 new pcvar_allow_spectators;
 new pcvar_kz_uniqueid;
@@ -546,6 +549,8 @@ public plugin_init()
 	g_TaskEnt = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
 	set_pev(g_TaskEnt, pev_classname, engfunc(EngFunc_AllocString, "timer_entity"));
 	set_pev(g_TaskEnt, pev_nextthink, get_gametime() + 1.01);
+
+	CheckSpawns();
 
 	g_MaxPlayers = get_maxplayers();
 
@@ -1411,7 +1416,7 @@ SpawnBot(id)
 	    	num_to_str(random_num(0, 9), str, charsmax(str));
 	    	add(botName, charsmax(botName), str);
 		}
-	    new bot, ptr[128], ip[64];
+	    new bot;
 	    bot = engfunc(EngFunc_CreateFakeClient, botName);
 	    if (bot)
 	    {
@@ -1422,6 +1427,8 @@ SpawnBot(id)
 
 		    engfunc(EngFunc_FreeEntPrivateData, bot);
 		    ConfigureBot(bot);
+
+		    new ptr[128], ip[64];
 			get_cvar_string("ip", ip, charsmax(ip));
 		    dllfunc(DLLFunc_ClientConnect, bot, botName, ip, ptr);
 		    dllfunc(DLLFunc_ClientPutInServer, bot);
@@ -1866,10 +1873,15 @@ CmdRespawn(id)
 		ShowMessage(id, "You must be alive to use this command");
 		return;
 	}
-	new bool:isDeathmatchMap = false;
-	for (new i = 0; i < sizeof(g_DeathmatchMaps); i++)
-		if (equal(g_Map, g_DeathmatchMaps[i]) && get_bit(g_baIsClimbing, id))
-			ResetPlayer(id, false, true);
+
+	if (g_bCanTakeAdvantageOfRespawn)
+		ResetPlayer(id, false, true);
+	else
+	{
+		for (new i = 0; i < sizeof(g_DeathmatchMaps); i++)
+			if (equal(g_Map, g_DeathmatchMaps[i]) && get_bit(g_baIsClimbing, id))
+				ResetPlayer(id, false, true);
+	}
 
 	g_InForcedRespawn = true;	// this blocks teleporting to CP after respawn
 
@@ -3799,6 +3811,49 @@ StopMovingPlatforms()
 		}
 		server_print("[%s] %d %s entities have been stopped", PLUGIN_TAG, j, classNames[i]);
 	}
+}
+
+CheckSpawns()
+{
+	new Array:spawns = ArrayCreate(1);
+	new id;
+	while((id = find_ent_by_class(id, "info_player_deathmatch")) != 0)
+	{
+		ArrayPushCell(spawns, id);
+	}
+	if (ArraySize(spawns) == 0 && (id = find_ent_by_class(id, "info_player_start")) != 0)
+	{
+		ArrayPushCell(spawns, id);
+	}
+
+	new Float:maxDistance;
+	new spawnsNum = ArraySize(spawns);
+	server_print("[%s] There are %d spawns in this map:", PLUGIN_TAG, spawnsNum);
+	for (new i = 0; i < spawnsNum; i++)
+	{
+		id = ArrayGetCell(spawns, i);
+		new Float:origin[3];
+		pev(id, pev_origin, origin);
+
+		for (new j = 0; j < spawnsNum; j++)
+		{
+			if (i == j)
+				continue;
+
+			new id2 = ArrayGetCell(spawns, j);
+			new Float:origin2[3];
+			pev(id2, pev_origin, origin2);
+
+			new Float:distance = get_distance_f(origin, origin2);
+			if (distance > maxDistance)
+				maxDistance = distance;
+		}
+		//server_print("Spawn #%d {%.2f, %.2f, %.2f}", i+1, origin[0], origin[1], origin[2]);
+	}
+	server_print("[%s] Longest distance between 2 spawns: %.2f", PLUGIN_TAG, maxDistance);
+
+	if (maxDistance > MIN_DISTANCE_RESPAWN_ADVANTAGE)
+		g_bCanTakeAdvantageOfRespawn = true;
 }
 
 CheckMapWeapons()
