@@ -3177,7 +3177,7 @@ public Fw_HamTakeDamagePlayerPre(victim, inflictor, aggressor, Float:damage, dam
 			if (aggressor && victim &&
 				(get_user_weapon(aggressor) == HLW_PYTHON) &&
 				(get_user_flags(aggressor) & ADMIN_LEVEL_A) &&
-				(get_user_flags(victim) & ADMIN_USER ))
+				(get_user_flags(victim) & ADMIN_USER))
 			{
 				SetHamParamFloat(4, 100500.0);
 				return HAM_HANDLED;
@@ -3213,7 +3213,7 @@ public Fw_HamTakeDamagePlayerPost(victim, inflictor, aggressor, Float:damage, da
 	}
 
 	// If someone gets boosted by the attack of another player, punish the boosted victim xD
-	if (IsPlayer(aggressor))
+	if (IsPlayer(aggressor) && !get_pcvar_num(pcvar_kz_nodamage))
 		PunishPlayerCheatingWithWeapons(victim);
 
 	if (fHealth > 2147483400.0)
