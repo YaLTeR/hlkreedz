@@ -4259,7 +4259,8 @@ LoadRecords(RUN_TYPE:topType)
 		                                      AND r.time = (SELECT MIN(r2.time) \
 		                                                    FROM run r2 \
 		                                                    WHERE \
-		                                                          r2.player = r.player \
+		                                                          r2.is_valid = true \
+		                                                      AND r2.player = r.player \
 		                                                      AND r2.map = r.map \
 		                                                      AND r2.type = r.type) \
 		                                    ORDER BY r.time ASC", g_EscapedMap, g_TopType[topType]);
