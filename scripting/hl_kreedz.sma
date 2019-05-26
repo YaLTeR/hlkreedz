@@ -48,30 +48,54 @@
 
 #define FL_ONGROUND_ALL (FL_ONGROUND | FL_PARTIALGROUND | FL_INWATER | FL_CONVEYOR | FL_FLOAT)
 
+#define MAP_IDLE 0
+#define MAP_BANNED 1
+#define MAP_PICKED 2
+#define MAP_PLAYED 3
+#define MAP_DECIDER 4
+
 #define MIN_DISTANCE_RESPAWN_ADVANTAGE 1300.0
 
-#define TASKID_ICON 5633445
-#define TASKID_WELCOME 43321
-#define TASKID_KICK_REPLAYBOT 9572626
-#define TASKID_CAM_UNFREEZE 1622952
-#define TASKID_CONFIGURE_DB 2037262
+#define TASKID_ICON						5633445
+#define TASKID_WELCOME					43321
+#define TASKID_KICK_REPLAYBOT			9572626
+#define TASKID_CAM_UNFREEZE				1622952
+#define TASKID_CONFIGURE_DB				2037262
+
+#define TASKID_CUP_TENSION_FIRST_BAN	9357015
+#define TASKID_CUP_FINALLY_FIRST_BAN	8357015
+#define TASKID_CUP_FORCE_SPECTATORS		7357015
+#define TASKID_CUP_START_MATCH			6357015
+#define TASKID_CUP_CHANGE_MAP			5357015
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.35";
-new const BUILD = 35; // Should not be decreased. This is for replays, to know which version they're in, in case the stored binary data (or format) changes
+new const VERSION[] = "0.36";
+new const BUILD = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the stored binary data (or format) changes
 new const AUTHOR[] = "KORD_12.7 & Lev & YaLTeR & naz";
 
 new const MAIN_MENU_ID[] = "HL KreedZ Menu";
 new const TELE_MENU_ID[] = "HL KreedZ Teleport Menu";
+new const MAP_BAN_MENU_ID[] = "Ban a map";
+new const MAP_PICK_MENU_ID[] = "Pick a map";
 
 new const CONFIGS_SUB_DIR[] = "/hl_kreedz";
 new const PLUGIN_CFG_FILENAME[] = "hl_kreedz.cfg";
 new const MYSQL_LOG_FILENAME[] = "kz_mysql.log";
-new const MAP_POOL_FILE[] = "cup_map_pool.ini";
+new const MAP_POOL_FILE[] = "map_pool.ini";
+new const CUP_FILE[] = "cup.ini";
 
 //new const staleStatTime = 30 * 24 * 60 * 60;	// Keep old stat for this amount of time
 //new const keepStatPlayers = 100;				// Keep this amount of players in stat even if stale
+
+new const g_MapStateString[][] =
+{
+	"",
+	"banned",
+	"picked",
+	"played",
+	"decider"
+};
 
 new const g_szStarts[][] =
 {
@@ -274,6 +298,8 @@ new g_SyncHudHealth;
 new g_SyncHudShowStartMsg;
 new g_SyncHudSpeedometer;
 new g_SyncHudSpecList;
+new g_SyncHudCupMaps;
+
 new g_MaxPlayers;
 new g_PauseSprite;
 new g_TaskEnt;
@@ -290,6 +316,7 @@ new Array:g_ArrayStats[RUN_TYPE];
 new g_MapIniFile[256];
 new g_MapDefaultStart[CP_DATA];
 new g_MapPoolFile[256];
+new g_CupFile[256];
 new g_MapDefaultLightStyle[32];
 
 new g_SpectatePreSpecMode;
@@ -298,6 +325,21 @@ new Float:g_LastHealth;
 new bool:g_RestoreSolidStates;
 new bool:g_bMatchRunning;
 new bool:g_bCanTakeAdvantageOfRespawn;
+
+new g_CupMatches; // how many maps will runners play to decide who qualifies
+new g_CupPlayer1; // player index of opponent 1
+new g_CupPlayer2; // player index of opponent 2
+new g_CupSteam1[32]; // Steam id of opponent 1
+new g_CupSteam2[32]; // Steam id of opponent 2
+new g_CupScore1; // score of opponent 1, score meaning maps won
+new g_CupScore2; // score of opponent 2
+new bool:g_CupReady1; // whether opponent 1 is ready or not
+new bool:g_CupReady2; // whether opponent 2 is ready or not
+new Trie:g_CupMapPool; // mapName->mapState (MAP_BANNED, MAP_PICKED, etc.)
+new g_PrevChooser; // index of the last player who banned/picked a map
+new g_FirstBanner; // index of the first player who banned a map
+
+new bool:g_isAnyBoostWeaponInMap;
 
 new pcvar_allow_spectators;
 new pcvar_kz_uniqueid;
@@ -342,7 +384,8 @@ new pcvar_kz_mysql_host;
 new pcvar_kz_mysql_user;
 new pcvar_kz_mysql_pass;
 new pcvar_kz_mysql_db;
-new pcvar_kz_cup_maps;
+new pcvar_kz_cup_max_maps;
+new pcvar_kz_cup_map_change_delay;
 new pcvar_kz_stop_moving_platforms;
 
 new Handle:g_DbHost;
@@ -355,19 +398,15 @@ new pcvar_sv_ag_match_running;
 new mfwd_hlkz_cheating;
 new mfwd_hlkz_worldrecord;
 
-new Trie:g_CupMapPool; // mapName->isAvailable (aka not banned)
-new g_BannedMaps[MAX_PLAYERS + 1]; // how many maps has each player banned
-
-new bool:g_isAnyBoostWeaponInMap;
-
 
 public plugin_precache()
 {
 	g_FwLightStyle = register_forward(FM_LightStyle, "Fw_FmLightStyle");
 	g_PauseSprite = precache_model("sprites/pause_icon.spr");
-    precache_model("models/player/robo/robo.mdl");
-    precache_model("models/player/gordon/gordon.mdl");
-    precache_model("models/p_shotgun.mdl");
+	precache_model("models/player/robo/robo.mdl");
+	precache_model("models/player/gordon/gordon.mdl");
+	precache_model("models/p_shotgun.mdl");
+	//precache_model("models/boxy.mdl");
 }
 
 public plugin_init()
@@ -444,46 +483,56 @@ public plugin_init()
 	pcvar_kz_mysql_pass = register_cvar("kz_mysql_pass", ""); // Password of the MySQL user
 	pcvar_kz_mysql_db = register_cvar("kz_mysql_db", ""); // MySQL database name
 
-	pcvar_kz_cup_maps = register_cvar("kz_cup_maps", "7");
+	pcvar_kz_cup_max_maps = register_cvar("kz_cup_max_maps", "7");
+	pcvar_kz_cup_map_change_delay = register_cvar("kz_cup_map_change_delay", "8.0");
 
 	pcvar_kz_stop_moving_platforms = register_cvar("kz_stop_moving_platforms", "0");
 
 	register_dictionary("telemenu.txt");
 	register_dictionary("common.txt");
 
-	register_clcmd("kz_teleportmenu", "CmdTeleportMenuHandler", ADMIN_CFG, "- displays kz teleport menu");
-	register_clcmd("kz_setstart", "CmdSetStartHandler", ADMIN_CFG, "- set start position");
-	register_clcmd("kz_clearstart", "CmdClearStartHandler", ADMIN_CFG, "- clear start position");
-	register_clcmd("kz_cup", "CmdCupHandler", ADMIN_CFG, "- start a cup match between 2 players");
-	register_clcmd("kz_map_add", "CmdMapInsertHandler", ADMIN_CFG, "- adds a map to the map pool");
-	register_clcmd("kz_map_insert", "CmdMapInsertHandler", ADMIN_CFG, "- adds a map to the map pool");
-	register_clcmd("kz_map_del", "CmdMapDeleteHandler", ADMIN_CFG, "- removes a map from the map pool");
-	register_clcmd("kz_map_delete", "CmdMapDeleteHandler", ADMIN_CFG, "- removes a map from the map pool");
-	register_clcmd("kz_map_remove", "CmdMapDeleteHandler", ADMIN_CFG, "- removes a map from the map pool");
+	register_clcmd("kz_teleportmenu",	"CmdTPMenuHandler",		ADMIN_CFG, "- displays kz teleport menu");
+	register_clcmd("kz_setstart",		"CmdSetStartHandler",	ADMIN_CFG, "- set start position");
+	register_clcmd("kz_clearstart",		"CmdClearStartHandler",	ADMIN_CFG, "- clear start position");
 
-	register_clcmd("kz_set_custom_start", "CmdSetCustomStartHandler", -1, "- sets the custom start position");
-	register_clcmd("kz_clear_custom_start", "CmdClearCustomStartHandler", -1, "- clears the custom start position");
+	// Cup and map pool stuff
+	register_clcmd("kz_cup",			"CmdCupHandler", 		ADMIN_CFG, "- start a cup match between 2 players");
+	register_clcmd("kz_cup_reset_maps",	"CmdResetCupMapStates",	ADMIN_CFG, "- resets the state of all the maps in the pool");
+	register_clcmd("kz_cup_clear",		"CmdClearCup",			ADMIN_CFG, "- clears all the cached cup data");
+	register_clcmd("kz_map_add",		"CmdMapInsertHandler",	ADMIN_CFG, "- adds a map to the map pool");
+	register_clcmd("kz_map_insert",		"CmdMapInsertHandler",	ADMIN_CFG, "- adds a map to the map pool");
+	register_clcmd("kz_map_del",		"CmdMapDeleteHandler",	ADMIN_CFG, "- removes a map from the map pool");
+	register_clcmd("kz_map_delete",		"CmdMapDeleteHandler",	ADMIN_CFG, "- removes a map from the map pool");
+	register_clcmd("kz_map_remove",		"CmdMapDeleteHandler",	ADMIN_CFG, "- removes a map from the map pool");
+	register_clcmd("kz_map_state",		"CmdMapStateHandler",	ADMIN_CFG, "- modifies the state of a map in the pool");
+	register_clcmd("kz_map_pool_show",	"CmdMapsShowHandler",	ADMIN_CFG, "- shows the maps and their states on the screen");
+	register_clcmd("kz_map_pool_clear",	"CmdMapsClearHandler",	ADMIN_CFG, "- clears the map pool (leaves it empty)");
+
+	register_clcmd("kz_set_custom_start",	"CmdSetCustomStartHandler",		-1, "- sets the custom start position");
+	register_clcmd("kz_clear_custom_start",	"CmdClearCustomStartHandler",	-1, "- clears the custom start position");
 
 	// TODO remove these below or make them admin-only to set the availability of these commands for client usage, clients will use say commands instead of console ones to set these variables
-	register_clcmd("kz_start_message", "CmdShowStartMsg", -1, "<0|1> - toggles the message that appears when starting the timer");
-	register_clcmd("kz_time_decimals", "CmdTimeDecimals", -1, "<1-6> - sets a number of decimals to be displayed for times (seconds)");
-	register_clcmd("kz_nightvision", "CmdNightvision", -1, "<0-2> - sets nightvision mode. 0=off, 1=flashlight-like, 2=map-global");
+	register_clcmd("kz_start_message",	"CmdShowStartMsg",	-1, "<0|1> - toggles the message that appears when starting the timer");
+	register_clcmd("kz_time_decimals",	"CmdTimeDecimals",	-1, "<1-6> - sets a number of decimals to be displayed for times (seconds)");
+	register_clcmd("kz_nightvision",	"CmdNightvision",	-1, "<0-2> - sets nightvision mode. 0=off, 1=flashlight-like, 2=map-global");
 
-	register_clcmd("say", "CmdSayHandler");
-	register_clcmd("say_team", "CmdSayHandler");
-	register_clcmd("spectate", "CmdSpectateHandler");
+	register_clcmd("say",		"CmdSayHandler");
+	register_clcmd("say_team",	"CmdSayHandler");
+	register_clcmd("spectate",	"CmdSpectateHandler");
 
-	register_clcmd("+hook", "CheatCmdHandler");
-	register_clcmd("-hook", "CheatCmdHandler");
-	register_clcmd("+rope", "CheatCmdHandler");
-	register_clcmd("-rope", "CheatCmdHandler");
-	register_clcmd("+tas_perfectstrafe", "TASCmdHandler");
-	register_clcmd("-tas_perfectstrafe", "TASCmdHandler");
-	register_clcmd("+tas_autostrafe", "TASCmdHandler");
-	register_clcmd("-tas_autostrafe", "TASCmdHandler");
+	register_clcmd("+hook",					"CheatCmdHandler");
+	register_clcmd("-hook",					"CheatCmdHandler");
+	register_clcmd("+rope",					"CheatCmdHandler");
+	register_clcmd("-rope",					"CheatCmdHandler");
+	register_clcmd("+tas_perfectstrafe",	"TASCmdHandler");
+	register_clcmd("-tas_perfectstrafe",	"TASCmdHandler");
+	register_clcmd("+tas_autostrafe",		"TASCmdHandler");
+	register_clcmd("-tas_autostrafe",		"TASCmdHandler");
 
-	register_menucmd(register_menuid(MAIN_MENU_ID), 1023, "ActionKzMenu");
-	register_menucmd(register_menuid(TELE_MENU_ID), 1023, "ActionTeleportMenu");
+	register_menucmd(register_menuid(MAIN_MENU_ID),		1023, "ActionKzMenu");
+	register_menucmd(register_menuid(TELE_MENU_ID),		1023, "ActionTeleportMenu");
+	register_menucmd(register_menuid(MAP_BAN_MENU_ID),	1023, "ActionMapBanMenu");
+	register_menucmd(register_menuid(MAP_PICK_MENU_ID),	1023, "ActionMapPickMenu");
 
 	register_think("replay_bot", "npc_think");
 
@@ -561,6 +610,7 @@ public plugin_init()
 	g_SyncHudShowStartMsg = CreateHudSyncObj();
 	g_SyncHudSpeedometer = CreateHudSyncObj();
 	g_SyncHudSpecList = CreateHudSyncObj();
+	g_SyncHudCupMaps = CreateHudSyncObj();
 
 	g_ArrayStats[NOOB] = ArrayCreate(STATS);
 	g_ArrayStats[PRO]  = ArrayCreate(STATS);
@@ -619,7 +669,9 @@ public plugin_cfg()
 
 	// Load map pool for kz_cup
 	formatex(g_MapPoolFile, charsmax(g_MapPoolFile), "%s/%s", g_ConfigsDir, MAP_POOL_FILE);
+	formatex(g_CupFile, charsmax(g_CupFile), "%s/%s", g_ConfigsDir, CUP_FILE);
 	LoadMapPool();
+	LoadCup();
 
 	// Set up hud color
 	new rgb[12], r[4], g[4], b[4];
@@ -643,6 +695,7 @@ public plugin_end()
 
 // To be executed after cvars in amxx.cfg and other configs have been set,
 // important for the DB connection to be up before loading any top
+// FIXME: this should be put back in the init without delay, and the commands should go in kl_kreedz.cfg
 public InitTopsAndDB()
 {
 	if (get_pcvar_num(pcvar_kz_remove_func_friction))
@@ -715,7 +768,7 @@ public InitTopsAndDB()
 //*                                                     *
 //*******************************************************
 
-public CmdTeleportMenuHandler(id, level, cid)
+public CmdTPMenuHandler(id, level, cid)
 {
 	if (cmd_access(id, level, cid, 1))
 		DisplayTeleportMenu(id, g_TeleMenuPosition[id] = 0);
@@ -941,6 +994,285 @@ DisplayKzMenu(id, mode)
 	return PLUGIN_HANDLED;
 }
 
+createMapMenu(id, const menu_id[], bool:wasBadChoice=false)
+{
+	new playerName[32];
+	GetColorlessName(id, playerName, charsmax(playerName));
+
+	if (!wasBadChoice)
+	{
+		if (containi(menu_id, "pick") != -1)
+			client_print(0, print_chat, "[%s] Now it's %s's turn to pick a map.", PLUGIN_TAG, playerName);
+		else
+			client_print(0, print_chat, "[%s] Now it's %s's turn to ban a map.", PLUGIN_TAG, playerName);
+	}
+
+	new menuText[512];
+	formatex(menuText, charsmax(menuText), "\\w%s:\n", menu_id);
+
+	new i, map[32], mapState;
+	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
+	while (!TrieIterEnded(ti))
+	{
+		TrieIterGetCell(ti, mapState);
+		TrieIterGetKey(ti, map, charsmax(map));
+
+		new mapStateText[10];
+		if (g_MapStateString[mapState][0])
+		{
+			formatex(mapStateText, charsmax(mapStateText), "[%s]", g_MapStateString[mapState]);
+			strtoupper(mapStateText);
+		}
+
+		if (mapState == MAP_IDLE)
+		{
+			formatex(menuText, charsmax(menuText), "%s\\y%d\\w. %s %s\n",
+				menuText,
+				i+1,
+				map,
+				mapStateText);
+		}
+		else
+		{
+			formatex(menuText, charsmax(menuText), "%s\\r%d\\d. %s %s\n",
+				menuText,
+				i+1,
+				map,
+				mapStateText);
+		}
+
+		i++;
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+
+	new keys = MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5
+				| MENU_KEY_6 | MENU_KEY_7 | MENU_KEY_8 | MENU_KEY_9 | MENU_KEY_0;
+
+	show_menu(id, keys, menuText, _, menu_id);
+	return PLUGIN_HANDLED;
+}
+
+public ActionMapBanMenu(id, key)
+{
+	new i, map[32], mapState;
+	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
+	while (!TrieIterEnded(ti))
+	{
+		if (key == i)
+		{
+			TrieIterGetCell(ti, mapState);
+
+			if (mapState == MAP_IDLE)
+			{
+				TrieIterGetKey(ti, map, charsmax(map));
+				break;
+			}
+		}
+
+		i++;
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+
+	if (map[0])
+	{
+		// Update map state
+		TrieSetCell(g_CupMapPool, map, MAP_BANNED);
+
+		new availableMaps = CountCupMaps(MAP_IDLE);
+
+		new playerName[32];
+		GetColorlessName(id, playerName, charsmax(playerName));
+		if (!playerName[0])
+			formatex(playerName, charsmax(playerName), "The unnamed player");
+
+		client_print(0, print_chat, "[%s] %s has banned %s.", PLUGIN_TAG, playerName, map);
+
+		new remainingMapsToBan = availableMaps - g_CupMatches;
+		if (remainingMapsToBan > 0)
+		{
+			client_print(0, print_chat, "[%s] Remaining %d map%s to be banned.",
+				PLUGIN_TAG, remainingMapsToBan, remainingMapsToBan == 1 ? "" : "s");
+		}
+		else
+		{
+			client_print(0, print_chat, "[%s] We're done banning maps. Time to pick! You'll pick %d maps and then the remaining one is the decider.",
+				PLUGIN_TAG, g_CupMatches - 1);
+		}
+		CmdMapsShowHandler(0);
+
+		// ABBA format banning
+		// (A) 1 --> prev = 0, id = 1, next = 2
+		// (B) 2 --> prev = 1, id = 2, next = 2
+		// (B) 2 --> prev = 2, id = 2, next = 1
+		// (A) 1 --> prev = 2, id = 1, next = 1
+		new nextId;
+		if (g_PrevChooser)
+		{
+			if (id == g_PrevChooser)
+			{
+				// Have done 2 bans in a row, so the turn is now for the opponent
+				nextId = (id == g_CupPlayer1) ? g_CupPlayer2 : g_CupPlayer1;
+			}
+			else
+			{
+				// Have done 1 ban, the turn continues being for the same player
+				nextId = id;
+			}
+		}
+		else
+		{
+			// This was the first ban, so now the turn is for the opponent
+			nextId = (id == g_CupPlayer1) ? g_CupPlayer2 : g_CupPlayer1;
+		}
+
+		// Update now the previous chooser, after it's been used
+		g_PrevChooser = id;
+
+		server_print("ActionMapBanMenu :: availableMaps=%d, g_CupMatches=%d", availableMaps, g_CupMatches);
+		if (availableMaps == g_CupMatches)
+		{
+			// Time to start picking maps
+			// Player1 started banning, now Player2 has to start picking
+			nextId = (g_FirstBanner == g_CupPlayer1) ? g_CupPlayer2 : g_CupPlayer1;
+			g_PrevChooser = 0;
+			createMapMenu(nextId, MAP_PICK_MENU_ID);
+		}
+		else
+		{
+			// Continue banning
+			createMapMenu(nextId, MAP_BAN_MENU_ID);
+		}
+	}
+	else
+	{
+		client_print(id, print_chat, "[%s] Please, ban a map that's not already banned.", PLUGIN_TAG);
+		createMapMenu(id, MAP_BAN_MENU_ID, true);
+	}
+
+	return PLUGIN_HANDLED;
+}
+
+public ActionMapPickMenu(id, key)
+{
+	new i, map[32], mapState;
+	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
+	while (!TrieIterEnded(ti))
+	{
+		if (key == i)
+		{
+			TrieIterGetCell(ti, mapState);
+
+			if (mapState == MAP_IDLE)
+			{
+				TrieIterGetKey(ti, map, charsmax(map));
+				break;
+			}
+		}
+
+		i++;
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+
+	if (map[0])
+	{
+		// Update map state
+		TrieSetCell(g_CupMapPool, map, MAP_PICKED);
+
+		new availableMaps = CountCupMaps(MAP_IDLE);
+
+		new playerName[32];
+		GetColorlessName(id, playerName, charsmax(playerName));
+		if (!playerName[0])
+			formatex(playerName, charsmax(playerName), "The unnamed player");
+		
+		client_print(0, print_chat, "[%s] %s has picked %s.", PLUGIN_TAG, playerName, map);
+
+		new mapsToPick = availableMaps - 1; // minus the decider, that is autopicked
+		if (mapsToPick > 0)
+		{
+			client_print(0, print_chat, "[%s] Remaining %d map%s to be picked, and then the decider is autopicked.",
+				PLUGIN_TAG, mapsToPick, mapsToPick == 1 ? "" : "s");
+		}
+
+		// TODO: DRY, same code as in the map banning function
+		// ABBA format banning
+		// (A) 1 --> prev = 0, id = 1, next = 2
+		// (B) 2 --> prev = 1, id = 2, next = 2
+		// (B) 2 --> prev = 2, id = 2, next = 1
+		// (A) 1 --> prev = 2, id = 1, next = 1
+		new nextId;
+		if (g_PrevChooser)
+		{
+			if (id == g_PrevChooser)
+			{
+				// Have done 2 bans in a row, so the turn is now for the opponent
+				nextId = (id == g_CupPlayer1) ? g_CupPlayer2 : g_CupPlayer1;
+			}
+			else
+			{
+				// Have done 1 ban, the turn continues being for the same player
+				nextId = id;
+			}
+		}
+		else
+		{
+			// This was the first ban, so now the turn is for the opponent
+			nextId = (id == g_CupPlayer1) ? g_CupPlayer2 : g_CupPlayer1;
+		}
+
+		// Update now the previous chooser, after it's been used
+		g_PrevChooser = id;
+
+		server_print("ActionMapPickMenu :: availableMaps=%d, g_CupMatches=%d", availableMaps, g_CupMatches);
+		if (availableMaps == 1)
+		{
+			GetLastCupMapAvailable(map, charsmax(map));
+			
+			// The decider is the last map that's left, no more menus, this is chosen automatically
+			TrieSetCell(g_CupMapPool, map, MAP_DECIDER);
+			client_print(0, print_chat, "[%s] %s will be the decider.", PLUGIN_TAG, map);
+
+			// Map states during bans/picks only get saved here
+			// If the server crashes or there's a map change in the middle of the
+			// bans/picks, then all that info will be lost and kz_cup should be issued again
+			WriteCupMapPoolFile(0);
+
+			// Now we're gonna change (or not) the map to start playing
+			GetNextCupMapToPlay(map, charsmax(map));
+
+			if (equal(map, g_Map))
+			{
+				// We're gonna play in this very map, so no changelevel needed
+				client_print(0, print_chat, "[%s] The next map to be played is %s.", PLUGIN_TAG, map);
+				client_print(0, print_chat, "[%s] We're already in that map, so just waiting for participants to get /ready to start ;)", PLUGIN_TAG);
+			}
+			else
+			{
+				new Float:timeToChange = get_pcvar_float(pcvar_kz_cup_map_change_delay);
+				client_print(0, print_chat, "[%s] The next map to be played is %s. Changing the map in %.0f seconds...", PLUGIN_TAG, map, timeToChange);
+
+				set_task(timeToChange, "CupChangeMap", TASKID_CUP_CHANGE_MAP, map, charsmax(map));
+			}
+		}
+		else
+		{
+			// Continue picking
+			createMapMenu(nextId, MAP_PICK_MENU_ID);
+		}
+		CmdMapsShowHandler(0);
+	}
+	else
+	{
+		client_print(id, print_chat, "[%s] Please, pick a map that's not already banned/picked.", PLUGIN_TAG);
+		createMapMenu(id, MAP_PICK_MENU_ID, true);
+	}
+
+	return PLUGIN_HANDLED;
+}
+
 public ActionKzMenu(id, key)
 {
 	key++;
@@ -1043,6 +1375,16 @@ public client_putinserver(id)
 	g_ControlPoints[id][CP_TYPE_DEFAULT_START] = g_MapDefaultStart;
 
 	g_ReplayFrames[id] = ArrayCreate(REPLAY);
+
+	// Link this player to the cup player
+	new uniqueId[32];
+	GetUserUniqueId(id, uniqueId, charsmax(uniqueId));
+
+	if (equal(g_CupSteam1, uniqueId))
+		g_CupPlayer1 = id;
+
+	if (equal(g_CupSteam2, uniqueId))
+		g_CupPlayer2 = id;
 
 	set_task(1.20, "DisplayWelcomeMessage", id + TASKID_WELCOME);
 }
@@ -1406,69 +1748,69 @@ CmdReplay(id, RUN_TYPE:runType)
 
 SpawnBot(id)
 {
-    if (get_playersnum(1) < g_MaxPlayers - 4) // leave at least 4 slots available
-    {
-	    new botName[33];
-	    formatex(botName, charsmax(botName), "%s Bot ", PLUGIN_TAG);
+	if (get_playersnum(1) < g_MaxPlayers - 4) // leave at least 4 slots available
+	{
+		new botName[33];
+		formatex(botName, charsmax(botName), "%s Bot ", PLUGIN_TAG);
 		for (new i = 0; i < 4; i++)
 		{ // Generate a random number 4 times, so the final name is like Bot 0123
 			new str[2];
-	    	num_to_str(random_num(0, 9), str, charsmax(str));
-	    	add(botName, charsmax(botName), str);
+			num_to_str(random_num(0, 9), str, charsmax(str));
+			add(botName, charsmax(botName), str);
 		}
-	    new bot;
-	    bot = engfunc(EngFunc_CreateFakeClient, botName);
-	    if (bot)
-	    {
-	    	// Creating an entity that will make the thinking process for this bot
-	    	new ent = create_entity("info_target");
-	    	g_BotEntity[bot] = ent;
-		    entity_set_string(ent, EV_SZ_classname, "replay_bot");
+		new bot;
+		bot = engfunc(EngFunc_CreateFakeClient, botName);
+		if (bot)
+		{
+			// Creating an entity that will make the thinking process for this bot
+			new ent = create_entity("info_target");
+			g_BotEntity[bot] = ent;
+			entity_set_string(ent, EV_SZ_classname, "replay_bot");
 
-		    engfunc(EngFunc_FreeEntPrivateData, bot);
-		    ConfigureBot(bot);
+			engfunc(EngFunc_FreeEntPrivateData, bot);
+			ConfigureBot(bot);
 
-		    new ptr[128], ip[64];
+			new ptr[128], ip[64];
 			get_cvar_string("ip", ip, charsmax(ip));
-		    dllfunc(DLLFunc_ClientConnect, bot, botName, ip, ptr);
-		    dllfunc(DLLFunc_ClientPutInServer, bot);
-		    set_pev(bot, pev_flags, pev(bot, pev_flags) | FL_FAKECLIENT);
-		    set_bit(g_bit_is_bot, bot);
+			dllfunc(DLLFunc_ClientConnect, bot, botName, ip, ptr);
+			dllfunc(DLLFunc_ClientPutInServer, bot);
+			set_pev(bot, pev_flags, pev(bot, pev_flags) | FL_FAKECLIENT);
+			set_bit(g_bit_is_bot, bot);
 
-		    entity_set_float(bot, EV_FL_takedamage, 1.0);
-		    entity_set_float(bot, EV_FL_health, 100.0);
+			entity_set_float(bot, EV_FL_takedamage, 1.0);
+			entity_set_float(bot, EV_FL_health, 100.0);
 
-		    entity_set_byte(bot, EV_BYTE_controller1, 125);
-		    entity_set_byte(bot, EV_BYTE_controller2, 125);
-		    entity_set_byte(bot, EV_BYTE_controller3, 125);
-		    entity_set_byte(bot, EV_BYTE_controller4, 125);
+			entity_set_byte(bot, EV_BYTE_controller1, 125);
+			entity_set_byte(bot, EV_BYTE_controller2, 125);
+			entity_set_byte(bot, EV_BYTE_controller3, 125);
+			entity_set_byte(bot, EV_BYTE_controller4, 125);
 
-		    new Float:maxs[3] = {16.0, 16.0, 36.0};
-		    new Float:mins[3] = {-16.0, -16.0, -36.0};
-		    entity_set_size(bot, mins, maxs);
+			new Float:maxs[3] = {16.0, 16.0, 36.0};
+			new Float:mins[3] = {-16.0, -16.0, -36.0};
+			entity_set_size(bot, mins, maxs);
 
-		    // Copy the state of the player who spawned the bot
+			// Copy the state of the player who spawned the bot
 			static replay[REPLAY];
 			ArrayGetArray(g_ReplayFrames[id], 0, replay);
 
-		    set_pev(bot, pev_origin, replay[RP_ORIGIN]);
-		    set_pev(bot, pev_angles, replay[RP_ANGLES]);
-		    set_pev(bot, pev_v_angle, replay[RP_ANGLES]);
-		    set_pev(bot, pev_button, replay[RP_BUTTONS]);
-		    g_ReplayStartGameTime[id] = replay[RP_TIME];
-		    //g_isCustomFpsReplay[id] = g_ReplayFpsMultiplier[id] > 1;
+			set_pev(bot, pev_origin, replay[RP_ORIGIN]);
+			set_pev(bot, pev_angles, replay[RP_ANGLES]);
+			set_pev(bot, pev_v_angle, replay[RP_ANGLES]);
+			set_pev(bot, pev_button, replay[RP_BUTTONS]);
+			g_ReplayStartGameTime[id] = replay[RP_TIME];
+			//g_isCustomFpsReplay[id] = g_ReplayFpsMultiplier[id] > 1;
 
-		    g_BotOwner[bot] = id;
-		    g_Unfreeze[bot] = false;
-		    //console_print(1, "player %d spawned the bot %d", id, bot);
+			g_BotOwner[bot] = id;
+			g_Unfreeze[bot] = false;
+			//console_print(1, "player %d spawned the bot %d", id, bot);
 
 			entity_set_float(ent, EV_FL_nextthink, get_gametime() + get_pcvar_float(pcvar_kz_replay_setup_time)); // TODO: countdown hud; 2 seconds to start the replay, so there's time to switch to spectator
-		    engfunc(EngFunc_RunPlayerMove, bot, replay[RP_ANGLES], 0.0, 0.0, 0.0, replay[RP_BUTTONS], 0, 4);
-	    }
-	    else
-	    	client_print(id, print_chat, "[%s] Sorry, couldn't create the bot", PLUGIN_TAG);
-    }
-    else
+			engfunc(EngFunc_RunPlayerMove, bot, replay[RP_ANGLES], 0.0, 0.0, 0.0, replay[RP_BUTTONS], 0, 4);
+		}
+		else
+			client_print(id, print_chat, "[%s] Sorry, couldn't create the bot", PLUGIN_TAG);
+	}
+	else
 		client_print(id, print_chat, "[%s] Sorry, won't spawn the bot since there are only 4 slots left for players", PLUGIN_TAG);
 
     return PLUGIN_HANDLED;
@@ -1476,63 +1818,63 @@ SpawnBot(id)
 
 SpawnDummyBot(id)
 {
-    if (get_playersnum(1) < g_MaxPlayers - 4) // leave at least 4 slots available
-    {
-	    new botName[33];
-	    formatex(botName, charsmax(botName), "%s Dummy ", PLUGIN_TAG);
+	if (get_playersnum(1) < g_MaxPlayers - 4) // leave at least 4 slots available
+	{
+		new botName[33];
+		formatex(botName, charsmax(botName), "%s Dummy ", PLUGIN_TAG);
 		for (new i = 0; i < 4; i++)
 		{ // Generate a random number 4 times, so the final name is like Bot 0123
 			new str[2];
-	    	num_to_str(random_num(0, 9), str, charsmax(str));
-	    	add(botName, charsmax(botName), str);
+			num_to_str(random_num(0, 9), str, charsmax(str));
+			add(botName, charsmax(botName), str);
 		}
-	    new bot, ptr[128], ip[64];
-	    bot = engfunc(EngFunc_CreateFakeClient, botName);
-	    if (bot)
-	    {
-	    	// Creating an entity that will make the thinking process for this bot
-	    	//new ent = create_entity("info_target");
-	    	//g_BotEntity[bot] = ent;
-		    //entity_set_string(ent, EV_SZ_classname, "dummy_bot");
+		new bot, ptr[128], ip[64];
+		bot = engfunc(EngFunc_CreateFakeClient, botName);
+		if (bot)
+		{
+			// Creating an entity that will make the thinking process for this bot
+			//new ent = create_entity("info_target");
+			//g_BotEntity[bot] = ent;
+			//entity_set_string(ent, EV_SZ_classname, "dummy_bot");
 
-		    engfunc(EngFunc_FreeEntPrivateData, bot);
-		    ConfigureBot(bot);
+			engfunc(EngFunc_FreeEntPrivateData, bot);
+			ConfigureBot(bot);
 			get_cvar_string("ip", ip, charsmax(ip));
-		    dllfunc(DLLFunc_ClientConnect, bot, botName, ip, ptr);
-		    dllfunc(DLLFunc_ClientPutInServer, bot);
-		    set_pev(bot, pev_flags, pev(id, pev_flags) | FL_FAKECLIENT);
-		    set_bit(g_bit_is_bot, bot);
+			dllfunc(DLLFunc_ClientConnect, bot, botName, ip, ptr);
+			dllfunc(DLLFunc_ClientPutInServer, bot);
+			set_pev(bot, pev_flags, pev(id, pev_flags) | FL_FAKECLIENT);
+			set_bit(g_bit_is_bot, bot);
 
-		    entity_set_float(bot, EV_FL_takedamage, 1.0);
-		    entity_set_float(bot, EV_FL_health, 100.0);
+			entity_set_float(bot, EV_FL_takedamage, 1.0);
+			entity_set_float(bot, EV_FL_health, 100.0);
 
-		    entity_set_byte(bot, EV_BYTE_controller1, 125);
-		    entity_set_byte(bot, EV_BYTE_controller2, 125);
-		    entity_set_byte(bot, EV_BYTE_controller3, 125);
-		    entity_set_byte(bot, EV_BYTE_controller4, 125);
+			entity_set_byte(bot, EV_BYTE_controller1, 125);
+			entity_set_byte(bot, EV_BYTE_controller2, 125);
+			entity_set_byte(bot, EV_BYTE_controller3, 125);
+			entity_set_byte(bot, EV_BYTE_controller4, 125);
 
-		    new Float:maxs[3] = {16.0, 16.0, 36.0};
-		    new Float:mins[3] = {-16.0, -16.0, -36.0};
-		    entity_set_size(bot, mins, maxs);
+			new Float:maxs[3] = {16.0, 16.0, 36.0};
+			new Float:mins[3] = {-16.0, -16.0, -36.0};
+			entity_set_size(bot, mins, maxs);
 
-	    	// Copy the state of the player who spawned the bot
+			// Copy the state of the player who spawned the bot
 			new Float:botOrigin[3], Float:botAngles[3];
-	    	pev(id, pev_origin, botOrigin);
-	    	pev(id, pev_angles, botAngles);
+			pev(id, pev_origin, botOrigin);
+			pev(id, pev_angles, botAngles);
 			set_pev(bot, pev_origin, botOrigin);
-		    set_pev(bot, pev_angles, botAngles);
-		    set_pev(bot, pev_v_angle, botAngles);
+			set_pev(bot, pev_angles, botAngles);
+			set_pev(bot, pev_v_angle, botAngles);
 
-		    new ownerModel[32];
-		    hl_get_user_model(id, ownerModel, sizeof(ownerModel));
-		    set_user_info(bot, "model", ownerModel);
+			new ownerModel[32];
+			hl_get_user_model(id, ownerModel, sizeof(ownerModel));
+			set_user_info(bot, "model", ownerModel);
 
-		    engfunc(EngFunc_RunPlayerMove, bot, botAngles, 0.0, 0.0, 0.0, pev(id, pev_button), 0, 4);
-	    }
-	    else
-	    	client_print(id, print_chat, "[%s] Sorry, couldn't create the bot", PLUGIN_TAG);
-    }
-    else
+			engfunc(EngFunc_RunPlayerMove, bot, botAngles, 0.0, 0.0, 0.0, pev(id, pev_button), 0, 4);
+		}
+		else
+			client_print(id, print_chat, "[%s] Sorry, couldn't create the bot", PLUGIN_TAG);
+	}
+	else
 		client_print(id, print_chat, "[%s] Sorry, won't spawn the bot since there are only 4 slots left for players", PLUGIN_TAG);
 
     //return PLUGIN_HANDLED;
@@ -1630,17 +1972,17 @@ public npc_think(id)
 		}
 
 		set_pev(id, pev_origin, replay[RP_ORIGIN]);
-	    set_pev(id, pev_angles, replay[RP_ANGLES]);
-	    set_pev(id, pev_v_angle, replay[RP_ANGLES]);
-	    set_pev(id, pev_button, replay[RP_BUTTONS]);
+		set_pev(id, pev_angles, replay[RP_ANGLES]);
+		set_pev(id, pev_v_angle, replay[RP_ANGLES]);
+		set_pev(id, pev_button, replay[RP_BUTTONS]);
 		set_pev(id, pev_velocity, botVelocity);
-	    set_pev(bot, pev_origin, replay[RP_ORIGIN]);
-	    set_pev(bot, pev_angles, replay[RP_ANGLES]);
-	    set_pev(bot, pev_v_angle, replay[RP_ANGLES]);
-	    set_pev(bot, pev_button, replay[RP_BUTTONS]);
+		set_pev(bot, pev_origin, replay[RP_ORIGIN]);
+		set_pev(bot, pev_angles, replay[RP_ANGLES]);
+		set_pev(bot, pev_v_angle, replay[RP_ANGLES]);
+		set_pev(bot, pev_button, replay[RP_BUTTONS]);
 		set_pev(bot, pev_velocity, botVelocity);
 
-    	entity_set_float(id, EV_FL_nextthink, get_gametime() + replayNext[RP_TIME] - replay[RP_TIME]);
+		entity_set_float(id, EV_FL_nextthink, get_gametime() + replayNext[RP_TIME] - replay[RP_TIME]);
 
 		new Float:botCurrHSpeed = floatsqroot(floatpower(botVelocity[0], 2.0) + floatpower(botVelocity[1], 2.0));
 		new Float:botCurrPos[3];
@@ -1656,17 +1998,17 @@ public npc_think(id)
 		else if (g_Unfreeze[bot])
 			g_Unfreeze[bot]++;
 
-	    botCurrHSpeed = floatsqroot(floatpower(botVelocity[0], 2.0) + floatpower(botVelocity[1], 2.0));
+		botCurrHSpeed = floatsqroot(floatpower(botVelocity[0], 2.0) + floatpower(botVelocity[1], 2.0));
 
-	    if (g_ConsolePrintNextFrames[owner] > 0)
-	    {
-	    	console_print(owner, "[t=%d %.5f] dp: %.2f, px: %.2f, py: %.2f, pz: %.2f, s: %.2f, btns: %d", g_ReplayFramesIdx[owner], demoTime, get_distance_f(botCurrPos, botPrevPos), replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2], botCurrHSpeed, replay[RP_BUTTONS]);
-	    	g_ConsolePrintNextFrames[owner]--;
-	    }
+		if (g_ConsolePrintNextFrames[owner] > 0)
+		{
+			console_print(owner, "[t=%d %.5f] dp: %.2f, px: %.2f, py: %.2f, pz: %.2f, s: %.2f, btns: %d", g_ReplayFramesIdx[owner], demoTime, get_distance_f(botCurrPos, botPrevPos), replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2], botCurrHSpeed, replay[RP_BUTTONS]);
+			g_ConsolePrintNextFrames[owner]--;
+		}
 
-	    g_LastFrameTime[owner] = replay[RP_TIME] + frameDuration;
-	    engfunc(EngFunc_RunPlayerMove, bot, replay[RP_ANGLES], botVelocity[0], botVelocity[1], botVelocity[2], replay[RP_BUTTONS], 0, 4);
-	    g_ReplayFramesIdx[owner]++;
+		g_LastFrameTime[owner] = replay[RP_TIME] + frameDuration;
+		engfunc(EngFunc_RunPlayerMove, bot, replay[RP_ANGLES], botVelocity[0], botVelocity[1], botVelocity[2], replay[RP_BUTTONS], 0, 4);
+		g_ReplayFramesIdx[owner]++;
 	}
 	else
 	{
@@ -1692,8 +2034,6 @@ public UnfreezeSpecCam(bot)
 				new botName[33], specName[33];
 				GetColorlessName(bot, botName, charsmax(botName));
 				GetColorlessName(spec, specName, charsmax(specName));
-				new Float:time = get_gametime();
-				//console_print(spec, " -------- [%.3f] -------- UnfreezeSpecCam()", time);
 
 				new Float:origin[3], Float:botOrigin[3];
 				new Float:angles[3], Float:botAngles[3];
@@ -1739,8 +2079,6 @@ public RestoreSpecCam(payLoad[], taskId)
 		new botName[33], specName[33];
 		GetColorlessName(bot, botName, charsmax(botName));
 		GetColorlessName(spec, specName, charsmax(specName));
-		new Float:time = get_gametime();
-		//console_print(spec, " -------- [%.3f] -------- RestoreSpecCam()", time);
 		//console_print(spec, "Executing +attack2;wait;-attack2 on spectator %s watching bot %s)", specName, botName);
 		//client_cmd(spec, "+attack2; wait; -attack2");
 		//set_pev(spec, pev_iuser2, bot);
@@ -2019,6 +2357,9 @@ public CmdSayHandler(id, level, cid)
 	else if (equali(args[1], "speed"))
 		CmdSpeed(id);
 
+	else if (equali(args[1], "ready"))
+		CmdReady(id);
+
 	else if (equali(args[1], "bot"))
 	{
 		if (is_user_admin(id))
@@ -2207,8 +2548,6 @@ bool:CanTeleport(id, cp, bool:showMessages = true)
 		return false;
 	}
 
-	new Float:time = get_gametime();
-	//console_print(0, "[%.3f] CanTeleport::g_ControlPoints[%d][%d] = %d; valid = %d", time, id, cp, g_ControlPoints[id][cp], g_ControlPoints[id][cp][CP_VALID]);
 	if (!g_ControlPoints[id][cp][CP_VALID])
 	{
 		if (showMessages)
@@ -2651,7 +2990,7 @@ StartTimer(id)
 
 FinishTimer(id)
 {
-	new name[32], minutes, Float:seconds, pureRun[11];
+	new name[32], minutes, Float:seconds, pureRun[11], RUN_TYPE:topType;
 	new Float:kztime = get_gametime() - g_PlayerTime[id];
 
 	minutes = floatround(kztime, floatround_floor) / 60;
@@ -2665,20 +3004,30 @@ FinishTimer(id)
 		PLUGIN_TAG, name, minutes, seconds, g_CpCounters[id][COUNTER_CP], g_CpCounters[id][COUNTER_TP], pureRun);
 
 	if (!get_pcvar_num(pcvar_kz_nostat) && !IsBot(id))
+	{
+
 		// Bots are not gonna set new records yet, unless some bhop AI is created for fun
 		if (!g_CpCounters[id][COUNTER_CP] && !g_CpCounters[id][COUNTER_TP])
 		{
 			if (get_bit(g_baIsPureRunning, id))
 			{
 				// Update both: pure and pro
+				topType = PURE;
 				UpdateRecords(id, kztime, PURE);
 				UpdateRecords(id, kztime, PRO);
 			}
 			else
+			{
+				topType = PRO;
 				UpdateRecords(id, kztime, PRO);
+			}
 		}
 		else
+		{
+			topType = NOOB;
 			UpdateRecords(id, kztime, NOOB);
+		}
+	}
 
 	clr_bit(g_baIsClimbing, id);
 	clr_bit(g_baIsPureRunning, id);
@@ -2688,6 +3037,79 @@ FinishTimer(id)
 		g_bMatchRunning = false;
 		server_cmd("agabort");
 		server_exec();
+
+		if (IsCupMap() && (id == g_CupPlayer1 || id == g_CupPlayer2) && g_CupReady1 && g_CupReady2)
+		{
+			// Do stuff for the cup
+
+			// Update scores
+			if (id == g_CupPlayer1)
+				g_CupScore1++;
+			else
+				g_CupScore2++;
+
+			// Update map state
+			TrieSetCell(g_CupMapPool, g_Map, MAP_PLAYED);
+
+			// Save the changes to file, because we're gonna change the map in a while
+			// and this info has to be taken again from the file right after changing
+			WriteCupMapPoolFile(0);
+			WriteCupFile(0);
+			CmdMapsShowHandler(0); // TODO: maybe this should show who won each map instead of just [PLAYED]
+
+			if (!topType)
+				topType = PURE;
+
+			// Save replays of both participants, for the one that didn't reach the button too
+			if (g_RecordRun[g_CupPlayer1])
+			{
+				g_RecordRun[g_CupPlayer1] = 0;
+				SaveRecordedRunCup(g_CupPlayer1, topType);
+			}
+			if (g_RecordRun[g_CupPlayer2])
+			{
+				g_RecordRun[g_CupPlayer2] = 0;
+				SaveRecordedRunCup(g_CupPlayer2, topType);
+			}
+
+			new playerName[32];
+			GetColorlessName(id, playerName, charsmax(playerName));
+			if (playerName[0])
+				client_print(0, print_chat, "[%s] Player %s has won this map! Congrats!", PLUGIN_TAG, playerName);
+			else
+				client_print(0, print_chat, "[%s] The unnamed player has won this map! Congrats!", PLUGIN_TAG);
+
+			new name1[32], name2[32];
+			GetColorlessName(g_CupPlayer1, name1, charsmax(name1));
+			GetColorlessName(g_CupPlayer2, name2, charsmax(name2));
+			client_print(0, print_chat, "[%s] Score: %s %d - %d %s", PLUGIN_TAG, name1, g_CupScore1, g_CupScore2, name2);
+
+			new diffScore = abs(g_CupScore1 - g_CupScore2);
+			// At this point this very map has already been marked as PLAYED, so won't be counted as remaining
+			new remainingMapsCount = CountCupMaps(MAP_PICKED) + CountCupMaps(MAP_DECIDER);
+			new bool:hasWonMatch = diffScore > remainingMapsCount;
+
+			if (hasWonMatch)
+			{
+				// The match winner must be the one who won this map,
+				// unless you can somehow score negative if that makes sense (?)
+				client_print(0, print_chat, "[%s] %s has won overall the match, no more maps to be played. Congrats!", PLUGIN_TAG, playerName);
+
+				ClearCup(0);
+				WriteCupMapPoolFile(0);
+				WriteCupFile(0);
+			}
+			else
+			{
+				new map[32];
+				GetNextCupMapToPlay(map, charsmax(map));
+
+				new Float:timeToChange = get_pcvar_float(pcvar_kz_cup_map_change_delay);
+				client_print(0, print_chat, "[%s] The next map to be played is %s. Changing the map in %.0f seconds...", PLUGIN_TAG, map, timeToChange);
+
+				set_task(timeToChange, "CupChangeMap", TASKID_CUP_CHANGE_MAP, map, charsmax(map));
+			}
+		}
 	}
 }
 
@@ -3318,6 +3740,10 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 		{
 			InitPlayer(i, true);
 			StartTimer(i);
+
+			g_RecordRun[i] = 1;
+			g_RunFrames[i] = ArrayCreate(REPLAY);
+			RecordRunFrame(i);
 		}
 	}
 }
@@ -3945,65 +4371,498 @@ public CmdClearStartHandler(id, level, cid)
 	return PLUGIN_HANDLED;
 }
 
+public CmdReady(id)
+{
+	if (g_bMatchRunning)
+	{
+		client_print(id, print_chat, "[%s] You're not allowed to ready the match is already running.", PLUGIN_TAG);
+		return PLUGIN_HANDLED;
+	}
+
+	if (!(id == g_CupPlayer1 || id == g_CupPlayer2))
+	{
+		client_print(id, print_chat, "[%s] You're not allowed to ready because you are not a participant in the current cup match.", PLUGIN_TAG);
+		return PLUGIN_HANDLED;
+	}
+
+	if (CountCupMaps(MAP_IDLE))
+	{
+		client_print(id, print_chat, "[%s] Cannot /ready yet, there are still maps to be banned/picked.", PLUGIN_TAG);
+		return PLUGIN_HANDLED;
+	}
+
+	if (!IsCupMap())
+	{
+		client_print(id, print_chat, "[%s] Cannot /ready yet. You must be in one of the maps to be played.", PLUGIN_TAG);
+		return PLUGIN_HANDLED;
+	}
+
+	// Set the players readiness
+	new bool:ready;
+	if (id == g_CupPlayer1)
+	{
+		g_CupReady1 = !g_CupReady1;
+		ready = g_CupReady1;
+		server_print("player1 is %s", ready ? "ready" : "NOT ready");
+	}
+	
+	if (id == g_CupPlayer2)
+	{
+		g_CupReady2 = !g_CupReady2;
+		ready = g_CupReady2;
+		server_print("player1 is %s", ready ? "ready" : "NOT ready");
+	}
+
+	new playerName[32];
+	GetColorlessName(id, playerName, charsmax(playerName));
+	if (ready)
+	{
+		if (playerName[0])
+			client_print(0, print_chat, "[%s] Player %s is now ready!", PLUGIN_TAG, playerName);
+		else // someone may have as nick just a color code, like ^8, and appear like empty string here
+			client_print(0, print_chat, "[%s] The unnamed player is now ready!", PLUGIN_TAG);
+	}
+	else
+	{
+		if (playerName[0])
+			client_print(0, print_chat, "[%s] Player %s is NOT ready now!", PLUGIN_TAG, playerName);
+		else
+			client_print(0, print_chat, "[%s] The unnamed player is NOT ready now!", PLUGIN_TAG);
+	}
+
+	if (g_CupReady1 && g_CupReady2)
+	{
+		client_print(0, print_chat, "[%s] Starting in 5 seconds... non-participants will now be switched to spectator mode.", PLUGIN_TAG);
+		set_task(1.5, "CupForceSpectators", TASKID_CUP_FORCE_SPECTATORS);
+		set_task(4.9, "CupForceSpectators", TASKID_CUP_FORCE_SPECTATORS + 1); // just in case someone's being an idiot
+		set_task(5.0, "CupStartMatch", TASKID_CUP_START_MATCH);
+	}
+
+	return PLUGIN_HANDLED;
+}
+
+bool:IsCupMap()
+{
+	// Check if the current map is one of the maps to be played
+	new map[32], mapState, bool:result;
+	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
+	while (!TrieIterEnded(ti))
+	{
+		TrieIterGetKey(ti, map, charsmax(map));
+		TrieIterGetCell(ti, mapState);
+
+		if ((mapState == MAP_PICKED || mapState == MAP_DECIDER) && equali(g_Map, map))
+		{
+			result = true;
+			break;
+		}
+
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+
+	return result;
+}
+
+public CupForceSpectators(taskId)
+{
+	new players[MAX_PLAYERS], playersNum;
+	get_players_ex(players, playersNum);
+	for (new i = 0; i < playersNum; i++)
+	{
+		new id = players[i];
+		if (id == g_CupPlayer1 || id == g_CupPlayer2)
+			continue;
+
+		if (!pev(id, pev_iuser1)) // not spectator? force them )))
+			server_cmd("agforcespectator #%d", get_user_userid(id));
+	}
+	server_exec();
+
+	return PLUGIN_HANDLED;
+}
+
+public CupStartMatch(taskId)
+{
+	new bool:areParticipantsSpectating;
+	if (pev(g_CupPlayer1, pev_iuser1))
+	{
+		areParticipantsSpectating = true;
+		new playerName[32];
+		GetColorlessName(g_CupPlayer1, playerName, charsmax(playerName));
+		client_print(0, print_chat, "[%s] Cannot start the match because the participant %s is spectating!", PLUGIN_TAG, playerName);
+	}
+	// FIXME: DRY, but the message should appear per each participant that is spectating,
+	// or maybe doesn't really matter and can be dumbed down
+	if (pev(g_CupPlayer2, pev_iuser1))
+	{
+		areParticipantsSpectating = true;
+		new playerName[32];
+		GetColorlessName(g_CupPlayer2, playerName, charsmax(playerName));
+		client_print(0, print_chat, "[%s] Cannot start the match because the participant %s is spectating!", PLUGIN_TAG, playerName);
+	}
+
+	if (areParticipantsSpectating)
+		return PLUGIN_HANDLED;
+
+	server_cmd("agstart");
+	server_exec();
+
+	return PLUGIN_HANDLED;
+}
+
+public CupChangeMap(map[], taskId)
+{
+	server_cmd("changelevel %s", map);
+	//server_exec();
+
+	return PLUGIN_HANDLED;
+}
+
+// Made to support specifically Bo3 and Bo5 with an odd number of maps in the pool,
+// any other settings may result in unfair cups
 public CmdCupHandler(id, level, cid)
 {
-  if (cmd_access(id, level, cid, 1))
-  {
-      new target1[32], target2[32];
-      read_argv(1, target1, charsmax(target1));
-      read_argv(2, target2, charsmax(target2));
+	if (cmd_access(id, level, cid, 1))
+	{
+		new cupMatches[6], target1[32], target2[32];
+		read_argv(1, cupMatches, charsmax(cupMatches));
+		read_argv(2, target1, charsmax(target1));
+		read_argv(3, target2, charsmax(target2));
 
-      new player1 = cmd_target(id, target1, CMDTARGET_ALLOW_SELF | CMDTARGET_NO_BOTS);
-      new player2 = cmd_target(id, target2, CMDTARGET_ALLOW_SELF | CMDTARGET_NO_BOTS);
-  
-      if (!player1)
-      {
-        ShowMessage(id, "Cannot find the first player specified in the kz_cup command");
-        return PLUGIN_HANDLED;
-      }
+		new player1 = cmd_target(id, target1, CMDTARGET_ALLOW_SELF | CMDTARGET_NO_BOTS);
+		new player2 = cmd_target(id, target2, CMDTARGET_ALLOW_SELF | CMDTARGET_NO_BOTS);
 
-      if (!player2)
-      {
-        ShowMessage(id, "Cannot find the second player specified in the kz_cup command");
-        return PLUGIN_HANDLED;
-      }
-  }
+		if (!player1)
+		{
+			ShowMessage(id, "Cannot find the first player specified in the kz_cup command");
+			return PLUGIN_HANDLED;
+		}
 
-  return PLUGIN_HANDLED;
+		if (!player2)
+		{
+			ShowMessage(id, "Cannot find the second player specified in the kz_cup command");
+			return PLUGIN_HANDLED;
+		}
+
+		g_CupMatches = str_to_num(cupMatches);
+		g_CupPlayer1 = player1;
+		g_CupPlayer2 = player2;
+		GetUserUniqueId(player1, g_CupSteam1, charsmax(g_CupSteam1));
+		GetUserUniqueId(player2, g_CupSteam2, charsmax(g_CupSteam2));
+		g_CupScore1 = 0;
+		g_CupScore2 = 0;
+		g_CupReady1 = false;
+		g_CupReady2 = false;
+		g_PrevChooser = 0;
+		g_FirstBanner = 0;
+		ResetCupMapStates(id);
+
+		if (g_CupMatches + 2 == TrieGetSize(g_CupMapPool))
+		{
+			client_print(0, print_chat, "[%s] Flipping a coin to decide who bans first...", PLUGIN_TAG);
+			set_task(2.0, "CupTensionFirstBan", TASKID_CUP_TENSION_FIRST_BAN);
+		}
+		else
+		{
+			g_FirstBanner = g_CupPlayer1;
+			createMapMenu(g_FirstBanner, MAP_BAN_MENU_ID);
+		}
+		WriteCupFile(id);
+	}
+
+	return PLUGIN_HANDLED;
+}
+
+public CupTensionFirstBan(taskId)
+{
+	client_print(0, print_chat, "[%s] ...can you guess who bans first?", PLUGIN_TAG);
+	set_task(3.0, "CupFinallyFirstBan", TASKID_CUP_FINALLY_FIRST_BAN);
+}
+
+public CupFinallyFirstBan(taskId)
+{
+	new id, rand = random_num(0, 1);
+	if (rand)
+		id = g_CupPlayer2;
+	else
+		id = g_CupPlayer1;
+
+	new playerName[32];
+	GetColorlessName(id, playerName, charsmax(playerName));
+	client_print(0, print_chat, "[%s] Okay, %s bans first!", PLUGIN_TAG, playerName[0] ? playerName : "the unnamed player");
+
+	g_FirstBanner = id;
+	createMapMenu(g_FirstBanner, MAP_BAN_MENU_ID);
+}
+
+public CmdMapsShowHandler(id)
+{
+	new msg[512], map[32];
+	formatex(msg, charsmax(msg), "Map pool:\n");
+
+	// Add first the decider
+	new Array:decidersMaps = GetCupMapsWithState(MAP_DECIDER);
+	for (new i = 0; i < ArraySize(decidersMaps); i++)
+	{
+		ArrayGetString(decidersMaps, i, map, charsmax(map));
+		formatex(msg, charsmax(msg), "%s > %s - [DECIDER]\n", msg, map);
+		server_print("getting decider map %s", map);
+	}
+
+	// Then the picked ones
+	new Array:pickedMaps = GetCupMapsWithState(MAP_PICKED);
+	for (new i = 0; i < ArraySize(pickedMaps); i++)
+	{
+		ArrayGetString(pickedMaps, i, map, charsmax(map));
+		formatex(msg, charsmax(msg), "%s > %s - [PICKED]\n", msg, map);
+		server_print("getting picked map %s", map);
+	}
+
+	// Then the played ones
+	new Array:playedMaps = GetCupMapsWithState(MAP_PLAYED);
+	for (new i = 0; i < ArraySize(playedMaps); i++)
+	{
+		ArrayGetString(playedMaps, i, map, charsmax(map));
+		formatex(msg, charsmax(msg), "%s > %s - [PLAYED]\n", msg, map);
+		server_print("getting played map %s", map);
+	}
+
+	// Then the banned ones
+	new Array:bannedMaps = GetCupMapsWithState(MAP_BANNED);
+	for (new i = 0; i < ArraySize(bannedMaps); i++)
+	{
+		ArrayGetString(bannedMaps, i, map, charsmax(map));
+		formatex(msg, charsmax(msg), "%s > %s - [BANNED]\n", msg, map);
+		server_print("getting banned map %s", map);
+	}
+
+	// Then the maps that remain untouched yet
+	new Array:idleMaps = GetCupMapsWithState(MAP_IDLE);
+	for (new i = 0; i < ArraySize(idleMaps); i++)
+	{
+		ArrayGetString(idleMaps, i, map, charsmax(map));
+		formatex(msg, charsmax(msg), "%s > %s\n", msg, map);
+		server_print("getting idle map %s", map);
+	}
+
+	set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], _, 0.2, 0, 0.0, 6.0, 0.0, 1.0, -1);
+	ShowSyncHudMsg(id, g_SyncHudCupMaps, msg);
+
+	return PLUGIN_HANDLED;
+}
+
+Array:GetCupMapsWithState(stateNumber)
+{
+	new Array:result = ArrayCreate(32, 7);
+
+	new map[32], mapState;
+	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
+	while (!TrieIterEnded(ti))
+	{
+		TrieIterGetCell(ti, mapState);
+		if (mapState == stateNumber)
+		{
+			TrieIterGetKey(ti, map, charsmax(map));
+			ArrayPushString(result, map);
+			server_print("pushed map %s", map);
+		}
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+
+	return result;
 }
 
 public CmdMapInsertHandler(id, level, cid)
 {
-  if (cmd_access(id, level, cid, 1))
-  {
-      new map1[32], map2[32], map3[32], map4[32], map5[32];
-      read_argv(1, map1, charsmax(map1));
-      read_argv(2, map2, charsmax(map2));
-      read_argv(3, map3, charsmax(map3));
-      read_argv(4, map4, charsmax(map4));
-      read_argv(5, map5, charsmax(map5));
+	if (cmd_access(id, level, cid, 1))
+	{
+		// Insert up to 5 maps at a time
+		new maps[5][32], poolLimit = get_pcvar_num(pcvar_kz_cup_max_maps);
+		for (new i = 0; i < sizeof(maps); i++) {
+			read_argv(i+1, maps[i], charsmax(maps[]));
 
-      console_print(id, "maps to add: %s, %s, %s, %s, %s", map1, map2, map3, map4, map5);
-  }
+			if (maps[i][0])
+			{
+				if (TrieGetSize(g_CupMapPool) < poolLimit) {
+					TrieSetCell(g_CupMapPool, maps[i], MAP_IDLE);
+				} else {
+					console_print(id, "[%s] Couldn't add %s to the map pool, the limit of %d maps has been reached.", PLUGIN_TAG, maps[i], poolLimit);
+				}
+			}
+		}
 
-  return PLUGIN_HANDLED;
+		WriteCupMapPoolFile(id);
+	}
+
+	return PLUGIN_HANDLED;
 }
 
 public CmdMapDeleteHandler(id, level, cid)
 {
-  if (cmd_access(id, level, cid, 1))
-  {
-      new map1[32], map2[32], map3[32], map4[32], map5[32];
-      read_argv(1, map1, charsmax(map1));
-      read_argv(2, map2, charsmax(map2));
-      read_argv(3, map3, charsmax(map3));
-      read_argv(4, map4, charsmax(map4));
-      read_argv(5, map5, charsmax(map5));
+	if (cmd_access(id, level, cid, 1))
+	{
+		// Remove up to 5 maps at a time
+		new maps[5][32];
+		for (new i = 0; i < sizeof(maps); i++) {
+			read_argv(i+1, maps[i], charsmax(maps[]));
 
-      console_print(id, "maps to remove: %s, %s, %s, %s, %s", map1, map2, map3, map4, map5);
-  }
+			if (maps[i][0] && !TrieDeleteKey(g_CupMapPool, maps[i])) {
+				console_print(id, "[%s] Couldn't remove %s from the map pool. Maybe it wasn't in the pool.", PLUGIN_TAG, maps[i]);
+			}
+		}
 
-  return PLUGIN_HANDLED;
+		WriteCupMapPoolFile(id);
+	}
+
+	return PLUGIN_HANDLED;
+}
+
+// Set the map state you want to some map
+public CmdMapStateHandler(id, level, cid)
+{
+	if (cmd_access(id, level, cid, 1))
+	{
+		new map[32], action[8];
+		read_argv(1, map, charsmax(map));
+		read_argv(2, action, charsmax(action));
+
+		new mapState;
+		for (new i = 0; i < sizeof(g_MapStateString); i++)
+		{
+			if (equali(g_MapStateString[i], action))
+			{
+				mapState = i;
+				break;
+			}
+		}
+
+		if (TrieKeyExists(g_CupMapPool, map))
+		{
+			TrieSetCell(g_CupMapPool, map, mapState);
+			client_print(0, print_chat, "[%s] %s's new state is: %s.",
+				PLUGIN_TAG, map, g_MapStateString[mapState][0] ? g_MapStateString[mapState] : "idle");
+		}
+		else
+			client_print(id, print_chat, "[%s] Sorry, the specified map is not in the pool.", PLUGIN_TAG);
+
+		WriteCupMapPoolFile(id);
+	}
+
+	return PLUGIN_HANDLED;
+}
+
+public CmdMapsClearHandler(id, level, cid)
+{
+	if (cmd_access(id, level, cid, 1))
+	{
+		TrieClear(g_CupMapPool);
+		client_print(id, print_chat, "[%s] The map pool has been cleared.", PLUGIN_TAG);
+	}
+	return PLUGIN_HANDLED;
+}
+
+public CmdResetCupMapStates(id, level, cid)
+{
+	if (cmd_access(id, level, cid, 1))
+	{
+		ResetCupMapStates(id);
+	}
+	return PLUGIN_HANDLED;
+}
+
+ResetCupMapStates(id)
+{
+	new i;
+	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
+	while (!TrieIterEnded(ti)) {
+		new map[32];
+		TrieIterGetKey(ti, map, charsmax(map));
+
+		if (TrieSetCell(g_CupMapPool, map, MAP_IDLE))
+			i++;
+		
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+
+	if (id)
+		client_print(id, print_chat, "[%s] All the %d maps have been reset to IDLE state.", PLUGIN_TAG, i);
+	else
+		server_print("[%s] All the %d maps have been reset to IDLE state.", PLUGIN_TAG, i);
+}
+
+// Clears the cached cup data, including the map states
+public CmdClearCup(id, level, cid)
+{
+	if (cmd_access(id, level, cid, 1))
+	{
+		ClearCup(id);
+	}
+	return PLUGIN_HANDLED;
+}
+
+ClearCup(id)
+{
+	g_CupMatches = 0;
+	g_CupPlayer1 = 0;
+	g_CupPlayer2 = 0;
+	g_CupSteam1[0] = EOS;
+	g_CupSteam2[0] = EOS;
+	g_CupScore1 = 0;
+	g_CupScore2 = 0;
+	g_CupReady1 = false;
+	g_CupReady2 = false;
+	g_PrevChooser = 0;
+	g_FirstBanner = 0;
+	ResetCupMapStates(id);
+}
+
+// Writes to a file the map pool in its current state
+WriteCupMapPoolFile(id)
+{
+	new file = fopen(g_MapPoolFile, "wt");
+	if (!file)
+	{
+		ShowMessage(id, "Failed to write map pool file");
+		return;
+	}
+
+	console_print(id, "Current maps:");
+	new map[32], mapState, TrieIter:ti = TrieIterCreate(g_CupMapPool);
+	while (!TrieIterEnded(ti)) {
+		TrieIterGetKey(ti, map, charsmax(map));
+		TrieIterGetCell(ti, mapState);
+
+		if (g_MapStateString[mapState][0])
+			console_print(id, " - %s -> %s", map, g_MapStateString[mapState]);
+		else
+			console_print(id, " - %s", map);
+
+		fprintf(file, "%s %d\n", map, mapState);
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+	fclose(file);
+}
+
+// Writes to a file the map pool in its current state
+WriteCupFile(id)
+{
+	new file = fopen(g_CupFile, "wt");
+	if (!file)
+	{
+		ShowMessage(id, "Failed to write cup file");
+		return;
+	}
+
+	if (g_CupMatches && g_CupSteam1[0] && g_CupSteam2[0])
+	{
+		fprintf(file, "%d %s %s %d %d\n", g_CupMatches, g_CupSteam1, g_CupSteam2, g_CupScore1, g_CupScore2);
+	}
+
+	fclose(file);
 }
 
 public CmdSetCustomStartHandler(id)
@@ -4197,17 +5056,148 @@ LoadMapSettings()
 
 LoadMapPool()
 {
-	new file = fopen(MAP_POOL_FILE, "rt");
-	if (!file) return;
-
 	g_CupMapPool = TrieCreate();
 
-	new mapName[32];
-	while(fgets(file, mapName, charsmax(mapName)))
+	new file = fopen(g_MapPoolFile, "rt");
+	if (!file) return;
+
+	new buffer[48];
+	while(fgets(file, buffer, charsmax(buffer)))
 	{
-		TrieSetCell(g_CupMapPool, mapName, true);
+		// One map name and state per line
+		new map[32], mapState[6];
+		parse(buffer,
+				map,		charsmax(map),
+				mapState,	charsmax(mapState));
+
+		TrieSetCell(g_CupMapPool, map, str_to_num(mapState));
 	}
 	fclose(file);
+	server_print("[%s] Map pool loaded (%d).", PLUGIN_TAG, TrieGetSize(g_CupMapPool));
+}
+
+LoadCup()
+{
+	// Load current cup's info
+	new file = fopen(g_CupFile, "rt");
+	if (!file) return;
+
+	new buffer[512];
+	while(fgets(file, buffer, charsmax(buffer)))
+	{
+		new matches[6], id1[25], id2[25], score1[6], score2[6];
+		parse(buffer,
+				matches,	charsmax(matches),
+				id1,		charsmax(id1),
+				id2,		charsmax(id2),
+				score1,		charsmax(score1),
+				score2,		charsmax(score2));
+
+		g_CupMatches = str_to_num(matches);
+		copy(g_CupSteam1, charsmax(g_CupSteam1), id1);
+		copy(g_CupSteam2, charsmax(g_CupSteam2), id2);
+		g_CupScore1 = str_to_num(score1);
+		g_CupScore2 = str_to_num(score2);
+	}
+	fclose(file);
+	server_print("[%s] Cup loaded.", PLUGIN_TAG);
+}
+
+GetLastCupMapAvailable(map[], len)
+{
+	new TrieIter:ti = TrieIterCreate(g_CupMapPool), bool:isMapFound;
+	while (!TrieIterEnded(ti))
+	{
+		new mapState;
+		TrieIterGetCell(ti, mapState);
+
+		if (mapState == MAP_IDLE)
+		{
+			if (!isMapFound)
+			{
+				TrieIterGetKey(ti, map, len);
+				isMapFound = true;
+			}
+			else
+			{
+				new badMap[32];
+				TrieIterGetKey(ti, badMap, charsmax(badMap));
+				server_print("[%s] Error: trying to get the decider map... but there's more than 1 idle map (name: %s)",
+					PLUGIN_TAG, badMap);
+			}
+		}
+
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+}
+
+GetNextCupMapToPlay(map[], len)
+{
+	new mapState;
+
+	// Check if the current map can be played
+	TrieGetCell(g_CupMapPool, g_Map, mapState);
+	if (mapState == MAP_PICKED) // if it's the decider and the only one remaining then it will be chosen later below
+	{
+		copy(map, len, g_Map);
+		return;
+	}
+
+	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
+	while (!TrieIterEnded(ti))
+	{
+		TrieIterGetCell(ti, mapState);
+
+		if (mapState == MAP_PICKED)
+		{
+			TrieIterGetKey(ti, map, len);
+			TrieIterDestroy(ti);
+			return;
+		}
+
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+
+	// Take the decider map
+	ti = TrieIterCreate(g_CupMapPool);
+	while (!TrieIterEnded(ti))
+	{
+		TrieIterGetCell(ti, mapState);
+
+		if (mapState == MAP_DECIDER)
+		{
+			TrieIterGetKey(ti, map, len);
+			TrieIterDestroy(ti);
+			return;
+		}
+
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+
+	server_print("[%s] Error: trying to get the next map to play, but there's no map remaining to be played", PLUGIN_TAG);
+}
+
+CountCupMaps(theState)
+{
+	new result = 0;
+
+	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
+	while (!TrieIterEnded(ti))
+	{
+		new mapState;
+		TrieIterGetCell(ti, mapState);
+
+		if (mapState == theState)
+			result++;
+
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+
+	return result;
 }
 
 CreateGlobalHealer()
@@ -4280,40 +5270,40 @@ LoadRecords(RUN_TYPE:topType)
 LoadRecordsFile(RUN_TYPE:topType)
 {
 	console_print(0, "LoadRecordsFile :: trying to open %s", g_StatsFile[topType]);
-    new file = fopen(g_StatsFile[topType], "r");
-    if (!file) return;
+	new file = fopen(g_StatsFile[topType], "r");
+	if (!file) return;
 
-    //console_print(0, "LoadRecordsFile :: file opened correctly");
+	//console_print(0, "LoadRecordsFile :: file opened correctly");
 
-    new data[1024], stats[STATS], uniqueid[32], name[32], cp[24], tp[24];
-    new kztime[24], timestamp[24];
+	new data[1024], stats[STATS], uniqueid[32], name[32], cp[24], tp[24];
+	new kztime[24], timestamp[24];
 
-    new Array:arr = g_ArrayStats[topType];
-    ArrayClear(arr);
+	new Array:arr = g_ArrayStats[topType];
+	ArrayClear(arr);
 
-    while (!feof(file))
-    {
-      fgets(file, data, charsmax(data));
-      if (!strlen(data))
-        continue;
+	while (!feof(file))
+	{
+		fgets(file, data, charsmax(data));
+		if (!strlen(data))
+			continue;
 
-      parse(data, uniqueid, charsmax(uniqueid), name, charsmax(name),
-        cp, charsmax(cp), tp, charsmax(tp), kztime, charsmax(kztime), timestamp, charsmax(timestamp));
+		parse(data, uniqueid, charsmax(uniqueid), name, charsmax(name),
+		cp, charsmax(cp), tp, charsmax(tp), kztime, charsmax(kztime), timestamp, charsmax(timestamp));
 
-      stats[STATS_TIMESTAMP] = str_to_num(timestamp);
+		stats[STATS_TIMESTAMP] = str_to_num(timestamp);
 
-      copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
-      copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
-      stats[STATS_CP] = str_to_num(cp);
-      stats[STATS_TP] = str_to_num(tp);
-      stats[STATS_TIME] = _:str_to_float(kztime);
+		copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
+		copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
+		stats[STATS_CP] = str_to_num(cp);
+		stats[STATS_TP] = str_to_num(tp);
+		stats[STATS_TIME] = _:str_to_float(kztime);
 
-      //console_print(0, "STATS_ID: %s, STATS_TIME: %.3f", stats[STATS_ID], stats[STATS_TIME]);
+		//console_print(0, "STATS_ID: %s, STATS_TIME: %.3f", stats[STATS_ID], stats[STATS_TIME]);
 
-      ArrayPushArray(arr, stats);
-    }
+		ArrayPushArray(arr, stats);
+	}
 
-    fclose(file);
+	fclose(file);
 }
 
 SaveRecordsFile(RUN_TYPE:topType)
@@ -4461,12 +5451,12 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	else
 		client_print(0, print_chat, "[%s] %s's rank is %d of %d among %s players", PLUGIN_TAG, name, rank, ArraySize(arr), g_TopType[topType]);
 
-  new mySQLStore = get_pcvar_num(pcvar_kz_mysql);
-  if (mySQLStore)
-    SaveRecordDB(topType, stats);
-  
-  if (mySQLStore != 1)
-    SaveRecordsFile(topType);
+	new mySQLStore = get_pcvar_num(pcvar_kz_mysql);
+	if (mySQLStore)
+		SaveRecordDB(topType, stats);
+
+	if (mySQLStore != 1)
+		SaveRecordsFile(topType);
 
 	if (rank == 1)
 	{
@@ -4680,6 +5670,30 @@ SaveRecordedRun(id, RUN_TYPE:topType)
 	//console_print(id, "clearing replay from memory");
 }
 
+SaveRecordedRunCup(id, RUN_TYPE:topType)
+{
+	static authid[32], replayFile[256], idNumbers[24];
+	get_user_authid(id, authid, charsmax(authid));
+
+	ConvertSteamID32ToNumbers(authid, idNumbers);
+	formatex(replayFile, charsmax(replayFile), "%s/cup_%s_%s_%s_%d.dat",
+		g_ReplaysDir, g_Map, idNumbers, g_TopType[topType], ArraySize(g_RunFrames[id]));
+
+	g_RecordRun[id] = fopen(replayFile, "wb");
+
+	new frameState[REPLAY];
+	for (new i; i < ArraySize(g_RunFrames[id]); i++)
+	{
+		ArrayGetArray(g_RunFrames[id], i, frameState);
+		fwrite_blocks(g_RecordRun[id], frameState, sizeof(frameState) - 1, BLOCK_INT); // gametime, origin and angles
+		fwrite(g_RecordRun[id], frameState[RP_BUTTONS], BLOCK_SHORT); // buttons
+	}
+	fclose(g_RecordRun[id]);
+
+	g_RecordRun[id] = 0;
+	ArrayClear(g_RunFrames[id]);
+}
+
 // Returns the entity that is linked to a bot
 GetEntitysBot(ent)
 {
@@ -4747,12 +5761,12 @@ GetVersionNumber()
 
 public DefaultInsertHandler(failstate, error[], errNo, what[], size, Float:queuetime)
 {
-    if (failstate != TQUERY_SUCCESS)
-    {
-        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ DefaultInsertHandler(): [%d] - [%s] - [%s]", errNo, error, what);
-        return;
-    }
-    server_print("[%.3f] Inserted %s, QueueTime:[%.3f]", get_gametime(), what, queuetime);
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ DefaultInsertHandler(): [%d] - [%s] - [%s]", errNo, error, what);
+		return;
+	}
+	server_print("[%.3f] Inserted %s, QueueTime:[%.3f]", get_gametime(), what, queuetime);
 }
 
 public SelectRunsHandler(failstate, error[], errNo, data[], size, Float:queuetime)
@@ -4762,7 +5776,7 @@ public SelectRunsHandler(failstate, error[], errNo, data[], size, Float:queuetim
 	log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectRunsHandler(): [%d] - [%s] - [%d]", errNo, error, data[1]);
 
 	if (get_pcvar_num(pcvar_kz_mysql) == 2)
-	  LoadRecordsFile(data[0]);
+		LoadRecordsFile(data[0]);
 
 	return;
 	}
