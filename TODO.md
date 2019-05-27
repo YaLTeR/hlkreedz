@@ -17,9 +17,14 @@ HLKreedz TODO:
 	- [x] Basic implementation with _ABBA bans + BA pick + Decider_ format.
 	- [ ] Implement _AB bans + BA picks + AB bans + Decider_ format.
 	- [ ] Add a permanent HUD element to show the current match score (p 1 - 2 x).
+	- [ ] Add a cvar to disable healthboosters during matches.
 	- [ ] Teleport players to /start position BEFORE the agstart countdown starts.
 	- [ ] Add info to the map pool HUD about who did each ban/pick.
 	- [ ] When the previous point is completed, fix the map change feature to change to the correct map in Bo5+ cases where no 2 same-player-picks should be played in sequence, so it changes to some player A's pick, then to some player B's pick, then to some player A's pick, and so on until the decider. Or just show a menu to the corresponding player when one of their picks had to be played, so they select the pick they want to play (may prefer to play one map before the other, because the other may actually never be played if the match is won 3 - 0 or 3 - 1 in a Bo5).
+	- [ ] Implement a replay system for cup matches (demos are already being recorded for all cup matches independent of runners pressing the end button or not, just have to recognize that demo naming format).
+		- [ ] Recognize cup demo naming format.
+		- [ ] Add the ability to replay more than 1 demo at a time (so the match can be replayed entirely, being able to watch both participants, and even 2 matches or more at a time to see all the runs in a given map at a time).
+	- [ ] Add an optional warmup time (before readying up).
 	- [ ] Sort map pool by name after sorting it by state (currently only being sorted by state).
 - [ ] Make spectator speed customizable per player (e.g.: /specspeed 500).
 - [ ] Implement commands to show tops of any other map.
