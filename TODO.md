@@ -14,6 +14,13 @@ HLKreedz TODO:
 - [ ] Add fireworks on new WR at end button position.
 - [ ] Fix spectator mode. When a player teleports to start, the spectators watching him will see him as frozen where he was before teleporting.
 - [ ] Implement a tournament mode in HL KreedZ. See #7 for details.
+	- [x] Basic implementation with _ABBA bans + BA pick + Decider_ format.
+	- [ ] Implement _AB bans + BA picks + AB bans + Decider_ format.
+	- [ ] Add a permanent HUD element to show the current match score (p 1 - 2 x).
+	- [ ] Teleport players to /start position BEFORE the agstart countdown starts.
+	- [ ] Add info to the map pool HUD about who did each ban/pick.
+	- [ ] When the previous point is completed, fix the map change feature to change to the correct map in Bo5+ cases where no 2 same-player-picks should be played in sequence, so it changes to some player A's pick, then to some player B's pick, then to some player A's pick, and so on until the decider. Or just show a menu to the corresponding player when one of their picks had to be played, so they select the pick they want to play (may prefer to play one map before the other, because the other may actually never be played if the match is won 3 - 0 or 3 - 1 in a Bo5).
+	- [ ] Sort map pool by name after sorting it by state (currently only being sorted by state).
 - [ ] Make spectator speed customizable per player (e.g.: /specspeed 500).
 - [ ] Implement commands to show tops of any other map.
 - [ ] Implement cookies to store client preferences.
