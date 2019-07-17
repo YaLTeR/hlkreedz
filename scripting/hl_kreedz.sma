@@ -3718,7 +3718,13 @@ public Fw_HamTakeDamagePlayerPost(victim, inflictor, aggressor, Float:damage, da
 				// a nade far up, reconnect, start the timer, and then that nade
 				// just falls into the ground, explodes and boosts player in some
 				// direction with the damage inflicted
-				PunishPlayerCheatingWithWeapons(victim);
+				//PunishPlayerCheatingWithWeapons(victim);
+
+				// EDIT: so in HLKZ we cannot damage other players, so yea, we have
+				// to check the aggressor
+				if (victim == aggressor) {
+					PunishPlayerCheatingWithWeapons(victim);
+				}
 			}
 		}
 	}
