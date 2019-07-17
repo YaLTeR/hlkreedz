@@ -68,9 +68,34 @@
 #define TASKID_CUP_START_MATCH			6357015
 #define TASKID_CUP_CHANGE_MAP			5357015
 
+// HL1 campaign
+// TODO: Refactor this if possible to make it generic
+#define REQ_AM_BTN_SUIT				(1<<0)
+#define REQ_AM_TAKE_SUIT			(1<<1)
+
+//#define REQ_UC1_PASS_CHECK1		(1<<0)
+#define REQ_UC1_TAKE_CROWBAR		(1<<0)
+#define REQ_UC1_TAKE_GLOCK			(1<<1)
+
+#define REQ_UC2_BTN_WATER			(1<<0)
+#define REQ_UC2_BTN_LIFT			(1<<1)
+
+#define REQ_OCWGH_BTN_ELECTRICITY	(1<<0)
+#define REQ_OCWGH_TAKE_NADES		(1<<1)
+#define REQ_OCWGH_BTN_SILO_DOOR		(1<<2)
+
+#define REQ_BP1_LIFT_DOOR			(1<<0)
+#define REQ_BP1_TAKE_HEALTH			(1<<1)
+#define REQ_BP1_TAKE_BATTERIES		(1<<2)
+#define REQ_BP1_LIFT				(1<<3)
+
+//#define REQ_BP2_BTN_BUCKET		(1<<0)
+#define REQ_BP2_BTN_ELECTRO2		(1<<0)
+#define REQ_BP2_BTN_ELECTRO1		(1<<1)
+
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.36";
+new const VERSION[] = "0.37";
 new const BUILD = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the stored binary data (or format) changes
 new const AUTHOR[] = "KORD_12.7 & Lev & YaLTeR & naz";
 
@@ -81,6 +106,7 @@ new const MAP_PICK_MENU_ID[] = "Pick a map";
 
 new const CONFIGS_SUB_DIR[] = "/hl_kreedz";
 new const PLUGIN_CFG_FILENAME[] = "hl_kreedz.cfg";
+new const PLUGIN_CFG_SHORTENED[] = "hlkz";
 new const MYSQL_LOG_FILENAME[] = "kz_mysql.log";
 new const MAP_POOL_FILE[] = "map_pool.ini";
 new const CUP_FILE[] = "cup.ini";
@@ -100,13 +126,21 @@ new const g_MapStateString[][] =
 new const g_szStarts[][] =
 {
 	"hlkz_start", "counter_start", "clockstartbutton", "firsttimerelay", "but_start", "counter_start_button",
-	"multi_start", "timer_startbutton", "start_timer_emi", "gogogo"
+	"multi_start", "timer_startbutton", "start_timer_emi", "gogogo",
+
+	// For the HL1 campaign maps
+	// TODO: Refactor this not to be hardcoded here
+	"am_start", "uc1_start", "uc2_start", "ocwgh_start", "bp1_start", "bp2_start"
 };
 
 new const g_szStops[][] =
 {
 	"hlkz_finish", "counter_off", "clockstopbutton", "clockstop", "but_stop", "counter_stop_button",
-	"multi_stop", "stop_counter", "m_counter_end_emi"
+	"multi_stop", "stop_counter", "m_counter_end_emi",
+
+	// For the HL1 campaign maps
+	// TODO: Refactor this not to be hardcoded here
+	"am_end", "uc1_end", "uc2_end", "ocwgh_end", "bp1_end", "bp2_end"
 };
 
 new const g_ItemNames[][] =
@@ -261,7 +295,6 @@ new bool:g_Unfreeze[MAX_PLAYERS + 1];
 new g_ReplayNum; // How many replays are running
 new Float:g_ReplayStartGameTime[MAX_PLAYERS + 1]; // gametime() of the first frame of the demo
 //new bool:g_isCustomFpsReplay[MAX_PLAYERS + 1]; // to know if the current run is a replay with modified FPS, so if there's a replay running when changing the FPS multiplier, that replay's FPS is not changed
-new g_FrozenSpectators[MAX_PLAYERS + 1]; // spectators that saw a player teleporting and got their cam frozen
 new g_ConsolePrintNextFrames[MAX_PLAYERS + 1];
 new g_ReplayFpsMultiplier[MAX_PLAYERS + 1]; // atm not gonna implement custom fps replays, just ability to multiply demo fps by an integer up to 4
 //new Float:g_ArtificialFrames[MAX_PLAYERS + 1][MAX_FPS_MULTIPLIER]; // when will the calculated extra frames happen
@@ -340,6 +373,13 @@ new g_PrevChooser; // index of the last player who banned/picked a map
 new g_FirstBanner; // index of the first player who banned a map
 
 new bool:g_isAnyBoostWeaponInMap;
+
+// HL1 campaign stuff
+new bool:g_isHL1Campaign;
+new g_PlayerEndReqs[MAX_PLAYERS + 1]; // conditions that have to be met to be allowed to end the timer, like pressing a button in the way, etc.
+new Trie:g_MapEndReqs;
+new Trie:g_UnorderedReqsMaps;
+new g_MapEndTotalReq;
 
 new pcvar_allow_spectators;
 new pcvar_kz_uniqueid;
@@ -621,7 +661,7 @@ public plugin_init()
 
 public plugin_cfg()
 {
-	console_print(0, "[%s] Executing plugin_cfg", PLUGIN_TAG);
+	server_print("[%s] Executing plugin_cfg", PLUGIN_TAG);
 	get_configsdir(g_ConfigsDir, charsmax(g_ConfigsDir));
 	get_mapname(g_Map, charsmax(g_Map));
 	strtolower(g_Map);
@@ -632,6 +672,15 @@ public plugin_cfg()
 	if (file_exists(cfg))
 	{
 		server_cmd("exec %s", cfg);
+		server_exec();
+	}
+
+	// Execute custom map config file
+	new mapCfg[288];
+	formatex(mapCfg, charsmax(mapCfg), "%s/maps/%s_%s.cfg", g_ConfigsDir, PLUGIN_CFG_SHORTENED, g_Map);
+	if (file_exists(mapCfg))
+	{
+		server_cmd("exec %s", mapCfg);
 		server_exec();
 	}
 
@@ -659,6 +708,12 @@ public plugin_cfg()
 
 	g_isAnyBoostWeaponInMap = false;
 	CheckMapWeapons();
+
+	g_MapEndReqs = TrieCreate();
+	g_UnorderedReqsMaps = TrieCreate();
+	SetMapEndReqs();
+	if (TrieGetSize(g_MapEndReqs))
+		g_isHL1Campaign = true;
 
 	if (get_pcvar_num(pcvar_kz_stop_moving_platforms))
 	{
@@ -717,7 +772,7 @@ public InitTopsAndDB()
 		g_DbHost = mysql_makehost(dbHost, dbUser, dbPass, dbName);
 
 		new error[32], errNo;
-		console_print(0, "Connecting to MySQL @ %s with user %s, DB: %s", dbHost, dbUser, dbName);
+		server_print("Connecting to MySQL @ %s with user %s, DB: %s", dbHost, dbUser, dbName);
 		g_DbConnection = mysql_connect(g_DbHost, errNo, error, 31);
 		if (errNo)
 		{
@@ -1399,6 +1454,7 @@ public client_disconnect(id)
 	clr_bit(g_baIsFirstSpawn, id);
 	clr_bit(g_baIsPureRunning, id);
 	g_SolidState[id] = -1;
+	g_PlayerEndReqs[id] = 0;
 
 	if (g_RecordRun[id])
 	{
@@ -1445,6 +1501,7 @@ InitPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 
 	g_PlayerTime[id] = 0.0;
 	g_PlayerTimePause[id] = 0.0;
+	g_PlayerEndReqs[id] = 0;
 
 	if (!onDisconnect)
 	{
@@ -2030,7 +2087,6 @@ public UnfreezeSpecCam(bot)
 			if (pev(spec, pev_iuser2) == bot)
 			{
 				// This spectator is watching the frozen bot (not really, what is frozen is the cam, the bot is moving)
-				//g_FrozenSpectators[spec] = bot;
 				new botName[33], specName[33];
 				GetColorlessName(bot, botName, charsmax(botName));
 				GetColorlessName(spec, specName, charsmax(specName));
@@ -2938,31 +2994,33 @@ StartClimb(id)
 
 FinishClimb(id)
 {
+	new kzDeniedSound = get_pcvar_bool(pcvar_kz_denied_sound);
+	new bool:canFinish = true;
 	if (g_CheatCommandsGuard[id])
 	{
-		if(get_pcvar_num(pcvar_kz_denied_sound))
-		{
-		client_cmd(id, "spk \"vox/access denied\"");
-		}
 		ShowMessage(id, "Using timer while cheating is prohibited");
-		return;
+		canFinish = false;
 	}
 	if (!get_bit(g_baIsClimbing, id))
 	{
-		if(get_pcvar_num(pcvar_kz_denied_sound))
-		{
-		client_cmd(id, "spk \"vox/access denied\"");
-		}
 		ShowMessage(id, "You must press the start button first");
-		return;
+		canFinish = false;
 	}
-	if (get_bit(g_baIsPureRunning, id))
+	//console_print(id, "Your reqs: %d, map reqs: %d", g_PlayerEndReqs[id], g_MapEndTotalReq);
+	if (g_isHL1Campaign && g_PlayerEndReqs[id] != g_MapEndTotalReq)
 	{
-		ShowMessage(id, "You have performed a pure run :)");
+		ShowMessage(id, "You don't meet the requirements to finish. Press the required buttons or pass through the required places first");
+		canFinish = false;
+	}
+	if (!canFinish)
+	{
+		if (kzDeniedSound)
+			client_cmd(id, "spk \"vox/access denied\"");
+		
+		return;
 	}
 
 	FinishTimer(id);
-
 	InitPlayer(id);
 }
 
@@ -3170,11 +3228,14 @@ public Fw_HamUseButtonPre(ent, id)
 	if (!IsPlayer(id))
 		return HAM_IGNORED;
 
+	//console_print(id, "using a button");
+
 	new BUTTON_TYPE:type = GetEntityButtonType(ent);
 	switch (type)
 	{
 	case BUTTON_START: StartClimb(id);
 	case BUTTON_FINISH: FinishClimb(id);
+	case BUTTON_NOT: CheckEndReqs(ent, id);
 	}
 
 	return HAM_IGNORED;
@@ -3216,7 +3277,7 @@ BUTTON_TYPE:GetEntityButtonType(ent)
 bool:IsStartEntityName(name[])
 {
 	for (new i = 0; i < sizeof(g_szStarts); i++)
-		if (equali(g_szStarts[i], name))
+		if (containi(name, g_szStarts[i]) != -1)
 			return true;
 	return false;
 }
@@ -3224,12 +3285,40 @@ bool:IsStartEntityName(name[])
 bool:IsStopEntityName(name[])
 {
 	for (new i = 0; i < sizeof(g_szStops); i++)
-		if (equali(g_szStops[i], name))
+		if (containi(name, g_szStops[i]) != -1)
 			return true;
 	return false;
 }
 
+CheckEndReqs(ent, id)
+{
+	new name[32];
+	pev(ent, pev_targetname, name, charsmax(name));
 
+	if (!name[0])
+		pev(ent, pev_target, name, charsmax(name));
+
+	//console_print(id, "checking reqs for %s", name);
+
+	if (TrieKeyExists(g_MapEndReqs, name))
+	{
+		// This entity is a requirement for being able to end the timer
+		new reqBits;
+		TrieGetCell(g_MapEndReqs, name, reqBits);
+
+		//console_print(id, "%s is registered in HLKZ", name);
+
+		if (reqBits - 1 == g_PlayerEndReqs[id] || TrieKeyExists(g_UnorderedReqsMaps, g_Map))
+		{
+			// Add its bits to the player's bit field for end requirements,
+			// but only if it they have met all the previous requirements
+			//console_print(id, "updating reqs, current = %d", g_PlayerEndReqs[id]);
+			g_PlayerEndReqs[id] |= reqBits;
+		}
+
+		//console_print(id, "req %s has been met; your reqs:: %d", name, g_PlayerEndReqs[id]);
+	}
+}
 
 
 //*******************************************************
@@ -4295,6 +4384,60 @@ CheckMapWeapons()
 	server_print("[%s] The current map %s weapons to boost with", PLUGIN_TAG, g_isAnyBoostWeaponInMap ? "has" : "doesn't have");
 }
 
+// Sets the bitfield for each run ending requirement depending on the map
+SetMapEndReqs()
+{
+	if (equali(g_Map, "hl1_bhop_am", 11))
+	{
+		TrieSetCell(g_MapEndReqs, "am_btn_suit", REQ_AM_BTN_SUIT);
+		TrieSetCell(g_MapEndReqs, "am_take_suit", REQ_AM_TAKE_SUIT);
+
+		g_MapEndTotalReq = REQ_AM_BTN_SUIT | REQ_AM_TAKE_SUIT;
+	}
+	else if (equali(g_Map, "hl1_bhop_uc1", 12))
+	{
+		TrieSetCell(g_MapEndReqs, "uc1_take_crowbar", REQ_UC1_TAKE_CROWBAR);
+		TrieSetCell(g_MapEndReqs, "uc1_take_glock", REQ_UC1_TAKE_GLOCK);
+		
+		g_MapEndTotalReq = REQ_UC1_TAKE_CROWBAR | REQ_UC1_TAKE_GLOCK;
+	}
+	else if (equali(g_Map, "hl1_bhop_uc2", 12))
+	{
+		TrieSetCell(g_MapEndReqs, "uc2_btn_water", REQ_UC2_BTN_WATER);
+		TrieSetCell(g_MapEndReqs, "uc2_btn_lift", REQ_UC2_BTN_LIFT);
+		
+		g_MapEndTotalReq = REQ_UC2_BTN_WATER | REQ_UC2_BTN_LIFT;
+	}
+	else if (equali(g_Map, "hl1_bhop_ocwgh", 14))
+	{
+		TrieSetCell(g_MapEndReqs, "ocwgh_btn_electricity", REQ_OCWGH_BTN_ELECTRICITY);
+		TrieSetCell(g_MapEndReqs, "ocwgh_take_nades", REQ_OCWGH_TAKE_NADES);
+		TrieSetCell(g_MapEndReqs, "ocwgh_btn_silo_door", REQ_OCWGH_BTN_SILO_DOOR);
+
+		g_MapEndTotalReq = REQ_OCWGH_BTN_ELECTRICITY | REQ_OCWGH_TAKE_NADES | REQ_OCWGH_BTN_SILO_DOOR;
+	}
+	else if (equali(g_Map, "hl1_bhop_bp1", 12))
+	{
+		TrieSetCell(g_MapEndReqs, "bp1_btn_lift_door", REQ_BP1_LIFT_DOOR);
+		TrieSetCell(g_MapEndReqs, "bp1_take_health", REQ_BP1_TAKE_HEALTH);
+		TrieSetCell(g_MapEndReqs, "bp1_take_batteries", REQ_BP1_TAKE_BATTERIES);
+		TrieSetCell(g_MapEndReqs, "bp1_btn_lift", REQ_BP1_LIFT);
+
+		g_MapEndTotalReq = REQ_BP1_LIFT_DOOR | REQ_BP1_TAKE_HEALTH | REQ_BP1_TAKE_BATTERIES | REQ_BP1_LIFT;
+	}
+	else if (equali(g_Map, "hl1_bhop_bp2", 12))
+	{
+		//TrieSetCell(g_MapEndReqs, "bp2_btn_bucket", REQ_BP2_BTN_BUCKET);
+		TrieSetCell(g_MapEndReqs, "bp2_btn_electro2", REQ_BP2_BTN_ELECTRO2);
+		TrieSetCell(g_MapEndReqs, "bp2_btn_electro1", REQ_BP2_BTN_ELECTRO1);
+
+		g_MapEndTotalReq = /*REQ_BP2_BTN_BUCKET |*/ REQ_BP2_BTN_ELECTRO2 | REQ_BP2_BTN_ELECTRO1;
+
+		TrieSetCell(g_UnorderedReqsMaps, g_Map, true);
+	}
+	server_print("[%s] Map requirements bitfield value: %d", PLUGIN_TAG, g_MapEndTotalReq);
+}
+
 public CmdSetStartHandler(id, level, cid)
 {
 	if (!IsAlive(id) || pev(id, pev_iuser1))
@@ -4962,6 +5105,7 @@ public CmdSpeedcap(id)
 		g_Speedcap[id] = speedcap;
 	}
 	ShowMessage(id, "Your horizontal speedcap is now: %.2f", g_Speedcap[id]);
+	clr_bit(g_baIsPureRunning, id);
 
 	return PLUGIN_HANDLED;
 }
