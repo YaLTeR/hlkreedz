@@ -698,9 +698,9 @@ public plugin_cfg()
 	GetTopTypeString(PURE, g_TopType[PURE]);
 
 	// Load stats
-	formatex(g_StatsFile[NOOB], charsmax(g_StatsFile[]), "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[PURE]);
+	formatex(g_StatsFile[NOOB], charsmax(g_StatsFile[]), "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[NOOB]);
 	formatex(g_StatsFile[PRO],  charsmax(g_StatsFile[]),  "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[PRO]);
-	formatex(g_StatsFile[PURE], charsmax(g_StatsFile[]), "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[NOOB]);
+	formatex(g_StatsFile[PURE], charsmax(g_StatsFile[]), "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[PURE]);
 
 	// Load map settings
 	formatex(g_MapIniFile, charsmax(g_MapIniFile), "%s/%s.ini", g_ConfigsDir, g_Map);
