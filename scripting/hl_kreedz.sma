@@ -624,7 +624,7 @@ public plugin_init()
 	register_touch("trigger_multiple", 	"player", "Fw_FmPlayerTouchHealthBooster");
 
 	mfwd_hlkz_cheating = CreateMultiForward("hlkz_cheating", ET_IGNORE, FP_CELL);
-	mfwd_hlkz_worldrecord = CreateMultiForward("hlkz_worldrecord", ET_IGNORE, FP_CELL, FP_FLOAT, FP_CELL, FP_CELL);
+	mfwd_hlkz_worldrecord = CreateMultiForward("hlkz_worldrecord", ET_IGNORE, FP_CELL, FP_CELL);
 
 	register_message(get_user_msgid("Health"), "Fw_MsgHealth");
 	register_message(SVC_TEMPENTITY, "Fw_MsgTempEntity");
@@ -5611,7 +5611,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	if (rank == 1)
 	{
 		new ret;
-		ExecuteForward(mfwd_hlkz_worldrecord, ret, id, kztime, topType, arr);
+		ExecuteForward(mfwd_hlkz_worldrecord, ret, topType, arr);
 	}
 
 	if (g_RecordRun[id])

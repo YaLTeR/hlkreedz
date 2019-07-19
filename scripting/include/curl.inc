@@ -3,909 +3,201 @@
 #endif
 #define _curl_included
 
-#pragma reqlib curl
-#if !defined AMXMODX_NOAUTOLOAD
-    #pragma loadlib curl
+#include <curl_consts>
+
+#if AMXX_VERSION_NUM >= 175
+ #pragma reqlib curl
+ #if !defined AMXMODX_NOAUTOLOAD
+  #pragma loadlib curl
+ #endif
+#else
+ #pragma library curl
 #endif
 
-enum Handle
+enum _:curl_off_t {
+    curl_off_left,
+    curl_off_right
+};
+
+enum curl_slist
 {
-   INVALID = INVALID_HANDLE,
+    SList_Empty
 };
 
-enum CURLcode
-{
-    INVALID = INVALID_HANDLE,
-
-    CURLE_OK = 0,
-    CURLE_UNSUPPORTED_PROTOCOL,    /* 1 */
-    CURLE_FAILED_INIT,             /* 2 */
-    CURLE_URL_MALFORMAT,           /* 3 */
-    CURLE_OBSOLETE4,               /* 4 - NOT USED */
-    CURLE_COULDNT_RESOLVE_PROXY,   /* 5 */
-    CURLE_COULDNT_RESOLVE_HOST,    /* 6 */
-    CURLE_COULDNT_CONNECT,         /* 7 */
-    CURLE_FTP_WEIRD_SERVER_REPLY,  /* 8 */
-    CURLE_REMOTE_ACCESS_DENIED,    /* 9 a service was denied by the server
-                                    due to lack of access - when login fails
-                                    this is not returned. */
-    CURLE_OBSOLETE10,              /* 10 - NOT USED */
-    CURLE_FTP_WEIRD_PASS_REPLY,    /* 11 */
-    CURLE_OBSOLETE12,              /* 12 - NOT USED */
-    CURLE_FTP_WEIRD_PASV_REPLY,    /* 13 */
-    CURLE_FTP_WEIRD_227_FORMAT,    /* 14 */
-    CURLE_FTP_CANT_GET_HOST,       /* 15 */
-    CURLE_OBSOLETE16,              /* 16 - NOT USED */
-    CURLE_FTP_COULDNT_SET_TYPE,    /* 17 */
-    CURLE_PARTIAL_FILE,            /* 18 */
-    CURLE_FTP_COULDNT_RETR_FILE,   /* 19 */
-    CURLE_OBSOLETE20,              /* 20 - NOT USED */
-    CURLE_QUOTE_ERROR,             /* 21 - quote command failure */
-    CURLE_HTTP_RETURNED_ERROR,     /* 22 */
-    CURLE_WRITE_ERROR,             /* 23 */
-    CURLE_OBSOLETE24,              /* 24 - NOT USED */
-    CURLE_UPLOAD_FAILED,           /* 25 - failed upload "command" */
-    CURLE_READ_ERROR,              /* 26 - couldn't open/read from file */
-    CURLE_OUT_OF_MEMORY,           /* 27 */
-    /* Note: CURLE_OUT_OF_MEMORY may sometimes indicate a conversion error
-           instead of a memory allocation error if CURL_DOES_CONVERSIONS
-           is defined
-    */
-    CURLE_OPERATION_TIMEDOUT,      /* 28 - the timeout time was reached */
-    CURLE_OBSOLETE29,              /* 29 - NOT USED */
-    CURLE_FTP_PORT_FAILED,         /* 30 - FTP PORT operation failed */
-    CURLE_FTP_COULDNT_USE_REST,    /* 31 - the REST command failed */
-    CURLE_OBSOLETE32,              /* 32 - NOT USED */
-    CURLE_RANGE_ERROR,             /* 33 - RANGE "command" didn't work */
-    CURLE_HTTP_POST_ERROR,         /* 34 */
-    CURLE_SSL_CONNECT_ERROR,       /* 35 - wrong when connecting with SSL */
-    CURLE_BAD_DOWNLOAD_RESUME,     /* 36 - couldn't resume download */
-    CURLE_FILE_COULDNT_READ_FILE,  /* 37 */
-    CURLE_LDAP_CANNOT_BIND,        /* 38 */
-    CURLE_LDAP_SEARCH_FAILED,      /* 39 */
-    CURLE_OBSOLETE40,              /* 40 - NOT USED */
-    CURLE_FUNCTION_NOT_FOUND,      /* 41 */
-    CURLE_ABORTED_BY_CALLBACK,     /* 42 */
-    CURLE_BAD_FUNCTION_ARGUMENT,   /* 43 */
-    CURLE_OBSOLETE44,              /* 44 - NOT USED */
-    CURLE_INTERFACE_FAILED,        /* 45 - CURLOPT_INTERFACE failed */
-    CURLE_OBSOLETE46,              /* 46 - NOT USED */
-    CURLE_TOO_MANY_REDIRECTS ,     /* 47 - catch endless re-direct loops */
-    CURLE_UNKNOWN_TELNET_OPTION,   /* 48 - User specified an unknown option */
-    CURLE_TELNET_OPTION_SYNTAX ,   /* 49 - Malformed telnet option */
-    CURLE_OBSOLETE50,              /* 50 - NOT USED */
-    CURLE_PEER_FAILED_VERIFICATION, /* 51 - peer's certificate or fingerprint
-                                     wasn't verified fine */
-    CURLE_GOT_NOTHING,             /* 52 - when this is a specific error */
-    CURLE_SSL_ENGINE_NOTFOUND,     /* 53 - SSL crypto engine not found */
-    CURLE_SSL_ENGINE_SETFAILED,    /* 54 - can not set SSL crypto engine as
-                                    default */
-    CURLE_SEND_ERROR,              /* 55 - failed sending network data */
-    CURLE_RECV_ERROR,              /* 56 - failure in receiving network data */
-    CURLE_OBSOLETE57,              /* 57 - NOT IN USE */
-    CURLE_SSL_CERTPROBLEM,         /* 58 - problem with the local certificate */
-    CURLE_SSL_CIPHER,              /* 59 - couldn't use specified cipher */
-    CURLE_SSL_CACERT,              /* 60 - problem with the CA cert (path?) */
-    CURLE_BAD_CONTENT_ENCODING,    /* 61 - Unrecognized transfer encoding */
-    CURLE_LDAP_INVALID_URL,        /* 62 - Invalid LDAP URL */
-    CURLE_FILESIZE_EXCEEDED,       /* 63 - Maximum file size exceeded */
-    CURLE_USE_SSL_FAILED,          /* 64 - Requested FTP SSL level failed */
-    CURLE_SEND_FAIL_REWIND,        /* 65 - Sending the data requires a rewind
-                                    that failed */
-    CURLE_SSL_ENGINE_INITFAILED,   /* 66 - failed to initialise ENGINE */
-    CURLE_LOGIN_DENIED,            /* 67 - user, password or similar was not
-                                    accepted and we failed to login */
-    CURLE_TFTP_NOTFOUND,           /* 68 - file not found on server */
-    CURLE_TFTP_PERM,               /* 69 - permission problem on server */
-    CURLE_REMOTE_DISK_FULL,        /* 70 - out of disk space on server */
-    CURLE_TFTP_ILLEGAL,            /* 71 - Illegal TFTP operation */
-    CURLE_TFTP_UNKNOWNID,          /* 72 - Unknown transfer ID */
-    CURLE_REMOTE_FILE_EXISTS,      /* 73 - File already exists */
-    CURLE_TFTP_NOSUCHUSER,         /* 74 - No such user */
-    CURLE_CONV_FAILED,             /* 75 - conversion failed */
-    CURLE_CONV_REQD,               /* 76 - caller must register conversion
-                                    callbacks using curl_easy_setopt options
-                                    CURLOPT_CONV_FROM_NETWORK_FUNCTION,
-                                    CURLOPT_CONV_TO_NETWORK_FUNCTION, and
-                                    CURLOPT_CONV_FROM_UTF8_FUNCTION */
-    CURLE_SSL_CACERT_BADFILE,      /* 77 - could not load CACERT file, missing
-                                    or wrong format */
-    CURLE_REMOTE_FILE_NOT_FOUND,   /* 78 - remote file not found */
-    CURLE_SSH,                     /* 79 - error from the SSH layer, somewhat
-                                    generic so the error message will be of
-                                    interest when this has happened */
-
-    CURLE_SSL_SHUTDOWN_FAILED,     /* 80 - Failed to shut down the SSL
-                                    connection */
-    CURLE_AGAIN,                   /* 81 - socket is not ready for send/recv,
-                                    wait till it's ready and try again (Added
-                                    in 7.18.2) */
-    CURLE_SSL_CRL_BADFILE,         /* 82 - could not load CRL file, missing or
-                                    wrong format (Added in 7.19.0) */
-    CURLE_SSL_ISSUER_ERROR,        /* 83 - Issuer check failed.  (Added in
-                                    7.19.0) */
-    CURL_LAST /* never use! */
-};
-
-#define CURLOPTTYPE_LONG          0
-#define CURLOPTTYPE_OBJECTPOINT   10000
-#define CURLOPTTYPE_FUNCTIONPOINT 20000
-#define CURLOPTTYPE_OFF_T         30000
-
-
-#define LONG          CURLOPTTYPE_LONG
-#define OBJECTPOINT   CURLOPTTYPE_OBJECTPOINT
-#define FUNCTIONPOINT CURLOPTTYPE_FUNCTIONPOINT
-#define OFF_T         CURLOPTTYPE_OFF_T
-/* TODO ifndef undef */
-#define CINIT(%1,%2,%3) CURLOPT_%1 = %2 + %3
-
-/* TODO remove unsupported options */
-enum CURLoption {
-    /* The full URL to get/put */
-    CINIT(URL, OBJECTPOINT, 2),
-
-    /* Port number to connect to, if other than default. */
-    CINIT(PORT, LONG, 3),
-
-    /* Name of proxy to use. */
-    CINIT(PROXY, OBJECTPOINT, 4),
-
-    /* "name:password" to use when fetching. */
-    CINIT(USERPWD, OBJECTPOINT, 5),
-
-    /* "name:password" to use with proxy. */
-    CINIT(PROXYUSERPWD, OBJECTPOINT, 6),
-
-    /* Range to get, specified as an ASCII string. */
-    CINIT(RANGE, OBJECTPOINT, 7),
-
-    /* not used */
-
-    /* Specified file stream to upload from (use as input): */
-    CINIT(INFILE, OBJECTPOINT, 9),
-
-    /* Buffer to receive error messages in, must be at least CURL_ERROR_SIZE
-    * bytes big. If this is not used, error messages go to stderr instead: */
-    CINIT(ERRORBUFFER, OBJECTPOINT, 10),
-
-    /* Function that will be called to store the output (instead of fwrite). The
-    * parameters will use fwrite() syntax, make sure to follow them. */
-    CINIT(WRITEFUNCTION, FUNCTIONPOINT, 11),
-
-    /* Function that will be called to read the input (instead of fread). The
-    * parameters will use fread() syntax, make sure to follow them. */
-    CINIT(READFUNCTION, FUNCTIONPOINT, 12),
-
-    /* Time-out the read operation after this amount of seconds */
-    CINIT(TIMEOUT, LONG, 13),
-
-    /* POST static input fields. */
-    CINIT(POSTFIELDS, OBJECTPOINT, 15),
-
-    /* Set the referrer page (needed by some CGIs) */
-    CINIT(REFERER, OBJECTPOINT, 16),
-
-    /* Set the FTP PORT string (interface name, named or numerical IP address)
-     Use i.e '-' to use default address. */
-    CINIT(FTPPORT, OBJECTPOINT, 17),
-
-    /* Set the User-Agent string (examined by some CGIs) */
-    CINIT(USERAGENT, OBJECTPOINT, 18),
-
-    /* If the download receives less than "low speed limit" bytes/second
-    * during "low speed time" seconds, the operations is aborted.
-    * You could i.e if you have a pretty high speed connection, abort if
-    * it is less than 2000 bytes/sec during 20 seconds.
-    */
-
-    /* Set the "low speed limit" */
-    CINIT(LOW_SPEED_LIMIT, LONG, 19),
-
-    /* Set the "low speed time" */
-    CINIT(LOW_SPEED_TIME, LONG, 20),
-
-    /* Set the continuation offset.
-    *
-    * Note there is also a _LARGE version of this key which uses
-    * off_t types, allowing for large file offsets on platforms which
-    * use larger-than-32-bit off_t's.  Look below for RESUME_FROM_LARGE.
-    */
-    CINIT(RESUME_FROM, LONG, 21),
-
-    /* Set cookie in request: */
-    CINIT(COOKIE, OBJECTPOINT, 22),
-
-    /* This points to a linked list of headers, struct curl_slist kind */
-    CINIT(HTTPHEADER, OBJECTPOINT, 23),
-
-    /* This points to a linked list of post entries, struct curl_httppost */
-    CINIT(HTTPPOST, OBJECTPOINT, 24),
-
-    /* name of the file keeping your private SSL-certificate */
-    CINIT(SSLCERT, OBJECTPOINT, 25),
-
-    /* password for the SSL or SSH private key */
-    CINIT(KEYPASSWD, OBJECTPOINT, 26),
-
-    /* send TYPE parameter? */
-    CINIT(CRLF, LONG, 27),
-
-    /* send linked-list of QUOTE commands */
-    CINIT(QUOTE, OBJECTPOINT, 28),
-
-    /* send FILE * or void * to store headers to, if you use a callback it
-     is simply passed to the callback unmodified */
-    CINIT(WRITEHEADER, OBJECTPOINT, 29),
-
-    /* point to a file to read the initial cookies from, also enables
-     "cookie awareness" */
-    CINIT(COOKIEFILE, OBJECTPOINT, 31),
-
-    /* What version to specifically try to use.
-     See CURL_SSLVERSION defines below. */
-    CINIT(SSLVERSION, LONG, 32),
-
-    /* What kind of HTTP time condition to use, see defines */
-    CINIT(TIMECONDITION, LONG, 33),
-
-    /* Time to use with the above condition. Specified in number of seconds
-     since 1 Jan 1970 */
-    CINIT(TIMEVALUE, LONG, 34),
-
-    /* 35 = OBSOLETE */
-
-    /* Custom request, for customizing the get command like
-     HTTP: DELETE, TRACE and others
-     FTP: to use a different list command
-     */
-    CINIT(CUSTOMREQUEST, OBJECTPOINT, 36),
-
-    /* HTTP request, for odd commands like DELETE, TRACE and others */
-    CINIT(STDERR, OBJECTPOINT, 37),
-
-    /* 38 is not used */
-
-    /* send linked-list of post-transfer QUOTE commands */
-    CINIT(POSTQUOTE, OBJECTPOINT, 39),
-
-    /* Pass a pointer to string of the output using full variable-replacement
-     as described elsewhere. */
-    CINIT(WRITEINFO, OBJECTPOINT, 40),
-
-    CINIT(VERBOSE, LONG, 41),      /* talk a lot */
-    CINIT(HEADER, LONG, 42),       /* throw the header out too */
-    CINIT(NOPROGRESS, LONG, 43),   /* shut off the progress meter */
-    CINIT(NOBODY, LONG, 44),       /* use HEAD to get http document */
-    CINIT(FAILONERROR, LONG, 45),  /* no output on http error codes >= 300 */
-    CINIT(UPLOAD, LONG, 46),       /* this is an upload */
-    CINIT(POST, LONG, 47),         /* HTTP POST method */
-    CINIT(DIRLISTONLY, LONG, 48),  /* return bare names when listing directories */
-
-    CINIT(APPEND, LONG, 50),       /* Append instead of overwrite on upload! */
-
-    /* Specify whether to read the user+password from the .netrc or the URL.
-    * This must be one of the CURL_NETRC_* enums below. */
-    CINIT(NETRC, LONG, 51),
-
-    CINIT(FOLLOWLOCATION, LONG, 52),  /* use Location: Luke! */
-
-    CINIT(TRANSFERTEXT, LONG, 53), /* transfer data in text/ASCII format */
-    CINIT(PUT, LONG, 54),          /* HTTP PUT */
-
-    /* 55 = OBSOLETE */
-
-    /* Function that will be called instead of the internal progress display
-    * function. This function should be defined as the curl_progress_callback
-    * prototype defines. */
-    CINIT(PROGRESSFUNCTION, FUNCTIONPOINT, 56),
-
-    /* Data passed to the progress callback */
-    CINIT(PROGRESSDATA, OBJECTPOINT, 57),
-
-    /* We want the referrer field set automatically when following locations */
-    CINIT(AUTOREFERER, LONG, 58),
-
-    /* Port of the proxy, can be set in the proxy string as well with:
-     "[host]:[port]" */
-    CINIT(PROXYPORT, LONG, 59),
-
-    /* size of the POST input data, if strlen() is not good to use */
-    CINIT(POSTFIELDSIZE, LONG, 60),
-
-    /* tunnel non-http operations through a HTTP proxy */
-    CINIT(HTTPPROXYTUNNEL, LONG, 61),
-
-    /* Set the interface string to use as outgoing network interface */
-    CINIT(INTERFACE, OBJECTPOINT, 62),
-
-    /* Set the krb4/5 security level, this also enables krb4/5 awareness.  This
-    * is a string, 'clear', 'safe', 'confidential' or 'private'.  If the string
-    * is set but doesn't match one of these, 'private' will be used.  */
-    CINIT(KRBLEVEL, OBJECTPOINT, 63),
-
-    /* Set if we should verify the peer in ssl handshake, set 1 to verify. */
-    CINIT(SSL_VERIFYPEER, LONG, 64),
-
-    /* The CApath or CAfile used to validate the peer certificate
-     this option is used only if SSL_VERIFYPEER is true */
-    CINIT(CAINFO, OBJECTPOINT, 65),
-
-    /* 66 = OBSOLETE */
-    /* 67 = OBSOLETE */
-
-    /* Maximum number of http redirects to follow */
-    CINIT(MAXREDIRS, LONG, 68),
-
-    /* Pass a long set to 1 to get the date of the requested document (if
-     possible)! Pass a zero to shut it off. */
-    CINIT(FILETIME, LONG, 69),
-
-    /* This points to a linked list of telnet options */
-    CINIT(TELNETOPTIONS, OBJECTPOINT, 70),
-
-    /* Max amount of cached alive connections */
-    CINIT(MAXCONNECTS, LONG, 71),
-
-    /* What policy to use when closing connections when the cache is filled
-     up */
-    CINIT(CLOSEPOLICY, LONG, 72),
-
-    /* 73 = OBSOLETE */
-
-    /* Set to explicitly use a new connection for the upcoming transfer.
-     Do not use this unless you're absolutely sure of this, as it makes the
-     operation slower and is less friendly for the network. */
-    CINIT(FRESH_CONNECT, LONG, 74),
-
-    /* Set to explicitly forbid the upcoming transfer's connection to be re-used
-     when done. Do not use this unless you're absolutely sure of this, as it
-     makes the operation slower and is less friendly for the network. */
-    CINIT(FORBID_REUSE, LONG, 75),
-
-    /* Set to a file name that contains random data for libcurl to use to
-     seed the random engine when doing SSL connects. */
-    CINIT(RANDOM_FILE, OBJECTPOINT, 76),
-
-    /* Set to the Entropy Gathering Daemon socket pathname */
-    CINIT(EGDSOCKET, OBJECTPOINT, 77),
-
-    /* Time-out connect operations after this amount of seconds, if connects
-     are OK within this time, then fine... This only aborts the connect
-     phase. [Only works on unix-style/SIGALRM operating systems] */
-    CINIT(CONNECTTIMEOUT, LONG, 78),
-
-    /* Function that will be called to store headers (instead of fwrite). The
-    * parameters will use fwrite() syntax, make sure to follow them. */
-    CINIT(HEADERFUNCTION, FUNCTIONPOINT, 79),
-
-    /* Set this to force the HTTP request to get back to GET. Only really usable
-     if POST, PUT or a custom request have been used first.
-    */
-    CINIT(HTTPGET, LONG, 80),
-
-    /* Set if we should verify the Common name from the peer certificate in ssl
-    * handshake, set 1 to check existence, 2 to ensure that it matches the
-    * provided hostname. */
-    CINIT(SSL_VERIFYHOST, LONG, 81),
-
-    /* Specify which file name to write all known cookies in after completed
-     operation. Set file name to "-" (dash) to make it go to stdout. */
-    CINIT(COOKIEJAR, OBJECTPOINT, 82),
-
-    /* Specify which SSL ciphers to use */
-    CINIT(SSL_CIPHER_LIST, OBJECTPOINT, 83),
-
-    /* Specify which HTTP version to use! This must be set to one of the
-     CURL_HTTP_VERSION* enums set below. */
-    CINIT(HTTP_VERSION, LONG, 84),
-
-    /* Specifically switch on or off the FTP engine's use of the EPSV command. By
-     default, that one will always be attempted before the more traditional
-     PASV command. */
-    CINIT(FTP_USE_EPSV, LONG, 85),
-
-    /* type of the file keeping your SSL-certificate ("DER", "PEM", "ENG") */
-    CINIT(SSLCERTTYPE, OBJECTPOINT, 86),
-
-    /* name of the file keeping your private SSL-key */
-    CINIT(SSLKEY, OBJECTPOINT, 87),
-
-    /* type of the file keeping your private SSL-key ("DER", "PEM", "ENG") */
-    CINIT(SSLKEYTYPE, OBJECTPOINT, 88),
-
-    /* crypto engine for the SSL-sub system */
-    CINIT(SSLENGINE, OBJECTPOINT, 89),
-
-    /* set the crypto engine for the SSL-sub system as default
-     the param has no meaning...
-    */
-    CINIT(SSLENGINE_DEFAULT, LONG, 90),
-
-    /* Non-zero value means to use the global dns cache */
-    CINIT(DNS_USE_GLOBAL_CACHE, LONG, 91), /* To become OBSOLETE soon */
-
-    /* DNS cache timeout */
-    CINIT(DNS_CACHE_TIMEOUT, LONG, 92),
-
-    /* send linked-list of pre-transfer QUOTE commands (Wesley Laxton)*/
-    CINIT(PREQUOTE, OBJECTPOINT, 93),
-
-    /* set the debug function */
-    CINIT(DEBUGFUNCTION, FUNCTIONPOINT, 94),
-
-    /* set the data for the debug function */
-    CINIT(DEBUGDATA, OBJECTPOINT, 95),
-
-    /* mark this as start of a cookie session */
-    CINIT(COOKIESESSION, LONG, 96),
-
-    /* The CApath directory used to validate the peer certificate
-     this option is used only if SSL_VERIFYPEER is true */
-    CINIT(CAPATH, OBJECTPOINT, 97),
-
-    /* Instruct libcurl to use a smaller receive buffer */
-    CINIT(BUFFERSIZE, LONG, 98),
-
-    /* Instruct libcurl to not use any signal/alarm handlers, even when using
-     timeouts. This option is useful for multi-threaded applications.
-     See libcurl-the-guide for more background information. */
-    CINIT(NOSIGNAL, LONG, 99),
-
-    /* Provide a CURLShare for mutexing non-ts data */
-    CINIT(SHARE, OBJECTPOINT, 100),
-
-    /* indicates type of proxy. accepted values are CURLPROXY_HTTP (default),
-     CURLPROXY_SOCKS4, CURLPROXY_SOCKS4A and CURLPROXY_SOCKS5. */
-    CINIT(PROXYTYPE, LONG, 101),
-
-    /* Set the Accept-Encoding string. Use this to tell a server you would like
-     the response to be compressed. */
-    CINIT(ENCODING, OBJECTPOINT, 102),
-
-    /* Set pointer to private data */
-    CINIT(PRIVATE, OBJECTPOINT, 103),
-
-    /* Set aliases for HTTP 200 in the HTTP Response header */
-    CINIT(HTTP200ALIASES, OBJECTPOINT, 104),
-
-    /* Continue to send authentication (user+password) when following locations,
-     even when hostname changed. This can potentially send off the name
-     and password to whatever host the server decides. */
-    CINIT(UNRESTRICTED_AUTH, LONG, 105),
-
-    /* Specifically switch on or off the FTP engine's use of the EPRT command ( it
-     also disables the LPRT attempt). By default, those ones will always be
-     attempted before the good old traditional PORT command. */
-    CINIT(FTP_USE_EPRT, LONG, 106),
-
-    /* Set this to a bitmask value to enable the particular authentications
-     methods you like. Use this in combination with CURLOPT_USERPWD.
-     Note that setting multiple bits may cause extra network round-trips. */
-    CINIT(HTTPAUTH, LONG, 107),
-
-    /* Set the ssl context callback function, currently only for OpenSSL ssl_ctx
-     in second argument. The function must be matching the
-     curl_ssl_ctx_callback proto. */
-    CINIT(SSL_CTX_FUNCTION, FUNCTIONPOINT, 108),
-
-    /* Set the userdata for the ssl context callback function's third
-     argument */
-    CINIT(SSL_CTX_DATA, OBJECTPOINT, 109),
-
-    /* FTP Option that causes missing dirs to be created on the remote server */
-    CINIT(FTP_CREATE_MISSING_DIRS, LONG, 110),
-
-    /* Set this to a bitmask value to enable the particular authentications
-     methods you like. Use this in combination with CURLOPT_PROXYUSERPWD.
-     Note that setting multiple bits may cause extra network round-trips. */
-    CINIT(PROXYAUTH, LONG, 111),
-
-    /* FTP option that changes the timeout, in seconds, associated with
-     getting a response.  This is different from transfer timeout time and
-     essentially places a demand on the FTP server to acknowledge commands
-     in a timely manner. */
-    CINIT(FTP_RESPONSE_TIMEOUT, LONG, 112),
-
-    /* Set this option to one of the CURL_IPRESOLVE_* defines (see below) to
-     tell libcurl to resolve names to those IP versions only. This only has
-     affect on systems with support for more than one, i.e IPv4 _and_ IPv6. */
-    CINIT(IPRESOLVE, LONG, 113),
-
-    /* Set this option to limit the size of a file that will be downloaded from
-     an HTTP or FTP server.
-
-     Note there is also _LARGE version which adds large file support for
-     platforms which have larger off_t sizes.  See MAXFILESIZE_LARGE below. */
-    CINIT(MAXFILESIZE, LONG, 114),
-
-    /* See the comment for INFILESIZE above, but in short, specifies
-    * the size of the file being uploaded.  -1 means unknown.
-    */
-    CINIT(INFILESIZE_LARGE, OFF_T, 115),
-
-    /* Sets the continuation offset.  There is also a LONG version of this;
-    * look above for RESUME_FROM.
-    */
-    CINIT(RESUME_FROM_LARGE, OFF_T, 116),
-
-    /* Sets the maximum size of data that will be downloaded from
-    * an HTTP or FTP server.  See MAXFILESIZE above for the LONG version.
-    */
-    CINIT(MAXFILESIZE_LARGE, OFF_T, 117),
-
-    /* Set this option to the file name of your .netrc file you want libcurl
-     to parse (using the CURLOPT_NETRC option). If not set, libcurl will do
-     a poor attempt to find the user's home directory and check for a .netrc
-     file in there. */
-    CINIT(NETRC_FILE, OBJECTPOINT, 118),
-
-    /* Enable SSL/TLS for FTP, pick one of:
-     CURLFTPSSL_TRY     - try using SSL, proceed anyway otherwise
-     CURLFTPSSL_CONTROL - SSL for the control connection or fail
-     CURLFTPSSL_ALL     - SSL for all communication or fail
-    */
-    CINIT(USE_SSL, LONG, 119),
-
-    /* The _LARGE version of the standard POSTFIELDSIZE option */
-    CINIT(POSTFIELDSIZE_LARGE, OFF_T, 120),
-
-    /* Enable/disable the TCP Nagle algorithm */
-    CINIT(TCP_NODELAY, LONG, 121),
-
-    /* 122 OBSOLETE, used in 7.12.3. Gone in 7.13.0 */
-    /* 123 OBSOLETE. Gone in 7.16.0 */
-    /* 124 OBSOLETE, used in 7.12.3. Gone in 7.13.0 */
-    /* 125 OBSOLETE, used in 7.12.3. Gone in 7.13.0 */
-    /* 126 OBSOLETE, used in 7.12.3. Gone in 7.13.0 */
-    /* 127 OBSOLETE. Gone in 7.16.0 */
-    /* 128 OBSOLETE. Gone in 7.16.0 */
-
-    /* When FTP over SSL/TLS is selected (with CURLOPT_USE_SSL), this option
-     can be used to change libcurl's default action which is to first try
-     "AUTH SSL" and then "AUTH TLS" in this order, and proceed when a OK
-     response has been received.
-
-     Available parameters are:
-     CURLFTPAUTH_DEFAULT - let libcurl decide
-     CURLFTPAUTH_SSL     - try "AUTH SSL" first, then TLS
-     CURLFTPAUTH_TLS     - try "AUTH TLS" first, then SSL
-    */
-    CINIT(FTPSSLAUTH, LONG, 129),
-
-    CINIT(IOCTLFUNCTION, FUNCTIONPOINT, 130),
-    CINIT(IOCTLDATA, OBJECTPOINT, 131),
-
-    /* 132 OBSOLETE. Gone in 7.16.0 */
-    /* 133 OBSOLETE. Gone in 7.16.0 */
-
-    /* zero terminated string for pass on to the FTP server when asked for
-     "account" info */
-    CINIT(FTP_ACCOUNT, OBJECTPOINT, 134),
-
-    /* ignore Content-Length */
-    CINIT(IGNORE_CONTENT_LENGTH, LONG, 136),
-
-    /* Set to non-zero to skip the IP address received in a 227 PASV FTP server
-     response. Typically used for FTP-SSL purposes but is not restricted to
-     that. libcurl will then instead use the same IP address it used for the
-     control connection. */
-    CINIT(FTP_SKIP_PASV_IP, LONG, 137),
-
-    /* Select "file method" to use when doing FTP, see the curl_ftpmethod
-     above. */
-    CINIT(FTP_FILEMETHOD, LONG, 138),
-
-    /* Local port number to bind the socket to */
-    CINIT(LOCALPORT, LONG, 139),
-
-    /* Number of ports to try, including the first one set with LOCALPORT.
-     Thus, setting it to 1 will make no additional attempts but the first.
-    */
-    CINIT(LOCALPORTRANGE, LONG, 140),
-
-    /* no transfer, set up connection and let application use the socket by
-     extracting it with CURLINFO_LASTSOCKET */
-    CINIT(CONNECT_ONLY, LONG, 141),
-
-    /* Function that will be called to convert from the
-     network encoding (instead of using the iconv calls in libcurl) */
-    CINIT(CONV_FROM_NETWORK_FUNCTION, FUNCTIONPOINT, 142),
-
-    /* Function that will be called to convert to the
-     network encoding (instead of using the iconv calls in libcurl) */
-    CINIT(CONV_TO_NETWORK_FUNCTION, FUNCTIONPOINT, 143),
-
-    /* Function that will be called to convert from UTF8
-     (instead of using the iconv calls in libcurl)
-     Note that this is used only for SSL certificate processing */
-    CINIT(CONV_FROM_UTF8_FUNCTION, FUNCTIONPOINT, 144),
-
-    /* if the connection proceeds too quickly then need to slow it down */
-    /* limit-rate: maximum number of bytes per second to send or receive */
-    CINIT(MAX_SEND_SPEED_LARGE, OFF_T, 145),
-    CINIT(MAX_RECV_SPEED_LARGE, OFF_T, 146),
-
-    /* Pointer to command string to send if USER/PASS fails. */
-    CINIT(FTP_ALTERNATIVE_TO_USER, OBJECTPOINT, 147),
-
-    /* callback function for setting socket options */
-    CINIT(SOCKOPTFUNCTION, FUNCTIONPOINT, 148),
-    CINIT(SOCKOPTDATA, OBJECTPOINT, 149),
-
-    /* set to 0 to disable session ID re-use for this transfer, default is
-     enabled (== 1) */
-    CINIT(SSL_SESSIONID_CACHE, LONG, 150),
-
-    /* allowed SSH authentication methods */
-    CINIT(SSH_AUTH_TYPES, LONG, 151),
-
-    /* Used by scp/sftp to do public/private key authentication */
-    CINIT(SSH_PUBLIC_KEYFILE, OBJECTPOINT, 152),
-    CINIT(SSH_PRIVATE_KEYFILE, OBJECTPOINT, 153),
-
-    /* Send CCC (Clear Command Channel) after authentication */
-    CINIT(FTP_SSL_CCC, LONG, 154),
-
-    /* Same as TIMEOUT and CONNECTTIMEOUT, but with ms resolution */
-    CINIT(TIMEOUT_MS, LONG, 155),
-    CINIT(CONNECTTIMEOUT_MS, LONG, 156),
-
-    /* set to zero to disable the libcurl's decoding and thus pass the raw body
-     data to the application even when it is encoded/compressed */
-    CINIT(HTTP_TRANSFER_DECODING, LONG, 157),
-    CINIT(HTTP_CONTENT_DECODING, LONG, 158),
-
-    /* Permission used when creating new files and directories on the remote
-     server for protocols that support it, SFTP/SCP/FILE */
-    CINIT(NEW_FILE_PERMS, LONG, 159),
-    CINIT(NEW_DIRECTORY_PERMS, LONG, 160),
-
-    /* Set the behaviour of POST when redirecting. Values must be set to one
-     of CURL_REDIR* defines below. This used to be called CURLOPT_POST301 */
-    CINIT(POSTREDIR, LONG, 161),
-
-    /* used by scp/sftp to verify the host's public key */
-    CINIT(SSH_HOST_PUBLIC_KEY_MD5, OBJECTPOINT, 162),
-
-    /* Callback function for opening socket (instead of socket(2)). Optionally,
-     callback is able change the address or refuse to connect returning
-     CURL_SOCKET_BAD.  The callback should have type
-     curl_opensocket_callback */
-    CINIT(OPENSOCKETFUNCTION, FUNCTIONPOINT, 163),
-    CINIT(OPENSOCKETDATA, OBJECTPOINT, 164),
-
-    /* POST volatile input fields. */
-    CINIT(COPYPOSTFIELDS, OBJECTPOINT, 165),
-
-    /* set transfer mode (;type=<a|i>) when doing FTP via an HTTP proxy */
-    CINIT(PROXY_TRANSFER_MODE, LONG, 166),
-
-    /* Callback function for seeking in the input stream */
-    CINIT(SEEKFUNCTION, FUNCTIONPOINT, 167),
-    CINIT(SEEKDATA, OBJECTPOINT, 168),
-
-    /* CRL file */
-    CINIT(CRLFILE, OBJECTPOINT, 169),
-
-    /* Issuer certificate */
-    CINIT(ISSUERCERT, OBJECTPOINT, 170),
-
-    /* (IPv6) Address scope */
-    CINIT(ADDRESS_SCOPE, LONG, 171),
-
-    /* Collect certificate chain info and allow it to get retrievable with
-     CURLINFO_CERTINFO after the transfer is complete. (Unfortunately) only
-     working with OpenSSL-powered builds. */
-    CINIT(CERTINFO, LONG, 172),
-
-    /* "name" and "pwd" to use when fetching. */
-    CINIT(USERNAME, OBJECTPOINT, 173),
-    CINIT(PASSWORD, OBJECTPOINT, 174),
-
-    /* "name" and "pwd" to use with Proxy when fetching. */
-    CINIT(PROXYUSERNAME, OBJECTPOINT, 175),
-    CINIT(PROXYPASSWORD, OBJECTPOINT, 176),
-
-    CURLOPT_LASTENTRY /* the last unused */
-};
-
-enum CURLFORMcode {
-  CURL_FORMADD_OK, /* first, no error */
-
-  CURL_FORMADD_MEMORY,
-  CURL_FORMADD_OPTION_TWICE,
-  CURL_FORMADD_NULL,
-  CURL_FORMADD_UNKNOWN_OPTION,
-  CURL_FORMADD_INCOMPLETE,
-  CURL_FORMADD_ILLEGAL_ARRAY,
-  CURL_FORMADD_DISABLED, /* libcurl was built with this disabled */
-
-  CURL_FORMADD_LAST /* last */
-};
-
-#define CFINIT(%1) CURLFORM_%1
-
-enum CURLformoption {
-  CFINIT(NOTHING),        /********* the first one is unused ************/
-
-  /*  */
-  CFINIT(COPYNAME),
-  CFINIT(PTRNAME),
-  CFINIT(NAMELENGTH),
-  CFINIT(COPYCONTENTS),
-  CFINIT(PTRCONTENTS),
-  CFINIT(CONTENTSLENGTH),
-  CFINIT(FILECONTENT),
-  CFINIT(ARRAY),
-  CFINIT(OBSOLETE),
-  CFINIT(FILE),
-
-  CFINIT(BUFFER),
-  CFINIT(BUFFERPTR),
-  CFINIT(BUFFERLENGTH),
-
-  CFINIT(CONTENTTYPE),
-  CFINIT(CONTENTHEADER),
-  CFINIT(FILENAME),
-  CFINIT(END),
-  CFINIT(OBSOLETE2),
-
-  CFINIT(STREAM),
-
-  CURLFORM_LASTENTRY /* the last unused */
-};
-
-
 /**
- * Initialize a cUrl session
- * @return Handle
- */
-native Handle:curl_init();
-
-/**
- * Close cUrl session
- * @param ch Curl Handle
- * @return True if success, false otherwise
- */
-native curl_close(Handle:ch);
-
-/**
- * Reset all options of a libcurl session handle
- * @param ch Curl Handle
- * @return True if success, false otherwise
- */
-native curl_reset(Handle:ch);
-
-/**
- * Return the last error number
- * @param ch Curl Handle
- * @return CURLcode
- */
-native CURLcode:curl_errno(Handle:ch);
-
-/**
- * Set an cell option for a cURL transfer
- * @param ch Curl Handle
- * @param option CURLoption (@see curl_is_cell_option)
- * @param value cell
- * @return CURLcode
- */
-native CURLcode:curl_setopt_cell(Handle:ch, CURLoption:option, value);
-
-/**
- * Set an string option for a cURL transfer
- * @param ch Curl Handle
- * @param option CURLoption (@see curl_is_string_option)
- * @param value String
- * @return CURLcode
- */
-native CURLcode:curl_setopt_string(Handle:ch, CURLoption:option, const value[]);
-
-/**
- * Set an handle option for a cURL transfer
- * @param Handle curl
- * @param CURLoption option
- * @param ch Curl Handle
- * @param option CURLoption (@see curl_is_string_option)
- * @param Handle value
- * @return CURLcode
- */
-native CURLcode:curl_setopt_handle(Handle:ch, CURLoption:option, Handle:handle);
-
-
-/**
- * Callback used by curl_exec, curl_thread_exec
+ * This function converts the given input string to a URL encoded string.
+ * All input characters that are not a-z, A-Z, 0-9, '-', '.', '_' or '~' are converted to their "URL escaped" version 
+ * (%NN where NN is a two-digit hexadecimal number).
+ * see also https://curl.haxx.se/libcurl/c/curl_easy_escape.html
  *
- * @param ch Curl Handle
- * @param code CURLcode (Result of performing)
- * @param response (String server response)
- * @param data (Data you passed)
- * public OnExecComplete(Handle:ch, CURLcode:code, const response[], any:data)
+ * @param handle            Curl handle
+ * @param url               URL for encoding
+ * @param buffer            Buffer to copy encoded url
+ * @param maxlen            Maximum size of the buffer
+ *
+ * @noreturn
+ * @error                   If passed curl handle is not a valid
  */
+native curl_easy_escape(const CURL:handle, const url[], buffer[], const maxlen);
 
 /**
- * Perform a cURL session with blocking gameplay
- * @param ch Curl Handle
- * @param callback String (@see OnExecComplete)
- * @param value any data you passed
- * @return CURLcode
+ * This function converts the given URL encoded input string to a "plain string".
+ * All input characters that are URL encoded (%XX where XX is a two-digit hexadecimal number) are converted to their binary versions.
+ * see also https://curl.haxx.se/libcurl/c/curl_easy_unescape.html
+ *
+ * @param handle            Curl handle
+ * @param url               URL for decoding
+ * @param buffer            Buffer to copy decoded url
+ * @param maxlen            Maximum size of the buffer
+ *
+ * @noreturn
+ * @error                   If passed curl handle is not a valid
  */
-native CURLcode:curl_exec(Handle:ch, const callback[] = "", any:value = 0);
+native curl_easy_unescape(const CURL: handle, const url[], buffer[], const maxlen);
 
 /**
- * Perform a threaded cURL session without blocking gameplay
- * @param ch Curl Handle
- * @param callback String (@see OnExecComplete)
- * @param value any data you passed
- * @return True on success, otherwise False
+ * This function must be the first function to call, and it returns a CURL easy handle that you must
+ * use as input to other functions in the easy interface. This call MUST have a corresponding call to curl_easy_cleanup
+ * when the operation is complete.
+ * see also https://curl.haxx.se/libcurl/c/curl_easy_init.html 
+ *
+ * @return                  Curl handle
  */
-native CURLcode:curl_thread_exec(Handle:ch, const callback[] = "", any:value = 0);
+native CURL: curl_easy_init();
 
 /**
- * Copy a cURL handle along with all of its preferences
- * @param ch Curl Handle
- * @return Handle
+ * Invoke this function after curl_easy_init and all the curl_easy_setopt calls are made, and will perform the transfer as described in the options.
+ * It must be called with the same curl handle as input as the curl_easy_init call returned.
+ * You can do any amount of calls to curl_easy_perform while using the same curl handle. If you intend to transfer more than one file, you are even 
+ * encouraged to do so. libcurl will then attempt to re-use the same connection for the following transfers, thus making the operations faster, 
+ * less CPU intense and using less network resources. Just note that you will have to use curl_easy_setopt between the invokes to set options 
+ * for the following curl_easy_perform.
+ * see also https://curl.haxx.se/libcurl/c/curl_easy_perform.html
+ *
+ * @param handle            Curl handle
+ * @param callback          The forward to call after request completed
+ * @param data              Any data to pass to the callback forward
+ * @param len               Maximum size of the data
+ *
+ * @noreturn
+ * @error                   If passed curl handle is not a valid or or undefined callback function
  */
-native Handle:curl_duphandle(Handle:curl);
+native curl_easy_perform(const CURL: handle, const callback[], const data[] = {}, const len = 0);
 
 /**
- * URL encodes the given string
- * @param ch Curl Handle
- * @param val given String
- * @param to String (Buffer to copy to)
- * @param length String buffer length
- * @return True on success, otherwise False
+ * This function is used to tell libcurl how to behave. By setting the appropriate options, the application can change libcurl's behavior.
+ * All options are set with an option followed by a parameter. That parameter can be a long, a function pointer, an object pointer or a curl_off_t, 
+ * depending on what the specific option expects. Read this manual carefully as bad input values may cause libcurl to behave badly! 
+ * You can only set one option in each function call. A typical application uses many curl_easy_setopt calls in the setup phase.
+ * Options set with this function call are valid for all forthcoming transfers performed using this handle. The options are not in any way reset between
+ * transfers, so if you want subsequent transfers with different options, you must change them between the transfers. You can optionally reset all options
+ * back to internal default with curl_easy_reset.
+ * see also https://curl.haxx.se/libcurl/c/curl_easy_setopt.html
+ *
+ * @param handle            Curl handle
+ * @param option            Necessary option (see CURLoption enum)
+ *
+ * @return                  If the operation was successful, CURLE_OK is returned. Otherwise an appropriate error code will be returned.
+ * @error                   If passed curl handle is not a valid or or undefined option
  */
-native curl_escape(Handle:curl, const val[], to[], length);
+native CURLcode: curl_easy_setopt(const CURL: handle, const CURLoption: option, any: ...);
 
 /**
- * URL decodes the given string
- * @param ch Curl Handle
- * @param val given String
- * @param to String (Buffer to copy to)
- * @param length String buffer length
- * @return True on success, otherwise False
+ * This function must be the last function to call for an easy session. It is the opposite of the curl_easy_init function and must be called
+ * with the same handle as input that a curl_easy_init call returned.
+ * This might close all connections this handle has used and possibly has kept open until now - unless it was attached to a multi handle while
+ * doing the transfers. Don't call this function if you intend to transfer more files, re-using handles is a key to good performance with libcurl.
+ * see also https://curl.haxx.se/libcurl/c/curl_easy_cleanup.html
+ *
+ * @param handle            Curl handle
+ *
+ * @noreturn
+ * @error                   If passed curl handle is not a valid
  */
-native curl_unescape(Handle:curl, const val[], to[], length);
+native curl_easy_cleanup(const CURL: handle);
 
 /**
- * Initialize curl_slist struct
- * @return Handle
+ * Re-initializes all options previously set on a specified CURL handle to the default values. This puts back the handle to the same state as it
+ * was in when it was just created with curl_easy_init.
+ * It does not change the following information kept in the handle: live connections, the Session ID cache, the DNS cache, the cookies and shares.
+ * see also https://curl.haxx.se/libcurl/c/curl_easy_reset.html
+ *
+ * @param handle            Curl handle
+ *
+ * @noreturn
+ * @error                   If passed curl handle is not a valid
  */
-native Handle:curl_create_slist();
+native curl_easy_reset(const CURL: handle);
 
 /**
- * Close curl_slist struct
- * @param slist Handle
- * @return True on success, otherwise False
+ * Request internal information from the curl session with this function. The third argument MUST be a buffer for value (num, string, float) 
+ * The data pointed-to will be filled in accordingly and can be relied upon only if the function returns CURLE_OK. Use this function AFTER 
+ * a performed transfer if you want to get transfer related data.
+ * see also https://curl.haxx.se/libcurl/c/curl_easy_getinfo.html
+ *
+ * @param handle            Curl handle
+ * @param info              Necessary info (see CURLINFO enum)
+ *
+ * @return                  If the operation was successful, CURLE_OK is returned. Otherwise an appropriate error code will be returned.
+ * @error                   If passed curl handle is not a valid or or undefined info
  */
-native curl_destroy_slist(Handle:slist);
+native CURLcode: curl_easy_getinfo(const CURL: handle, const CURLINFO: info, any: ...);
 
 /**
- * Appends string to slist struct
- * @param slist Handle
- * @param str String
- * @return True on success, otherwise False
+ * The function receives a text description of the specified error code.
+ *
+ * @param code              Error code (see CURLcode enum)
+ * @param buffer            Buffer to copy error description
+ * @param maxlen            Maximum size of the buffer
+ *
+ * @noreturn
  */
-native curl_slist_append(Handle:slist, const str[]);
+native curl_easy_strerror(const CURLcode: code, buffer[], const maxlen);
 
 /**
- * Initialize CurlWebForm (pair of curl_httppost struct objects)
- * @return Handle
- */
-native Handle:curl_create_form();
+* @deprecated               This function does not catch all cases.
+*/
+#pragma deprecated This function is deprecated. Do not use!
+native CURLFORMcode: curl_formadd(&curl_httppost: first, &curl_httppost: last, any: ...);
 
 /**
- * Destroy CurlWebForm
- * @param form Handle
- * @return True on success, otherwise False
- */
-native Handle:curl_destroy_form(Handle:form);
+* @deprecated               This function does not catch all cases.
+*/
+#pragma deprecated This function is deprecated. Do not use!
+native curl_formfree(&curl_httppost: first);
 
 /**
- * Add a section to a multipart/formdata HTTP POST
- * @param form Handle
- * any...
+ * This function appends a string to a linked list of strings.
+ * The existing list should be passed as the first argument and the new list is returned from this function.
+ * Pass in SList_Empty (0) in the list argument to create a new list. The specified string has been appended when this function returns.
+ * see also https://curl.haxx.se/libcurl/c/curl_slist_append.html
+ *
+ * @param list              Existing list
+ * @param string            Some string
+ *
+ * @return                  A null pointer is returned if anything went wrong, otherwise the new list pointer is returned. 
+ *                          To avoid overwriting an existing non-empty list on failure, the new list should be returned to a 
+ *                          temporary variable which can be tested for SList_Empty (0) before updating the original list pointer
  */
-native CURLFORMcode:curl_form_add(Handle:form, any:...);
+native curl_slist: curl_slist_append(curl_slist: list, string[]);
+
+/**
+ * This function removes all traces of a previously built curl_slist linked list.
+ * see also https://curl.haxx.se/libcurl/c/curl_slist_free_all.html 
+ *
+ * @param list              Existing list
+ *
+ * @noreturn
+ */
+native curl_slist_free_all(curl_slist: list);
+
+/**
+ * Returns a human readable string with the version number of libcurl and some of its important components (like OpenSSL version).
+ * see also https://curl.haxx.se/libcurl/c/curl_version.html
+ *
+ * @param buffer            Buffer to copy string with the version number
+ * @param maxlen            Maximum size of the buffer
+ *
+ * @noreturn
+ */
+native curl_version(buffer[], const maxlen);

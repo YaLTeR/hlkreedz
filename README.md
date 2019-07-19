@@ -6,6 +6,14 @@ This repository contains AMX Mod X plugins for Half-Life jump servers, extended 
 
 hl_kreedz provides essential functionality such as start and stop buttons, timer and leaderboards.
 
+## hl_kreedz_discord
+
+hl_kreedz_discord can send info about new WRs to a Discord webhook, so a bot posts the top 5 records (customizable) of the map where a new WR has been done. Requires setting the Discord webhook token with this cvar:
+
+`kz_discord_webhook "https://ptb.discordapp.com/api/webhooks/some_number/some_token"`
+
+For the plugin to work, it's also necessary to enable the curl module, writing *curl* in an empty line of the *config/modules.ini* file.
+
 ## q_jumpstats
 
 q_jumpstats monitors and records players' high scores in various types of jumps.
@@ -20,19 +28,5 @@ Doing `cd` into your _ag/maps_ folder and executing `ls *.bsp >> ../addons/amxmo
 ## speclist
 
 speclist provides a command to toggle a list of spectators watching you
-
-## hl_kreedz_discord
-
-hl_kreedz_discord can send info about new WRs to a service (not directly to the webhook as this AMXX cURL doesn't support SSL yet), in the format of a JSON that a Discord webhook can understand so that a Discord bot posts that info to a chat. Requires setting the URL of the service with this cvar:
-
-`kz_discord_service "http://example.domain/whatever/some_service_name.php"`
-
-And the Discord webhook token with this cvar:
-
-`kz_discord_webhook "https://ptb.discordapp.com/api/webhooks/some_number/some_token"`
-
-For the plugin to work, it's also necessary to enable the curl module, writing *curl* in an empty line of the *config/modules.ini* file.
-The service is the *hlkz_service/discord.php* file, which should be public in your server (you need a PHP processor and a web server such as nginx that serves the file, and then point to the URL of the service file with the cvar).
-
 
 TODO: explain all the available commands for admins and players
