@@ -625,7 +625,7 @@ vote_random_map(id)
 		new mapName[32]
 		formatex(mapName, charsmax(mapName), "%s", T_LMaps[rand])
 		console_print(id, "Map to vote: %s", mapName)
-		client_cmd(id, "agmap %s", mapName)
+		client_cmd(id, "callvote agmap %s", mapName)
 	} else {
 		client_print(id, print_chat, "Sorry, an error happened when trying to get the map.")
 	}
