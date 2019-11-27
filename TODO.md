@@ -11,7 +11,7 @@ HLKreedz TODO:
 - [ ] Make /ljstats tops. Take into account cl_yawspeed (prohibited as it modifies side speed?).
 - [ ] Add jump count and max speed to leaderboards (maybe not to be displayed yet, or pure/pro-only because in noob cp/tp columns already take too much space).
 - [ ] Make /rtv display instructions on how to vote (for new AG players). Display a message saying that X player have just created a vote to change map immediately.
-- [ ] Add fireworks on new WR at end button position.
+- [x] Add fireworks on new WR at end button position.
 - [ ] Fix spectator mode. When a player teleports to start, the spectators watching him will see him as frozen where he was before teleporting.
 - [ ] Implement a tournament mode in HL KreedZ. See #7 for details.
 - [ ] Make spectator speed customizable per player (e.g.: /specspeed 500).
