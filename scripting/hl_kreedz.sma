@@ -3104,6 +3104,18 @@ FinishTimer(id)
 		server_cmd("agabort");
 		server_exec();
 
+		message_begin(MSG_BROADCAST,SVC_TEMPENTITY); //create firework entity
+		write_byte(TE_EXPLOSION);
+		write_coord(floatround(prevButtonOrigin[0])     );	// start position
+		write_coord(floatround(prevButtonOrigin[1])     );
+		write_coord(floatround(prevButtonOrigin[2]) + 100);
+		write_short(g_Firework);	// sprite index
+		write_byte(20); // scale
+		write_byte(10);	// framerate
+		write_byte(6);
+		message_end();
+		emit_sound(id, CHAN_AUTO, g_strSoundFirework, VOL_NORM, ATTN_NONE, 0, PITCH_NORM);
+		
 		if (IsCupMap() && (id == g_CupPlayer1 || id == g_CupPlayer2) && g_CupReady1 && g_CupReady2)
 		{
 			// Do stuff for the cup
