@@ -5655,7 +5655,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 		write_byte(10);	// framerate
 		write_byte(6);
 		message_end();
-		emit_sound(id, CHAN_AUTO, g_strSoundFirework, VOL_NORM, ATTN_IDLE, 0, PITCH_NORM);
+		emit_sound(id, CHAN_AUTO, g_strSoundFirework, VOL_NORM, ATTN_NONE, 0, PITCH_NORM);
 	}
 
 	if (g_RecordRun[id])
