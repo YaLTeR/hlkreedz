@@ -93,6 +93,8 @@
 #define REQ_BP2_BTN_ELECTRO2		(1<<0)
 #define REQ_BP2_BTN_ELECTRO1		(1<<1)
 
+#define TE_EXPLOSION 				3
+
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
 new const VERSION[] = "0.37";
@@ -337,6 +339,9 @@ new g_MaxPlayers;
 new g_PauseSprite;
 new g_TaskEnt;
 
+new g_Firework;
+new Float:prevButtonOrigin[3];
+
 new g_MapId;
 new g_Map[64];
 new g_EscapedMap[128];
@@ -438,6 +443,7 @@ new pcvar_sv_ag_match_running;
 new mfwd_hlkz_cheating;
 new mfwd_hlkz_worldrecord;
 
+new const g_strSoundFirework[ ] = "firework.wav";
 
 public plugin_precache()
 {
@@ -446,6 +452,8 @@ public plugin_precache()
 	precache_model("models/player/robo/robo.mdl");
 	precache_model("models/player/gordon/gordon.mdl");
 	precache_model("models/p_shotgun.mdl");
+	g_Firework = precache_model("sprites/firework.spr");
+	precache_sound(g_strSoundFirework);
 	//precache_model("models/boxy.mdl");
 }
 
@@ -3096,6 +3104,18 @@ FinishTimer(id)
 		server_cmd("agabort");
 		server_exec();
 
+		message_begin(MSG_BROADCAST,SVC_TEMPENTITY); //create firework entity
+		write_byte(TE_EXPLOSION);
+		write_coord(floatround(prevButtonOrigin[0])     );	// start position
+		write_coord(floatround(prevButtonOrigin[1])     );
+		write_coord(floatround(prevButtonOrigin[2]) + 100);
+		write_short(g_Firework);	// sprite index
+		write_byte(20); // scale
+		write_byte(10);	// framerate
+		write_byte(6);
+		message_end();
+		emit_sound(id, CHAN_AUTO, g_strSoundFirework, VOL_NORM, ATTN_NONE, 0, PITCH_NORM);
+		
 		if (IsCupMap() && (id == g_CupPlayer1 || id == g_CupPlayer2) && g_CupReady1 && g_CupReady2)
 		{
 			// Do stuff for the cup
@@ -3254,6 +3274,16 @@ BUTTON_TYPE:GetEntityButtonType(ent)
 		}
 		else if (IsStopEntityName(name))
 		{
+			new Float:origin[3];
+			fm_get_brush_entity_origin(ent, origin); // find origin of button for fireworks
+
+			// console_print(0, "origin[0]: %f", origin[0]);
+			// console_print(0, "origin[1]: %f", origin[1]);
+			// console_print(0, "origin[2]: %f", origin[2]);
+
+			prevButtonOrigin[0] = origin[0];
+			prevButtonOrigin[1] = origin[1];
+			prevButtonOrigin[2] = origin[2];
 			return BUTTON_FINISH;
 		}
 	}
@@ -3267,6 +3297,16 @@ BUTTON_TYPE:GetEntityButtonType(ent)
 		}
 		else if (IsStopEntityName(name))
 		{
+			new Float:origin[3];
+			fm_get_brush_entity_origin(ent, origin);  // find origin of button for fireworks
+
+			// console_print(0, "origin[0]: %f", origin[0]);
+			// console_print(0, "origin[1]: %f", origin[1]);
+			// console_print(0, "origin[2]: %f", origin[2]);
+
+			prevButtonOrigin[0] = origin[0];
+			prevButtonOrigin[1] = origin[1];
+			prevButtonOrigin[2] = origin[2];
 			return BUTTON_FINISH;
 		}
 	}
@@ -5612,6 +5652,22 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	{
 		new ret;
 		ExecuteForward(mfwd_hlkz_worldrecord, ret, id, kztime, topType, arr);
+
+		// console_print(0, "prevButtonOrigin[0]: %d", floatround(prevButtonOrigin[0]));
+		// console_print(0, "prevButtonOrigin[1]: %d", floatround(prevButtonOrigin[1]));
+		// console_print(0, "prevButtonOrigin[2]: %d", floatround(prevButtonOrigin[2]));
+
+		message_begin(MSG_BROADCAST,SVC_TEMPENTITY); //create firework entity
+		write_byte(TE_EXPLOSION);
+		write_coord(floatround(prevButtonOrigin[0])     );	// start position
+		write_coord(floatround(prevButtonOrigin[1])     );
+		write_coord(floatround(prevButtonOrigin[2]) + 100);
+		write_short(g_Firework);	// sprite index
+		write_byte(20); // scale
+		write_byte(10);	// framerate
+		write_byte(6);
+		message_end();
+		emit_sound(id, CHAN_AUTO, g_strSoundFirework, VOL_NORM, ATTN_NONE, 0, PITCH_NORM);
 	}
 
 	if (g_RecordRun[id])
