@@ -95,6 +95,58 @@
 
 #define TE_EXPLOSION 				3
 
+enum _:REPLAY
+{
+  //RP_VERSION,
+	Float:RP_TIME,
+	Float:RP_ORIGIN[3],
+	Float:RP_ANGLES[3],
+	RP_BUTTONS
+}
+
+enum _:CP_TYPES
+{
+	CP_TYPE_SPEC,
+	CP_TYPE_CURRENT,
+	CP_TYPE_OLD,
+	CP_TYPE_CUSTOM_START, // kz_set_custom_start position.
+	CP_TYPE_START,        // Start button.
+	CP_TYPE_DEFAULT_START // Standard spawn
+}
+
+enum _:CP_DATA
+{
+	bool:CP_VALID,			// is checkpoint valid
+	CP_FLAGS,				// pev flags
+	Float:CP_ORIGIN[3],		// position
+	Float:CP_ANGLES[3],		// view angles
+	Float:CP_VIEWOFS[3],	// view offset
+	Float:CP_VELOCITY[3],	// velocity
+	Float:CP_HEALTH,		// health
+	Float:CP_ARMOR,			// armor
+	bool:CP_LONGJUMP,		// longjump
+}
+
+enum _:COUNTERS
+{
+	COUNTER_CP,
+	COUNTER_TP,
+	COUNTER_SP,
+}
+
+enum BUTTON_TYPE
+{
+	BUTTON_START,
+	BUTTON_FINISH,
+	BUTTON_NOT,
+}
+
+enum _:WEAPON
+{
+	WEAPON_CLASSNAME[32],
+	Float:WEAPON_ORIGIN[3]
+}
+
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
 new const VERSION[] = "0.37";
@@ -112,6 +164,8 @@ new const PLUGIN_CFG_SHORTENED[] = "hlkz";
 new const MYSQL_LOG_FILENAME[] = "kz_mysql.log";
 new const MAP_POOL_FILE[] = "map_pool.ini";
 new const CUP_FILE[] = "cup.ini";
+
+new const FIREWORK_SOUND[] = "firework.wav";
 
 //new const staleStatTime = 30 * 24 * 60 * 60;	// Keep old stat for this amount of time
 //new const keepStatPlayers = 100;				// Keep this amount of players in stat even if stale
@@ -204,58 +258,6 @@ new const g_DamageBoostEntities[][] = {
 	"rpg_rocket"			// DMG_BLAST
 };
 
-enum _:REPLAY
-{
-  //RP_VERSION,
-	Float:RP_TIME,
-	Float:RP_ORIGIN[3],
-	Float:RP_ANGLES[3],
-	RP_BUTTONS
-}
-
-enum _:CP_TYPES
-{
-	CP_TYPE_SPEC,
-	CP_TYPE_CURRENT,
-	CP_TYPE_OLD,
-	CP_TYPE_CUSTOM_START, // kz_set_custom_start position.
-	CP_TYPE_START,        // Start button.
-	CP_TYPE_DEFAULT_START // Standard spawn
-}
-
-enum _:CP_DATA
-{
-	bool:CP_VALID,			// is checkpoint valid
-	CP_FLAGS,				// pev flags
-	Float:CP_ORIGIN[3],		// position
-	Float:CP_ANGLES[3],		// view angles
-	Float:CP_VIEWOFS[3],	// view offset
-	Float:CP_VELOCITY[3],	// velocity
-	Float:CP_HEALTH,		// health
-	Float:CP_ARMOR,			// armor
-	bool:CP_LONGJUMP,		// longjump
-}
-
-enum _:COUNTERS
-{
-	COUNTER_CP,
-	COUNTER_TP,
-	COUNTER_SP,
-}
-
-enum BUTTON_TYPE
-{
-	BUTTON_START,
-	BUTTON_FINISH,
-	BUTTON_NOT,
-}
-
-enum _:WEAPON
-{
-	WEAPON_CLASSNAME[32],
-	Float:WEAPON_ORIGIN[3]
-}
-
 new g_bit_is_connected, g_bit_is_alive, g_bit_invis, g_bit_waterinvis;
 new g_bit_is_hltv, g_bit_is_bot;
 new g_baIsClimbing, g_baIsPaused, g_baIsFirstSpawn, g_baIsPureRunning;
@@ -340,7 +342,7 @@ new g_PauseSprite;
 new g_TaskEnt;
 
 new g_Firework;
-new Float:prevButtonOrigin[3];
+new Float:g_PrevButtonOrigin[3];
 
 new g_MapId;
 new g_Map[64];
@@ -443,8 +445,6 @@ new pcvar_sv_ag_match_running;
 new mfwd_hlkz_cheating;
 new mfwd_hlkz_worldrecord;
 
-new const g_strSoundFirework[ ] = "firework.wav";
-
 public plugin_precache()
 {
 	g_FwLightStyle = register_forward(FM_LightStyle, "Fw_FmLightStyle");
@@ -453,7 +453,7 @@ public plugin_precache()
 	precache_model("models/player/gordon/gordon.mdl");
 	precache_model("models/p_shotgun.mdl");
 	g_Firework = precache_model("sprites/firework.spr");
-	precache_sound(g_strSoundFirework);
+	precache_sound(FIREWORK_SOUND);
 	//precache_model("models/boxy.mdl");
 }
 
@@ -3104,17 +3104,7 @@ FinishTimer(id)
 		server_cmd("agabort");
 		server_exec();
 
-		message_begin(MSG_BROADCAST,SVC_TEMPENTITY); //create firework entity
-		write_byte(TE_EXPLOSION);
-		write_coord(floatround(prevButtonOrigin[0])     );	// start position
-		write_coord(floatround(prevButtonOrigin[1])     );
-		write_coord(floatround(prevButtonOrigin[2]) + 100);
-		write_short(g_Firework);	// sprite index
-		write_byte(20); // scale
-		write_byte(10);	// framerate
-		write_byte(6);
-		message_end();
-		emit_sound(id, CHAN_AUTO, g_strSoundFirework, VOL_NORM, ATTN_NONE, 0, PITCH_NORM);
+		LaunchRecordFireworks();
 		
 		if (IsCupMap() && (id == g_CupPlayer1 || id == g_CupPlayer2) && g_CupReady1 && g_CupReady2)
 		{
@@ -3254,7 +3244,20 @@ public Fw_HamUseButtonPre(ent, id)
 	switch (type)
 	{
 	case BUTTON_START: StartClimb(id);
-	case BUTTON_FINISH: FinishClimb(id);
+	case BUTTON_FINISH: {
+		new Float:origin[3];
+		fm_get_brush_entity_origin(ent, origin); // find origin of button for fireworks
+
+		// console_print(0, "origin[0]: %f", origin[0]);
+		// console_print(0, "origin[1]: %f", origin[1]);
+		// console_print(0, "origin[2]: %f", origin[2]);
+
+		g_PrevButtonOrigin[0] = origin[0];
+		g_PrevButtonOrigin[1] = origin[1];
+		g_PrevButtonOrigin[2] = origin[2];
+
+		FinishClimb(id);
+	}
 	case BUTTON_NOT: CheckEndReqs(ent, id);
 	}
 
@@ -3274,16 +3277,6 @@ BUTTON_TYPE:GetEntityButtonType(ent)
 		}
 		else if (IsStopEntityName(name))
 		{
-			new Float:origin[3];
-			fm_get_brush_entity_origin(ent, origin); // find origin of button for fireworks
-
-			// console_print(0, "origin[0]: %f", origin[0]);
-			// console_print(0, "origin[1]: %f", origin[1]);
-			// console_print(0, "origin[2]: %f", origin[2]);
-
-			prevButtonOrigin[0] = origin[0];
-			prevButtonOrigin[1] = origin[1];
-			prevButtonOrigin[2] = origin[2];
 			return BUTTON_FINISH;
 		}
 	}
@@ -3297,16 +3290,6 @@ BUTTON_TYPE:GetEntityButtonType(ent)
 		}
 		else if (IsStopEntityName(name))
 		{
-			new Float:origin[3];
-			fm_get_brush_entity_origin(ent, origin);  // find origin of button for fireworks
-
-			// console_print(0, "origin[0]: %f", origin[0]);
-			// console_print(0, "origin[1]: %f", origin[1]);
-			// console_print(0, "origin[2]: %f", origin[2]);
-
-			prevButtonOrigin[0] = origin[0];
-			prevButtonOrigin[1] = origin[1];
-			prevButtonOrigin[2] = origin[2];
 			return BUTTON_FINISH;
 		}
 	}
@@ -5653,21 +5636,11 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 		new ret;
 		ExecuteForward(mfwd_hlkz_worldrecord, ret, id, kztime, topType, arr);
 
-		// console_print(0, "prevButtonOrigin[0]: %d", floatround(prevButtonOrigin[0]));
-		// console_print(0, "prevButtonOrigin[1]: %d", floatround(prevButtonOrigin[1]));
-		// console_print(0, "prevButtonOrigin[2]: %d", floatround(prevButtonOrigin[2]));
+		// console_print(0, "g_PrevButtonOrigin[0]: %d", floatround(g_PrevButtonOrigin[0]));
+		// console_print(0, "g_PrevButtonOrigin[1]: %d", floatround(g_PrevButtonOrigin[1]));
+		// console_print(0, "g_PrevButtonOrigin[2]: %d", floatround(g_PrevButtonOrigin[2]));
 
-		message_begin(MSG_BROADCAST,SVC_TEMPENTITY); //create firework entity
-		write_byte(TE_EXPLOSION);
-		write_coord(floatround(prevButtonOrigin[0])     );	// start position
-		write_coord(floatround(prevButtonOrigin[1])     );
-		write_coord(floatround(prevButtonOrigin[2]) + 100);
-		write_short(g_Firework);	// sprite index
-		write_byte(20); // scale
-		write_byte(10);	// framerate
-		write_byte(6);
-		message_end();
-		emit_sound(id, CHAN_AUTO, g_strSoundFirework, VOL_NORM, ATTN_NONE, 0, PITCH_NORM);
+		LaunchRecordFireworks();
 	}
 
 	if (g_RecordRun[id])
@@ -5930,6 +5903,21 @@ PunishPlayerCheatingWithWeapons(id)
 		ResetPlayer(id, false, false); // "agstart full" is not allowed on maps without weapons
 	else
 		clr_bit(g_baIsPureRunning, id); // downgrade run from pure to pro
+}
+
+LaunchRecordFireworks()
+{
+	message_begin(MSG_BROADCAST, SVC_TEMPENTITY); // create firework entity
+	write_byte(TE_EXPLOSION);
+	write_coord(floatround(g_PrevButtonOrigin[0]));	// start position
+	write_coord(floatround(g_PrevButtonOrigin[1]));
+	write_coord(floatround(g_PrevButtonOrigin[2]) + 100);
+	write_short(g_Firework);	// sprite index
+	write_byte(20); // scale
+	write_byte(10);	// framerate
+	write_byte(6);
+	message_end();
+	emit_sound(0, CHAN_AUTO, FIREWORK_SOUND, VOL_NORM, ATTN_NONE, 0, PITCH_NORM);
 }
 
 /**
