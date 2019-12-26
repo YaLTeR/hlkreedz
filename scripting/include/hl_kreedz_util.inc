@@ -23,6 +23,7 @@ enum RUN_TYPE
 	PURE
 }
 
+// TODO: put this into a file and read from it...
 new const g_DeathmatchMaps[][] =
 {
 	"357_box",
