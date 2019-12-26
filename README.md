@@ -23,7 +23,7 @@ Credits: this is Quaker's ([@skyrim](https://github.com/skyrim)) [plugin](https:
 
 searchmaps provides commands to search through the maps installed on the server, with an optional search term and pagination.  
 For this version to work, you have to create an _allmaps.txt_ file (in _addons/amxmodx/configs_) containing a map per line, with all the maps you want.
-Doing `cd` into your _ag/maps_ folder and executing `ls *.bsp >> ../addons/amxmodx/configs/allmaps.txt` should be enough for this plugin to work correctly.
+Doing `cd` into your _ag/maps_ folder and executing `ls -- *.bsp >> ../addons/amxmodx/configs/allmaps.txt` should be enough for this plugin to work correctly.
 
 ## speclist
 

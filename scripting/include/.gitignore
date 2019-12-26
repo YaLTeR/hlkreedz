@@ -1,0 +1,21 @@
+// This gitignore is here because it seems faster to do this
+// than adapting Destro's Sublime AMXX-Editor v3.0Beta to read multiple include directories
+
+// Ignore every include
+*.inc
+
+// Whitelist our custom includes
+!curl.inc
+!ham_const.inc
+!hamsandwich.inc
+!hl.inc
+!hl_kreedz.inc
+!hl_kreedz_util.inc
+!mysqlt.inc
+!q.inc
+!q_cookies.inc
+!q_jumpstats.inc
+!q_jumpstats_const.inc
+!q_menu.inc
+!q_menu_const.inc
+!q_message.inc
