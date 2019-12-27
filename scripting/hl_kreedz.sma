@@ -149,8 +149,8 @@ enum _:WEAPON
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.37";
-new const BUILD = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the stored binary data (or format) changes
+new const VERSION[] = "0.38";
+new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the stored binary data (or format) changes
 new const AUTHOR[] = "KORD_12.7 & Lev & YaLTeR & naz";
 
 new const MAIN_MENU_ID[] = "HL KreedZ Menu";
@@ -1786,7 +1786,6 @@ CmdReplay(id, RUN_TYPE:runType)
 		ArrayClear(g_ReplayFrames[id]);
 		//console_print(id, "gonna read the replay file");
 
-		//new buildNumber;
 		//fread(file, version, BLOCK_SHORT);
 		//console_print(1, "replaying demo of version %d", version);
 
@@ -5833,7 +5832,7 @@ SaveRecordedRun(id, RUN_TYPE:topType)
 	g_RecordRun[id] = fopen(replayFile, "wb");
 	//console_print(id, "opened replay file");
 
-	//fwrite(g_RecordRun[id], BUILD, BLOCK_SHORT); // version
+	//fwrite(g_RecordRun[id], DEMO_VERSION, BLOCK_SHORT); // version
 
 	new frameState[REPLAY];
 	for (new i; i < ArraySize(g_RunFrames[id]); i++)
@@ -5925,7 +5924,7 @@ LaunchRecordFireworks()
  * This is to save as metadata in the replay files so we can know what version they're
  * to make proper changes to them (e.g.: convert from one version to another 'cos
  * replay data format is changed).
- * // Now using the BUILD number instead
+ * // Now using the DEMO_VERSION number instead
  */
  /*
 GetVersionNumber()
