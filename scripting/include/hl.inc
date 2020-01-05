@@ -7,6 +7,8 @@
 *
 */
 
+#pragma semicolon 0
+
 #if defined _hl_included
 	#endinput
 #endif
