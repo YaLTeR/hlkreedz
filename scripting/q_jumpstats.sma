@@ -35,6 +35,7 @@
 #define TASKID_SPEED 489273421
 
 #define LJSTATS_MENU_ID "LJ Stats Menu"
+#define LJSOUNDS_MENU_ID "LJ Sounds Menu"
 
 enum State
 {
@@ -169,6 +170,13 @@ new g_DisplayBhStats[33];
 new g_DisplayLadderStats[33];
 new g_MuteJumpMessages[33];
 
+new g_DisableImpressiveSound[33];
+new g_DisablePerfectSound[33];
+new g_DisableGodlikeSound[33];
+new const g_strSoundImpressive[ ] = "impressive.wav";
+new const g_strSoundPerfect[ ] = "perfect.wav";
+new const g_strSoundGodlike[ ] = "godlike.wav";
+
 new Trie:illegal_touch_entity_classes;
 
 public plugin_init( )
@@ -195,6 +203,7 @@ public plugin_init( )
 	TrieSetCell( illegal_touch_entity_classes, "trigger_teleport", 1 );
 
 	register_clcmd( "say /ljstats", "clcmd_ljstats" );
+	register_clcmd( "say /ljsounds", "clcmd_ljsounds");
 	register_clcmd( "say /jumpstats", "clcmd_ljstats" );
 	register_clcmd( "say /showpre", "clcmd_prestrafe" );
 	register_clcmd( "say /preshow", "clcmd_prestrafe" );
@@ -205,6 +214,8 @@ public plugin_init( )
 	register_clcmd( "say /hj", "show_lj_top" );
 
 	register_menucmd(register_menuid(LJSTATS_MENU_ID), 1023, "actions_ljstats");
+	register_menucmd(register_menuid(LJSOUNDS_MENU_ID), 1023, "actions_ljsounds");
+
 	
 	sv_airaccelerate = get_cvar_pointer( "sv_airaccelerate" );
 	sv_gravity = get_cvar_pointer( "sv_gravity" );
@@ -224,6 +235,14 @@ public plugin_init( )
 	g_ArrayLJStats = ArrayCreate(JUMPSTATS);
 
 }
+
+public plugin_precache()
+{
+	precache_sound(g_strSoundImpressive);
+	precache_sound(g_strSoundPerfect);
+	precache_sound(g_strSoundGodlike);
+}
+
 
 public plugin_cfg()
 {
@@ -262,6 +281,10 @@ public client_connect( id )
 	g_DisplayBhStats[id] = false;
 	g_DisplayLadderStats[id] = false;
 	g_MuteJumpMessages[id] = false;
+
+	g_DisableImpressiveSound[id] = false;
+	g_DisablePerfectSound[id] = false;
+	g_DisableGodlikeSound[id] = false;
 }
 
 public hlkz_cheating( id )
@@ -328,6 +351,21 @@ public clcmd_ljstats( id )
 	return PLUGIN_HANDLED;
 }
 
+public clcmd_ljsounds( id )
+{
+	new menuBody[512], len;
+	new keys = MENU_KEY_0 | MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3;
+
+	len = formatex(menuBody[len], charsmax(menuBody), "%s^n^n", PLUGIN_TAG);
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Disable ^"Impressive^" sound: %s^n", g_DisableImpressiveSound[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Disable ^"Perfect^" sound: %s^n", g_DisablePerfectSound[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Disable ^"Godlike^" sound: %s^n", g_DisableGodlikeSound[id] ? "ON" : "OFF");
+	len += formatex(menuBody[len], charsmax(menuBody) - len, "0. Exit");
+
+	show_menu(id, keys, menuBody, -1, LJSOUNDS_MENU_ID);
+	return PLUGIN_HANDLED;
+}
+
 public actions_ljstats(id, key)
 {
 	key++;
@@ -346,6 +384,21 @@ public actions_ljstats(id, key)
 	}
 
 	clcmd_ljstats(id);
+	return PLUGIN_HANDLED;
+}
+
+public actions_ljsounds(id, key)
+{
+	key++;
+	switch (key)
+	{
+		case 0, 10: return PLUGIN_HANDLED;
+		case 1: g_DisableImpressiveSound[id] = !g_DisableImpressiveSound[id];
+		case 2: g_DisablePerfectSound[id] = !g_DisablePerfectSound[id];
+		case 3: g_DisableGodlikeSound[id] = !g_DisableGodlikeSound[id];
+	}
+
+	clcmd_ljsounds(id);
 	return PLUGIN_HANDLED;
 }
 
@@ -1142,14 +1195,29 @@ display_stats( id, bool:failed = false )
 				if( jump_distance[id] >= jump_level[jump_type[id]][4] )
 				{
 					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_GODLIKE", name, jump_shortname[jump_type[id]], jump_distance[id] );
+					if (!g_DisableGodlikeSound[id])
+					{
+						client_cmd(id, "spk sound/godlike");
+						// console_print(id, "Playing Godlike sound");
+					}
 				}
 				else if( jump_distance[id] >= jump_level[jump_type[id]][3] )
 				{
 					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_PERFECT", name, jump_shortname[jump_type[id]], jump_distance[id] );
+					if (!g_DisablePerfectSound[id])
+					{
+						client_cmd(id, "spk sound/perfect");
+						// console_print(id, "Playing Perfect sound");
+					}				
 				}
 				else if( jump_distance[id] >= jump_level[jump_type[id]][2] )
 				{
 					formatex( jump_info_chat, charsmax(jump_info_chat), "%L", i, "Q_JS_IMPRESSIVE", name, jump_shortname[jump_type[id]], jump_distance[id] );
+					if (!g_DisableImpressiveSound[id])
+					{
+						client_cmd(id,"spk sound/impressive");
+						// console_print(id, "Playing Impressive sound");
+					}
 				}
 				else if( jump_distance[id] >= jump_level[jump_type[id]][1] )
 				{
