@@ -2313,7 +2313,8 @@ CmdHelp(id)
 		len += formatex(motd[len], charsmax(motd) - len,
 			"/lj - show LJ top\n\
 			/ljstats - toggle showing different jump distances\n\
-			/prestrafe - toggle showing prestrafe speed\n");
+			/prestrafe - toggle showing prestrafe speed\n\
+			/ljsounds - toggle announcer sounds\n");
 	}
 	if (is_plugin_loaded("Enhanced Map Searching"))
 	{
