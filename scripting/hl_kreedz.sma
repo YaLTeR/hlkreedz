@@ -111,7 +111,8 @@ enum _:CP_TYPES
 	CP_TYPE_OLD,
 	CP_TYPE_CUSTOM_START, // kz_set_custom_start position.
 	CP_TYPE_START,        // Start button.
-	CP_TYPE_DEFAULT_START // Standard spawn
+	CP_TYPE_DEFAULT_START, // Standard spawn
+	CP_TYPE_PRACTICE // Practice checkpoints (with speed / midair)
 }
 
 enum _:CP_DATA
@@ -963,17 +964,18 @@ DisplayKzMenu(id, mode)
 	{
 	case 0:
 		{
-			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6; // | MENU_KEY_7 | MENU_KEY_8;
+			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7; // | MENU_KEY_8;
 
 			len = formatex(menuBody[len], charsmax(menuBody) - len, "%s\n\n", PLUGIN);
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. START CLIMB\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Checkpoints\n\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. HUD settings\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Spectate players\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Top climbers\n\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Help\n\n");
-			//len += formatex(menuBody[len], charsmax(menuBody) - len, "7. About\n\n");
-			//len += formatex(menuBody[len], charsmax(menuBody) - len, "8. Admin area\n\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Checkpoints\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Practice checkpoints\n\n");	
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. HUD settings\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Spectate players\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Top climbers\n\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "7. Help\n\n");
+			//len += formatex(menuBody[len], charsmax(menuBody) - len, "8. About\n\n");
+			//len += formatex(menuBody[len], charsmax(menuBody) - len, "9. Admin area\n\n");
 		}
 	case 1:
 		{
@@ -1012,6 +1014,14 @@ DisplayKzMenu(id, mode)
 		}
 	case 3:
 		{
+			keys |= MENU_KEY_1 | MENU_KEY_2;
+
+			len = formatex(menuBody[len], charsmax(menuBody) - len, "Practice CPs/TPs\n\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Checkpoint\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Teleport\n");
+		}		
+	case 4:
+		{
 			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4;
 
 			new timerStatus[7], keysStatus[5];
@@ -1034,7 +1044,7 @@ DisplayKzMenu(id, mode)
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Start message display: %s\n", g_ShowStartMsg[id] ? "ON" : "OFF");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Time decimals display: %d\n", g_TimeDecimals[id]);
 		}
-	case 5:
+	case 6:
 		{
 			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3;
 
@@ -1351,9 +1361,10 @@ public ActionKzMenu(id, key)
 		case 1: return DisplayKzMenu(id, 1);
 		case 2: return DisplayKzMenu(id, 2);
 		case 3: return DisplayKzMenu(id, 3);
-		case 4: CmdSpec(id);
-		case 5: return DisplayKzMenu(id, 5);
-		case 6: CmdHelp(id);
+		case 4: return DisplayKzMenu(id, 4);
+		case 5: CmdSpec(id);
+		case 6: return DisplayKzMenu(id, 6);
+		case 7: CmdHelp(id);
 		}
 	case 1:
 		switch (key)
@@ -1373,6 +1384,12 @@ public ActionKzMenu(id, key)
 		case 3: CmdStuck(id);
 		}
 	case 3:
+		switch (key)
+		{
+			case 1: CmdPracticeCp(id);
+			case 2: CmdPracticeTp(id);
+		}
+	case 4:
 		switch (key)
 		{
 		case 1: CmdTimer(id);
@@ -1582,6 +1599,19 @@ CmdTp(id)
 {
 	if (CanTeleport(id, CP_TYPE_CURRENT))
 		Teleport(id, CP_TYPE_CURRENT);
+}
+
+CmdPracticeCp(id)
+{
+	if (CanCreateCp(id, true, true))
+		CreateCp(id, CP_TYPE_PRACTICE)
+}
+
+CmdPracticeTp(id)
+{
+	ResetPlayer(id, false, true);
+	if (CanTeleport(id, CP_TYPE_PRACTICE))
+		Teleport(id, CP_TYPE_PRACTICE);
 }
 
 CmdStuck(id)
@@ -2367,6 +2397,12 @@ public CmdSayHandler(id, level, cid)
 	else if (equali(args[1], "stuck") || equali(args[1], "unstuck"))
 		CmdStuck(id);
 
+	else if (equali(args[1], "practicecp"))
+		CmdPracticeCp(id);
+
+	else if (equali(args[1], "practicetp"))
+		CmdPracticeTp(id);
+
 	else if (equali(args[1], "pause"))
 		CmdPause(id);
 
@@ -2434,7 +2470,7 @@ public CmdSayHandler(id, level, cid)
 	else if (containi(args[1], "printframes") == 0)
 		CmdPrintNextFrames(id);
 
-	else if (containi(args[1], "replaypure") == 0 || containi(args[1], "replaybot") == 0)
+	else if (containi(args[1], "replaypure") == 0 || containi(args[1], "replaybot") == 0 || containi(args[1], "rp") == 0)
 		CmdReplayPure(id);
 
 	else if (containi(args[1], "replaypro") == 0)
@@ -2557,7 +2593,7 @@ public TASCmdHandler(id)
 //*                                                     *
 //*******************************************************
 
-bool:CanCreateCp(id, bool:showMessages = true)
+bool:CanCreateCp(id, bool:showMessages = true, bool:practiceMode = false)
 {
 	if (!get_pcvar_num(pcvar_kz_checkpoints))
 	{
@@ -2576,10 +2612,13 @@ bool:CanCreateCp(id, bool:showMessages = true)
 		return false;
 	}
 
-	if (!IsValidPlaceForCp(id))
+	if (!practiceMode)
 	{
-		if (showMessages) ShowMessage(id, "You must be on the ground");
-		return false;
+		if (!IsValidPlaceForCp(id))
+		{
+			if (showMessages) ShowMessage(id, "You must be on the ground");
+			return false;
+		}
 	}
 
 	return true;
@@ -2590,7 +2629,7 @@ bool:CanTeleport(id, cp, bool:showMessages = true)
 	if (cp >= CP_TYPES)
 		return false;
 
-	if (cp != CP_TYPE_START && cp != CP_TYPE_CUSTOM_START && !get_pcvar_num(pcvar_kz_checkpoints))
+	if (cp != CP_TYPE_START && cp != CP_TYPE_CUSTOM_START && cp != CP_TYPE_PRACTICE && !get_pcvar_num(pcvar_kz_checkpoints))
 	{
 		if (showMessages) ShowMessage(id, "Checkpoint commands are disabled");
 		return false;
@@ -2622,6 +2661,7 @@ bool:CanTeleport(id, cp, bool:showMessages = true)
 			case CP_TYPE_CUSTOM_START: ShowMessage(id, "You don't have a custom start point set");
 			case CP_TYPE_START: ShowMessage(id, "You don't have start checkpoint created");
 			case CP_TYPE_DEFAULT_START: ShowMessage(id, "The map doesn't have a default start checkpoint set");
+			case CP_TYPE_PRACTICE: ShowMessage(id, "You don't have a practice checkpoint created");
 			}
 		return false;
 	}
@@ -2681,17 +2721,31 @@ Teleport(id, cp)
 		set_pev(id, pev_flags, pev(id, pev_flags) | FL_DUCKING);
 	else
 		set_pev(id, pev_flags, pev(id, pev_flags) & ~FL_DUCKING);
-
-	set_pev(id, pev_origin, g_ControlPoints[id][cp][CP_ORIGIN]);
-	set_pev(id, pev_angles, g_ControlPoints[id][cp][CP_ANGLES]);
-	set_pev(id, pev_v_angle, g_ControlPoints[id][cp][CP_ANGLES]);
-	set_pev(id, pev_view_ofs, g_ControlPoints[id][cp][CP_VIEWOFS]);
-	set_pev(id, pev_velocity, /*g_ControlPoints[id][cp][CP_VELOCITY]*/ Float:{ 0.0, 0.0, 0.0 });
-	set_pev(id, pev_fixangle, true);
-	set_pev(id, pev_health, g_ControlPoints[id][cp][CP_HEALTH]);
-	set_pev(id, pev_armorvalue, g_ControlPoints[id][cp][CP_ARMOR]);
-	hl_set_user_longjump(id, g_ControlPoints[id][cp][CP_LONGJUMP]);
-
+	
+	if  (cp == CP_TYPE_PRACTICE)
+	{
+		set_pev(id, pev_origin, g_ControlPoints[id][cp][CP_ORIGIN]);
+		set_pev(id, pev_angles, g_ControlPoints[id][cp][CP_ANGLES]);
+		set_pev(id, pev_v_angle, g_ControlPoints[id][cp][CP_ANGLES]);
+		set_pev(id, pev_view_ofs, g_ControlPoints[id][cp][CP_VIEWOFS]);
+		set_pev(id, pev_velocity, g_ControlPoints[id][cp][CP_VELOCITY]);
+		set_pev(id, pev_fixangle, true);
+		set_pev(id, pev_health, g_ControlPoints[id][cp][CP_HEALTH]);
+		set_pev(id, pev_armorvalue, g_ControlPoints[id][cp][CP_ARMOR]);
+		hl_set_user_longjump(id, g_ControlPoints[id][cp][CP_LONGJUMP]);
+	}
+	else 
+	{ 
+		set_pev(id, pev_origin, g_ControlPoints[id][cp][CP_ORIGIN]);
+		set_pev(id, pev_angles, g_ControlPoints[id][cp][CP_ANGLES]);
+		set_pev(id, pev_v_angle, g_ControlPoints[id][cp][CP_ANGLES]);
+		set_pev(id, pev_view_ofs, g_ControlPoints[id][cp][CP_VIEWOFS]);
+		set_pev(id, pev_velocity, /*g_ControlPoints[id][cp][CP_VELOCITY]*/ Float:{ 0.0, 0.0, 0.0 });
+		set_pev(id, pev_fixangle, true);
+		set_pev(id, pev_health, g_ControlPoints[id][cp][CP_HEALTH]);
+		set_pev(id, pev_armorvalue, g_ControlPoints[id][cp][CP_ARMOR]);
+		hl_set_user_longjump(id, g_ControlPoints[id][cp][CP_LONGJUMP]);
+	}
 	ExecuteHamB(Ham_AddPoints, id, -1, true);
 
 	// Inform
