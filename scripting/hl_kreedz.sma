@@ -973,8 +973,8 @@ DisplayKzMenu(id, mode)
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Checkpoints\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Practice checkpoints\n\n");	
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. HUD settings\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Spectate players\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Top climbers\n\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Top climbers\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Spectate players\n\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "7. Help\n\n");
 			//len += formatex(menuBody[len], charsmax(menuBody) - len, "8. About\n\n");
 			//len += formatex(menuBody[len], charsmax(menuBody) - len, "9. Admin area\n\n");
@@ -1046,7 +1046,7 @@ DisplayKzMenu(id, mode)
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Start message display: %s\n", g_ShowStartMsg[id] ? "ON" : "OFF");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Time decimals display: %d\n", g_TimeDecimals[id]);
 		}
-	case 6:
+	case 5:
 		{
 			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3;
 
@@ -1364,8 +1364,8 @@ public ActionKzMenu(id, key)
 		case 2: return DisplayKzMenu(id, 2);
 		case 3: return DisplayKzMenu(id, 3);
 		case 4: return DisplayKzMenu(id, 4);
-		case 5: CmdSpec(id);
-		case 6: return DisplayKzMenu(id, 6);
+		case 5: return DisplayKzMenu(id, 5);
+		case 6: CmdSpec(id);
 		case 7: CmdHelp(id);
 		}
 	case 1:
