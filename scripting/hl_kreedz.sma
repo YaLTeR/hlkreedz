@@ -133,6 +133,8 @@ enum _:COUNTERS
 	COUNTER_CP,
 	COUNTER_TP,
 	COUNTER_SP,
+	COUNTER_PRACTICE_CP,
+	COUNTER_PRACTICE_TP
 }
 
 enum BUTTON_TYPE
@@ -1016,7 +1018,7 @@ DisplayKzMenu(id, mode)
 		{
 			keys |= MENU_KEY_1 | MENU_KEY_2;
 
-			len = formatex(menuBody[len], charsmax(menuBody) - len, "Practice CPs/TPs\n\n");
+			len = formatex(menuBody[len], charsmax(menuBody) - len, "Practice CPs: %d | TPs: %d\n\n", g_CpCounters[id][COUNTER_PRACTICE_CP],g_CpCounters[id][COUNTER_PRACTICE_TP]);
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Checkpoint\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Teleport\n");
 		}		
@@ -2693,6 +2695,11 @@ CreateCp(id, cp, bool:specModeStepTwo = false)
 			// Backup current checkpoint
 			g_ControlPoints[id][CP_TYPE_OLD] = g_ControlPoints[id][CP_TYPE_CURRENT];
 		}
+	case CP_TYPE_PRACTICE:
+		{
+			g_CpCounters[id][COUNTER_PRACTICE_CP]++;
+			ShowMessage(id, "Practice checkpoint #%d created", g_CpCounters[id][COUNTER_PRACTICE_CP]);
+		}
 	}
 
 	// Store current player state and position
@@ -2735,6 +2742,9 @@ Teleport(id, cp)
 		set_pev(id, pev_health, g_ControlPoints[id][cp][CP_HEALTH]);
 		set_pev(id, pev_armorvalue, g_ControlPoints[id][cp][CP_ARMOR]);
 		hl_set_user_longjump(id, g_ControlPoints[id][cp][CP_LONGJUMP]);
+
+		g_CpCounters[id][COUNTER_PRACTICE_TP]++;
+		ShowMessage(id, "Go practice checkpoint #%d", g_CpCounters[id][COUNTER_PRACTICE_TP]);
 	}
 	else 
 	{ 
