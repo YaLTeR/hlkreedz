@@ -1509,9 +1509,9 @@ ResetPlayer(id, bool:onDisconnect, bool:onlyTimer)
 	if (!onDisconnect)
 	{
 		if (onlyTimer)
-			ShowMessage(id, "Timer resetted");
+			ShowMessage(id, "Timer reset");
 		else
-			ShowMessage(id, "Timer and checkpoints resetted");
+			ShowMessage(id, "Timer and checkpoints reset");
 	}
 }
 
@@ -2331,6 +2331,8 @@ CmdHelp(id)
 		/kz - show main menu\n\
 		/cp - create control point\n\
 		/tp - teleport to last control point\n\
+		/practicecp - create practice control point\n\
+		/practicetp - teleport to last practice control point\n\
 		/top - show Top climbers\n\
 		/pure /pro /nub <#>-<#> - show specific tops and records, e.g. /pro 20-50\n\
 		/unstuck - teleport to previous control point\n\
