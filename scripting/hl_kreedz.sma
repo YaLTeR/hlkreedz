@@ -155,7 +155,7 @@ new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
 new const VERSION[] = "0.39";
 new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the stored binary data (or format) changes
-new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, exec, naz, mxpph";
+new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, execut4ble, naz, mxpph";
 
 new const MAIN_MENU_ID[] = "HL KreedZ Menu";
 new const TELE_MENU_ID[] = "HL KreedZ Teleport Menu";
@@ -1488,10 +1488,17 @@ public client_disconnect(id)
 
 	if (g_RecordRun[id])
 	{
-		//fclose(g_RecordRun[id]);
-		g_RecordRun[id] = 0;
-		ArrayClear(g_RunFrames[id]);
-		//console_print(id, "stopped recording");
+		if (IsCupPlayer(id))
+		{
+			// A participant might ragequit or get disconnected due to lag or something
+			// before finishing the run, so we save their demo to the point where they disconnected
+			SaveRecordedRunCup(id, NOOB);
+		}
+		else
+		{
+			g_RecordRun[id] = 0;
+			ArrayClear(g_RunFrames[id]);
+		}
 	}
 	ArrayClear(g_ReplayFrames[id]);
 	g_ReplayFramesIdx[id] = 0;
@@ -3190,10 +3197,8 @@ FinishTimer(id)
 		g_bMatchRunning = false;
 		server_cmd("agabort");
 		server_exec();
-
-		LaunchRecordFireworks();
 		
-		if (IsCupMap() && (id == g_CupPlayer1 || id == g_CupPlayer2) && g_CupReady1 && g_CupReady2)
+		if (IsCupMap() && IsCupPlayer(id) && g_CupReady1 && g_CupReady2)
 		{
 			// Do stuff for the cup
 
@@ -3217,15 +3222,10 @@ FinishTimer(id)
 
 			// Save replays of both participants, for the one that didn't reach the button too
 			if (g_RecordRun[g_CupPlayer1])
-			{
-				g_RecordRun[g_CupPlayer1] = 0;
 				SaveRecordedRunCup(g_CupPlayer1, topType);
-			}
+
 			if (g_RecordRun[g_CupPlayer2])
-			{
-				g_RecordRun[g_CupPlayer2] = 0;
 				SaveRecordedRunCup(g_CupPlayer2, topType);
-			}
 
 			new playerName[32];
 			GetColorlessName(id, playerName, charsmax(playerName));
@@ -3265,6 +3265,8 @@ FinishTimer(id)
 				set_task(timeToChange, "CupChangeMap", TASKID_CUP_CHANGE_MAP, map, charsmax(map));
 			}
 		}
+
+		LaunchRecordFireworks();
 	}
 }
 
@@ -4637,7 +4639,7 @@ public CmdReady(id)
 		return PLUGIN_HANDLED;
 	}
 
-	if (!(id == g_CupPlayer1 || id == g_CupPlayer2))
+	if (!IsCupPlayer(id))
 	{
 		client_print(id, print_chat, "[%s] You're not allowed to ready because you are not a participant in the current cup match.", PLUGIN_TAG);
 		return PLUGIN_HANDLED;
@@ -4722,6 +4724,10 @@ bool:IsCupMap()
 	return result;
 }
 
+bool:IsCupPlayer(id) {
+	return id == g_CupPlayer1 || id == g_CupPlayer2;
+}
+
 public CupForceSpectators(taskId)
 {
 	new players[MAX_PLAYERS], playersNum;
@@ -4729,7 +4735,7 @@ public CupForceSpectators(taskId)
 	for (new i = 0; i < playersNum; i++)
 	{
 		new id = players[i];
-		if (id == g_CupPlayer1 || id == g_CupPlayer2)
+		if (IsCupPlayer(id))
 			continue;
 
 		if (!pev(id, pev_iuser1)) // not spectator? force them )))
@@ -5717,13 +5723,6 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	if (mySQLStore != 1)
 		SaveRecordsFile(topType);
 
-	if (rank == 1)
-	{
-		new ret;
-		ExecuteForward(mfwd_hlkz_worldrecord, ret, topType, arr);
-
-		LaunchRecordFireworks();
-	}
 
 	if (g_RecordRun[id])
 	{
@@ -5732,6 +5731,14 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 		//ArrayClear(g_RunFrames[id]);
 		//console_print(id, "stopped recording");
 		SaveRecordedRun(id, topType);
+	}
+	
+	if (rank == 1)
+	{
+		new ret;
+		ExecuteForward(mfwd_hlkz_worldrecord, ret, topType, arr);
+
+		LaunchRecordFireworks();
 	}
 }
 
