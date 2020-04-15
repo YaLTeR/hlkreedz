@@ -153,9 +153,9 @@ enum _:WEAPON
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.38";
+new const VERSION[] = "0.39";
 new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the stored binary data (or format) changes
-new const AUTHOR[] = "KORD_12.7 & Lev & YaLTeR & naz";
+new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, exec, naz, mxpph";
 
 new const MAIN_MENU_ID[] = "HL KreedZ Menu";
 new const TELE_MENU_ID[] = "HL KreedZ Teleport Menu";
