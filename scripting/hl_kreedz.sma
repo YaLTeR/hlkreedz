@@ -110,6 +110,7 @@ enum _:CP_TYPES
 	CP_TYPE_CURRENT,
 	CP_TYPE_OLD,
 	CP_TYPE_PRACTICE, // Practice checkpoints (with speed / midair)
+	CP_TYPE_PRACTICE_OLD,
 	CP_TYPE_CUSTOM_START, // kz_set_custom_start position.
 	CP_TYPE_START,        // Start button.
 	CP_TYPE_DEFAULT_START // Standard spawn
@@ -1016,11 +1017,12 @@ DisplayKzMenu(id, mode)
 		}
 	case 3:
 		{
-			keys |= MENU_KEY_1 | MENU_KEY_2;
+			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3;
 
 			len = formatex(menuBody[len], charsmax(menuBody) - len, "Practice CPs: %d | TPs: %d\n\n", g_CpCounters[id][COUNTER_PRACTICE_CP],g_CpCounters[id][COUNTER_PRACTICE_TP]);
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Checkpoint\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Teleport\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Previous\n");
 		}		
 	case 4:
 		{
@@ -1390,6 +1392,7 @@ public ActionKzMenu(id, key)
 		{
 			case 1: CmdPracticeCp(id);
 			case 2: CmdPracticeTp(id);
+			case 3: CmdPracticePrev(id);
 		}
 	case 4:
 		switch (key)
@@ -1620,6 +1623,13 @@ CmdStuck(id)
 {
 	if (CanTeleport(id, CP_TYPE_OLD))
 		Teleport(id, CP_TYPE_OLD);
+}
+
+CmdPracticePrev(id)
+{
+	ResetPlayer(id, false, true)
+	if(CanTeleport(id, CP_TYPE_PRACTICE_OLD))
+		Teleport(id, CP_TYPE_PRACTICE_OLD);
 }
 
 CmdStart(id)
@@ -2407,6 +2417,9 @@ public CmdSayHandler(id, level, cid)
 	else if (equali(args[1], "practicetp"))
 		CmdPracticeTp(id);
 
+	else if (equali(args[1], "practiceprev"))
+		CmdPracticePrev(id);
+
 	else if (equali(args[1], "pause"))
 		CmdPause(id);
 
@@ -2643,7 +2656,11 @@ bool:CanTeleport(id, cp, bool:showMessages = true)
 		if (showMessages) ShowMessage(id, "Stuck/Unstuck commands are disabled");
 		return false;
 	}
-
+	if (cp == CP_TYPE_PRACTICE_OLD && !get_pcvar_num(pcvar_kz_stuck))
+	{
+		if (showMessages) ShowMessage(id, "Teleporting to previous checkpoints is disabled")
+		return false; 
+	}
 	if (!IsAlive(id) || pev(id, pev_iuser1))
 	{
 		if (showMessages) ShowMessage(id, "You must be alive to use this command");
@@ -2666,6 +2683,7 @@ bool:CanTeleport(id, cp, bool:showMessages = true)
 			case CP_TYPE_START: ShowMessage(id, "You don't have start checkpoint created");
 			case CP_TYPE_DEFAULT_START: ShowMessage(id, "The map doesn't have a default start checkpoint set");
 			case CP_TYPE_PRACTICE: ShowMessage(id, "You don't have a practice checkpoint created");
+			case CP_TYPE_PRACTICE_OLD: ShowMessage(id, "You don't have a previous practice checkpoint created")
 			}
 		return false;
 	}
@@ -2699,6 +2717,9 @@ CreateCp(id, cp, bool:specModeStepTwo = false)
 		{
 			g_CpCounters[id][COUNTER_PRACTICE_CP]++;
 			ShowMessage(id, "Practice checkpoint #%d created", g_CpCounters[id][COUNTER_PRACTICE_CP]);
+
+			// Backup current checkpoint
+			g_ControlPoints[id][CP_TYPE_PRACTICE_OLD] = g_ControlPoints[id][CP_TYPE_PRACTICE];
 		}
 	}
 
@@ -2731,7 +2752,7 @@ Teleport(id, cp)
 	else
 		set_pev(id, pev_flags, pev(id, pev_flags) & ~FL_DUCKING);
 	
-	if  (cp == CP_TYPE_PRACTICE)
+	if  (cp == CP_TYPE_PRACTICE || cp == CP_TYPE_PRACTICE_OLD)
 	{
 		set_pev(id, pev_origin, g_ControlPoints[id][cp][CP_ORIGIN]);
 		set_pev(id, pev_angles, g_ControlPoints[id][cp][CP_ANGLES]);
