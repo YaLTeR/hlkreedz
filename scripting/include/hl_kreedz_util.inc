@@ -23,6 +23,15 @@ enum RUN_TYPE
 	PURE
 }
 
+// Encapsulates all the info that might be required in the different queries to DB
+enum _:QUERY
+{
+	RUN_TYPE:QUERY_RUN_TYPE,	// pure, pro, noob
+	QUERY_PID,					// player id in database
+	QUERY_NO_RESET,				// was no-reset mode set for this run?
+	QUERY_STATS[STATS]			// steam id, nickname, cps, tps, run duration, end date
+}
+
 // TODO: put this into a file and read from it...
 new const g_DeathmatchMaps[][] =
 {
@@ -448,3 +457,4 @@ stock datacopy(any:into[], any:from[], positionsToCopy, intoStartPos = 0, fromSt
         i++;
     }
 }
+

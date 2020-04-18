@@ -54,13 +54,20 @@
 #define MAP_PLAYED 3
 #define MAP_DECIDER 4
 
-#define MIN_DISTANCE_RESPAWN_ADVANTAGE 1300.0
+#define MIN_DISTANCE_RESPAWN_ADVANTAGE	1300.0
+#define MIN_COUNTDOWN					1.0
+#define DEFAULT_COUNTDOWN				5.0
+#define AG_COUNTDOWN					10.0
+#define MAX_COUNTDOWN					30.0
+#define MATCH_START_CHECK_SECOND		1
+#define HUD_UPDATE_TIME					0.05
 
 #define TASKID_ICON						5633445
 #define TASKID_WELCOME					43321
 #define TASKID_KICK_REPLAYBOT			9572626
 #define TASKID_CAM_UNFREEZE				1622952
 #define TASKID_CONFIGURE_DB				2037262
+#define TASKID_MATCH_START_CHECK		2906871
 
 #define TASKID_CUP_TENSION_FIRST_BAN	9357015
 #define TASKID_CUP_FINALLY_FIRST_BAN	8357015
@@ -153,8 +160,8 @@ enum _:WEAPON
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.39";
-new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the stored binary data (or format) changes
+new const VERSION[] = "0.40";
+new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the replay format changes
 new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, execut4ble, naz, mxpph";
 
 new const MAIN_MENU_ID[] = "HL KreedZ Menu";
@@ -262,9 +269,24 @@ new const g_DamageBoostEntities[][] = {
 	"rpg_rocket"			// DMG_BLAST
 };
 
+// Sounds used for No-Reset run countdown
+new const g_CountdownSounds[][] = {
+	"barney/ba_bring",
+	"fvox/one",
+	"fvox/two",
+	"fvox/three",
+	"fvox/four",
+	"fvox/five",
+	"fvox/six",
+	"fvox/seven",
+	"fvox/eight",
+	"fvox/nine"
+};
+
 new g_bit_is_connected, g_bit_is_alive, g_bit_invis, g_bit_waterinvis;
 new g_bit_is_hltv, g_bit_is_bot;
 new g_baIsClimbing, g_baIsPaused, g_baIsFirstSpawn, g_baIsPureRunning;
+new g_baIsAgFrozen; // only used when we're running on an AG server, because it unfreezes on player PreThink()
 
 new Float:g_PlayerTime[MAX_PLAYERS + 1];
 new Float:g_PlayerTimePause[MAX_PLAYERS + 1];
@@ -291,6 +313,11 @@ new Float:g_Speedcap[MAX_PLAYERS + 1];
 new g_ShowSpeed[MAX_PLAYERS + 1];
 new g_ShowSpecList[MAX_PLAYERS + 1];
 new Float:g_PlayerTASed[MAX_PLAYERS + 1];
+new bool:g_IsNoResetMode[MAX_PLAYERS + 1];			// means the player is in a no-reset run; only set during run (NOT during countdown)
+new Float:g_NoResetNextCountdown[MAX_PLAYERS + 1];	// gametime where the next countdown message has to be sent; only set during countdown
+new Float:g_NoResetStart[MAX_PLAYERS + 1];			// what gametime does this player's no-reset run start at?; only set during countdown
+new Float:g_NoResetCountdown[MAX_PLAYERS + 1];		// how many seconds of countdown the player wants in no-reset mode
+new bool:g_IsBannedFromMatch[MAX_PLAYERS + 1];
 
 new g_BotOwner[MAX_PLAYERS + 1];
 new g_BotEntity[MAX_PLAYERS + 1];
@@ -367,6 +394,8 @@ new g_SpectatePreSpecMode;
 new bool:g_InForcedRespawn;
 new Float:g_LastHealth;
 new bool:g_RestoreSolidStates;
+new bool:g_IsAgClient;
+new bool:g_IsAgServer;
 new bool:g_bMatchRunning;
 new bool:g_bCanTakeAdvantageOfRespawn;
 
@@ -444,6 +473,8 @@ new Handle:g_DbConnection;
 
 new g_FwLightStyle;
 
+new g_MsgCountdown;
+
 new pcvar_sv_ag_match_running;
 
 new mfwd_hlkz_cheating;
@@ -454,8 +485,6 @@ public plugin_precache()
 	g_FwLightStyle = register_forward(FM_LightStyle, "Fw_FmLightStyle");
 	g_PauseSprite = precache_model("sprites/pause_icon.spr");
 	precache_model("models/player/robo/robo.mdl");
-	precache_model("models/player/gordon/gordon.mdl");
-	precache_model("models/p_shotgun.mdl");
 	g_Firework = precache_model("sprites/firework.spr");
 	precache_sound(FIREWORK_SOUND);
 	//precache_model("models/boxy.mdl");
@@ -473,6 +502,21 @@ public plugin_init()
 		server_print("The hl_kreedz.amxx plugin can only be run in \"kreedz\" mode.");
 		pause("ad");
 		return;
+	}
+
+	new ag_version[32];
+	get_cvar_string("sv_ag_version", ag_version, charsmax(ag_version));
+	if (ag_version[0])
+	{
+		// These will be used to decide whether to send an AG event/message that AG clients can handle,
+		// but other mods can't, or a HUDMessage otherwise
+		if (containi(ag_version, "mini") == -1)
+		{
+			// There's a small chance that someone uses for example the HL client for AG
+			// I don't know why you would do that, but my assumption would fail in that case
+			g_IsAgClient = true;
+		}
+		g_IsAgServer = true;
 	}
 
 	pcvar_kz_uniqueid = register_cvar("kz_uniqueid", "3");	// 1 - name, 2 - ip, 3 - steamid
@@ -524,8 +568,11 @@ public plugin_init()
 
 	pcvar_sv_items_respawn_time = register_cvar("sv_items_respawn_time", "0"); // 0 = unchanged, n > 0 = n seconds
 
-	// 0 = store data in files and only store leaderboards, 1 = store data in MySQL and store much more data (not only leaderboards), 2 store data in both (files and mysql) and retrieve from file only if it fails to retrieve from DB
+	// 0 = store data in files and only store leaderboards,
+	// 1 = store data in MySQL and store much more data (not only leaderboards),
+	// 2 = store data in both (files and mysql) and retrieve from file only if it fails to retrieve from DB
 	pcvar_kz_mysql = register_cvar("kz_mysql", "0");
+
 	// How many threads to use with MySQL, so it can use that many threads per frame to query stuff (1 query per thread?). This depends on the CPU you have in the server I guess
 	pcvar_kz_mysql_threads = register_cvar("kz_mysql_threads", "1");
 	pcvar_kz_mysql_thread_fps = register_cvar("kz_mysql_thread_fps", "25"); // MySQLT module only admits values between 4 and 33 fps
@@ -620,6 +667,7 @@ public plugin_init()
 	register_forward(FM_ClientKill,"Fw_FmClientKillPre");
 	register_forward(FM_ClientCommand, "Fw_FmClientCommandPost", 1);
 	register_forward(FM_Think, "Fw_FmThinkPre");
+	//register_forward(FM_PlayerPreThink, "Fw_FmPlayerPreThinkPre");
 	register_forward(FM_PlayerPreThink, "Fw_FmPlayerPreThinkPost", 1);
 	register_forward(FM_PlayerPostThink, "Fw_FmPlayerPostThinkPre");
 	register_forward(FM_AddToFullPack, "Fw_FmAddToFullPackPost", 1);
@@ -640,9 +688,9 @@ public plugin_init()
 
 	register_message(get_user_msgid("Health"), "Fw_MsgHealth");
 	register_message(SVC_TEMPENTITY, "Fw_MsgTempEntity");
-	new msgCountdown = get_user_msgid("Countdown");
-	if (msgCountdown > 0)
-		register_message(msgCountdown, "Fw_MsgCountdown");
+	g_MsgCountdown = get_user_msgid("Countdown");
+	if (g_MsgCountdown > 0)
+		register_message(g_MsgCountdown, "Fw_MsgCountdown");
 	new msgSettings = get_user_msgid("Settings");
 	if (msgSettings > 0)
 		register_message(msgSettings, "Fw_MsgSettings");
@@ -655,14 +703,14 @@ public plugin_init()
 
 	g_MaxPlayers = get_maxplayers();
 
-	g_SyncHudTimer = CreateHudSyncObj();
-	g_SyncHudMessage = CreateHudSyncObj();
-	g_SyncHudKeys = CreateHudSyncObj();
-	g_SyncHudHealth = CreateHudSyncObj();
-	g_SyncHudShowStartMsg = CreateHudSyncObj();
-	g_SyncHudSpeedometer = CreateHudSyncObj();
-	g_SyncHudSpecList = CreateHudSyncObj();
-	g_SyncHudCupMaps = CreateHudSyncObj();
+	g_SyncHudTimer          = CreateHudSyncObj();
+	g_SyncHudMessage        = CreateHudSyncObj();
+	g_SyncHudKeys           = CreateHudSyncObj();
+	g_SyncHudHealth         = CreateHudSyncObj();
+	g_SyncHudShowStartMsg   = CreateHudSyncObj();
+	g_SyncHudSpeedometer    = CreateHudSyncObj();
+	g_SyncHudSpecList       = CreateHudSyncObj();
+	g_SyncHudCupMaps        = CreateHudSyncObj();
 
 	g_ArrayStats[NOOB] = ArrayCreate(STATS);
 	g_ArrayStats[PRO]  = ArrayCreate(STATS);
@@ -1438,7 +1486,7 @@ public client_putinserver(id)
 	// FIXME: get default value from client, and then fall back to server if client doesn't have the command set
 	g_TimeDecimals[id] = get_pcvar_num(pcvar_kz_time_decimals);
 	g_Nightvision[id] = get_pcvar_num(pcvar_kz_nightvision);
-	g_Slopefix[id] = get_pcvar_num(pcvar_kz_slopefix);
+	g_Slopefix[id] = 0;
 	// Nightvision value 1 in server cvar is "all modes allowed", if that's the case we default it to mode 2 in client,
 	// every other mode in cvar is +1 than client command, so we do -1 to get the correct mode
 	if (g_Nightvision[id] > 1)
@@ -1452,6 +1500,11 @@ public client_putinserver(id)
 	g_ShowSpecList[id] = true;
 	g_ConsolePrintNextFrames[id] = 0;
 	g_ReplayFpsMultiplier[id] = 1;
+
+	g_IsNoResetMode[id] = false;
+	g_NoResetStart[id] = 0.0;
+	g_NoResetCountdown[id] = DEFAULT_COUNTDOWN;
+	g_NoResetNextCountdown[id] = 0.0;
 
 	//query_client_cvar(id, "kz_nightvision", "ClCmdNightvision"); // TODO save user variables in a file and retrieve them when they connect to server
 
@@ -1485,6 +1538,7 @@ public client_disconnect(id)
 	clr_bit(g_baIsPureRunning, id);
 	g_SolidState[id] = -1;
 	g_PlayerEndReqs[id] = 0;
+	g_IsBannedFromMatch[id] = false;
 
 	if (g_RecordRun[id])
 	{
@@ -1503,18 +1557,16 @@ public client_disconnect(id)
 	ArrayClear(g_ReplayFrames[id]);
 	g_ReplayFramesIdx[id] = 0;
 
-
 	// Clear and reset other things
 	ResetPlayer(id, true, false);
 
 	g_ControlPoints[id][CP_TYPE_START][CP_VALID] = false;
 }
 
-ResetPlayer(id, bool:onDisconnect, bool:onlyTimer)
+ResetPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 {
 	// Unpause
-	set_pev(id, pev_flags, pev(id, pev_flags) & ~FL_FROZEN);
-	remove_task(id + TASKID_ICON);
+	UnfreezePlayer(id);
 
 	InitPlayer(id, onDisconnect, onlyTimer);
 
@@ -1533,6 +1585,7 @@ InitPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 
 	// Reset timer
 	clr_bit(g_baIsClimbing, id);
+	clr_bit(g_baIsAgFrozen, id);
 	clr_bit(g_baIsPaused, id);
 	clr_bit(g_baIsPureRunning, id);
 
@@ -1641,7 +1694,7 @@ CmdPracticePrev(id)
 
 CmdStart(id)
 {
-	if (!g_bMatchRunning && CanTeleport(id, CP_TYPE_CUSTOM_START, false))
+	if (!g_bMatchRunning && !g_IsNoResetMode[id] && CanTeleport(id, CP_TYPE_CUSTOM_START, false))
 	{
 		ResetPlayer(id, false, true);
 		Teleport(id, CP_TYPE_CUSTOM_START);
@@ -2115,7 +2168,8 @@ public npc_think(id)
 
 		if (g_ConsolePrintNextFrames[owner] > 0)
 		{
-			console_print(owner, "[t=%d %.5f] dp: %.2f, px: %.2f, py: %.2f, pz: %.2f, s: %.2f, btns: %d", g_ReplayFramesIdx[owner], demoTime, get_distance_f(botCurrPos, botPrevPos), replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2], botCurrHSpeed, replay[RP_BUTTONS]);
+			console_print(owner, "[t=%d %.5f] dp: %.2f, px: %.2f, py: %.2f, pz: %.2f, s: %.2f, btns: %d",
+				g_ReplayFramesIdx[owner], demoTime, get_distance_f(botCurrPos, botPrevPos), replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2], botCurrHSpeed, replay[RP_BUTTONS]);
 			g_ConsolePrintNextFrames[owner]--;
 		}
 
@@ -2220,9 +2274,7 @@ public RestoreSpecCam(payLoad[], taskId)
 
 public CmdPrintNextFrames(id)
 {
-	new num = GetNumberArg();
-	console_print(1, "CmdPrintNextFrames :: num = %d", num);
-	g_ConsolePrintNextFrames[id] = num;
+	g_ConsolePrintNextFrames[id] = GetNumberArg();
 }
 
 public CmdSpectatingName(id)
@@ -2250,8 +2302,7 @@ FinishReplay(id)
 	//console_print(1, "FinishReplay :: setting g_BotOwner[bot] = 0");
 	g_BotEntity[bot] = 0;
 
-	set_pev(bot, pev_flags, pev(bot, pev_flags) & ~FL_FROZEN);
-	remove_task(bot + TASKID_ICON);
+	UnfreezePlayer(id);
 }
 
 public KickReplayBot(id)
@@ -2321,6 +2372,12 @@ CmdRespawn(id)
 	if (!IsAlive(id) || pev(id, pev_iuser1))
 	{
 		ShowMessage(id, "You must be alive to use this command");
+		return;
+	}
+
+	if (g_bMatchRunning || g_NoResetStart[id] || g_IsNoResetMode[id])
+	{
+		ShowMessage(id, "You can't respawn during a race or No-Reset run");
 		return;
 	}
 
@@ -2484,6 +2541,9 @@ public CmdSayHandler(id, level, cid)
 	else if (equali(args[1], "ready"))
 		CmdReady(id);
 
+	else if (equali(args[1], "noreset") || equali(args[1], "no-reset") || equali(args[1], "nr"))
+		CmdNoReset(id);
+
 	else if (equali(args[1], "bot"))
 	{
 		if (is_user_admin(id))
@@ -2494,14 +2554,15 @@ public CmdSayHandler(id, level, cid)
 	else if (containi(args[1], "printframes") == 0)
 		CmdPrintNextFrames(id);
 
-	else if (containi(args[1], "replaypure") == 0 || containi(args[1], "replaybot") == 0 || containi(args[1], "rp") == 0)
-		CmdReplayPure(id);
-
 	else if (containi(args[1], "replaypro") == 0)
 		CmdReplayPro(id);
 
 	else if (containi(args[1], "replaynub") == 0 || containi(args[1], "replaynoob") == 0)
 		CmdReplayNoob(id);
+
+	else if (containi(args[1], "replaypure") == 0 || containi(args[1], "replaybot") == 0
+		|| containi(args[1], "replay") == 0 || containi(args[1], "rp") == 0)
+		CmdReplayPure(id);
 /*
 	else if (containi(args[1], "replaysmooth") == 0)
 		CmdReplaySmoothen(id);
@@ -2526,6 +2587,9 @@ public CmdSayHandler(id, level, cid)
 
 	else if (containi(args[1], "top") == 0)
 		DisplayKzMenu(id, 5);
+
+	else if (containi(args[1], "countdown") == 0)
+		CmdSetCountdown(id);
 /*
 	else if (containi(args[1], "pov") == 0)
 	{
@@ -2541,6 +2605,9 @@ public CmdSayHandler(id, level, cid)
 
 public CheatCmdHandler(id)
 {
+	if (g_bMatchRunning || g_IsNoResetMode[id])
+		return PLUGIN_HANDLED;
+
 	new cmd[32];
 	read_argv(0, cmd, charsmax(cmd));
 	new bit;
@@ -2576,6 +2643,9 @@ public CheatCmdHandler(id)
 // it isn't already inside it 'cos wasn't working properly at first try
 public TASCmdHandler(id)
 {
+	if (g_bMatchRunning || g_IsNoResetMode[id])
+		return PLUGIN_HANDLED;
+
 	new cmd[32];
 	read_argv(0, cmd, charsmax(cmd));
 
@@ -2826,7 +2896,7 @@ TeleportAfterRespawn(id)
 	else
 	{
 		// g_bMatchRunning isn't updated by this point yet.
-		if (get_pcvar_num(pcvar_sv_ag_match_running) == 1)
+		if (get_pcvar_num(pcvar_sv_ag_match_running) == 1 || g_IsNoResetMode[id])
 		{
 			if (CanTeleport(id, CP_TYPE_START, false))
 				Teleport(id, CP_TYPE_START);
@@ -2885,9 +2955,9 @@ bool:CanSpectate(id, bool:showMessages = true)
 		if (showMessages) ShowMessage(id, "You must be on the ground to enter spectator mode");
 		return false;
 	}
-	if (g_bMatchRunning)
+	if (g_bMatchRunning || g_IsNoResetMode[id])
 	{
-		if (showMessages) ShowMessage(id, "Match is running, spectate is disabled");
+		if (showMessages) ShowMessage(id, "A match is running, spectate is disabled");
 		return false;
 	}
 
@@ -2958,8 +3028,7 @@ ClientCommandSpectatePost(id)
 			// Remove frozen state and pause sprite if any, but maintain timer stopped
 			if (get_bit(g_baIsPaused, id))
 			{
-				set_pev(id, pev_flags, pev(id, pev_flags) & ~FL_FROZEN);
-				remove_task(id + TASKID_ICON);
+				UnfreezePlayer(id);
 			}
 
 			// Move to the point were player was (adjust for view offset)
@@ -3034,9 +3103,9 @@ bool:CanPause(id, bool:showMessages = true)
 		if (showMessages) ShowMessage(id, "You must be on the ground to get paused");
 		return false;
 	}
-	if (g_bMatchRunning)
+	if (g_bMatchRunning || g_IsNoResetMode[id])
 	{
-		if (showMessages) ShowMessage(id, "Match is running, pause is disabled");
+		if (showMessages) ShowMessage(id, "A match is running, pause is disabled");
 		return false;
 	}
 
@@ -3045,29 +3114,29 @@ bool:CanPause(id, bool:showMessages = true)
 
 bool:CanReset(id, bool:showMessages = true)
 {
-	if (g_bMatchRunning)
+	if (g_bMatchRunning || g_IsNoResetMode[id])
 	{
-		if (showMessages) ShowMessage(id, "Match is running, reset is disabled");
+		if (showMessages) ShowMessage(id, "A match is running, reset is disabled");
 		return false;
 	}
 
 	return true;
 }
 
-StartClimb(id)
+StartClimb(id, bool:isMatch = false)
 {
 	if (g_CheatCommandsGuard[id])
 	{
 		if(get_pcvar_num(pcvar_kz_denied_sound))
 		{
-		client_cmd(id, "spk \"vox/access denied\"");
+			client_cmd(id, "spk \"vox/access denied\"");
 		}
 		ShowMessage(id, "Using timer while cheating is prohibited");
 		return;
 	}
-	if (g_bMatchRunning)
+	if (!isMatch && (g_bMatchRunning || g_IsNoResetMode[id]) && g_PlayerTime[id])
 	{
-		ShowMessage(id, "Match is running, start is disabled");
+		ShowMessage(id, "A match is running, start is disabled");
 		return;
 	}
 
@@ -3087,10 +3156,12 @@ StartClimb(id)
 		RecordRunFrame(id);
 	}
 
-	InitPlayer(id);
+	if (isMatch)
+		ResetPlayer(id);
+	else
+		InitPlayer(id);
 
 	CreateCp(id, CP_TYPE_START);
-
 	StartTimer(id);
 }
 
@@ -3106,6 +3177,11 @@ FinishClimb(id)
 	if (!get_bit(g_baIsClimbing, id))
 	{
 		ShowMessage(id, "You must press the start button first");
+		canFinish = false;
+	}
+	if (g_NoResetStart[id])
+	{
+		ShowMessage(id, "It's not allowed to finish the map while on countdown");
 		canFinish = false;
 	}
 	//console_print(id, "Your reqs: %d, map reqs: %d", g_PlayerEndReqs[id], g_MapEndTotalReq);
@@ -3189,10 +3265,7 @@ FinishTimer(id)
 		}
 	}
 
-	clr_bit(g_baIsClimbing, id);
-	clr_bit(g_baIsPureRunning, id);
-
-	if (g_bMatchRunning)
+	if (g_bMatchRunning && !IsBot(id))
 	{
 		g_bMatchRunning = false;
 		server_cmd("agabort");
@@ -3230,7 +3303,7 @@ FinishTimer(id)
 			new playerName[32];
 			GetColorlessName(id, playerName, charsmax(playerName));
 			if (playerName[0])
-				client_print(0, print_chat, "[%s] Player %s has won this map! Congrats!", PLUGIN_TAG, playerName);
+				client_print(0, print_chat, "[%s] Player %s has won in this map! Congrats!", PLUGIN_TAG, playerName);
 			else
 				client_print(0, print_chat, "[%s] The unnamed player has won this map! Congrats!", PLUGIN_TAG);
 
@@ -3268,6 +3341,10 @@ FinishTimer(id)
 
 		LaunchRecordFireworks();
 	}
+
+	clr_bit(g_baIsClimbing, id);
+	clr_bit(g_baIsPureRunning, id);
+	g_IsNoResetMode[id] = false;
 }
 
 PauseTimer(id, bool:specModeProcessing)
@@ -3282,9 +3359,7 @@ PauseTimer(id, bool:specModeProcessing)
 
 	if (!specModeProcessing)
 	{
-		set_pev(id, pev_flags, pev(id, pev_flags) | FL_FROZEN);
-		ShowPauseIcon(id + TASKID_ICON);
-		set_task(2.0, "ShowPauseIcon", id + TASKID_ICON, _, _, "b");
+		FreezePlayer(id);
 	}
 }
 
@@ -3299,7 +3374,27 @@ ResumeTimer(id)
 
 	ShowMessage(id, "Timer has been resumed");
 
+	UnfreezePlayer(id);
+}
+
+FreezePlayer(id)
+{
+	set_pev(id, pev_flags, pev(id, pev_flags) | FL_FROZEN);
+
+	if (g_IsAgServer)
+		set_bit(g_baIsAgFrozen, id);
+
+	ShowPauseIcon(id + TASKID_ICON);
+	set_task(2.0, "ShowPauseIcon", id + TASKID_ICON, _, _, "b");
+}
+
+UnfreezePlayer(id)
+{
 	set_pev(id, pev_flags, pev(id, pev_flags) & ~FL_FROZEN);
+
+	if (g_IsAgServer)
+		clr_bit(g_baIsAgFrozen, id);
+
 	remove_task(id + TASKID_ICON);
 }
 
@@ -3441,17 +3536,18 @@ CheckEndReqs(ent, id)
 
 public Fw_FmThinkPre(ent)
 {
-	// Hud update task
+
 	if (ent == g_TaskEnt)
 	{
-		static Float:currentGameTime;
-		currentGameTime = get_gametime();
-		UpdateHud(currentGameTime);
-		set_pev(ent, pev_nextthink, currentGameTime + 0.05);
+		// Hud update task
+		static Float:currGameTime;
+		currGameTime = get_gametime();
+		UpdateHud(currGameTime);
+		set_pev(ent, pev_nextthink, currGameTime + HUD_UPDATE_TIME);
 	}
 }
 
-UpdateHud(Float:currentGameTime)
+UpdateHud(Float:currGameTime)
 {
 	static Float:kztime, min, sec, mode, targetId, ent, body;
 	static players[MAX_PLAYERS], num, id, id2, i, j, playerName[33];
@@ -3463,6 +3559,35 @@ UpdateHud(Float:currentGameTime)
 		id = players[i];
 		GetColorlessName(id, playerName, charsmax(playerName));
 		//if (IsBot(id) || IsHltv(id)) continue;
+
+		if (g_NoResetStart[id])
+		{
+			// Countdown for your personal agstart, for No-Reset runs
+			if (g_NoResetStart[id] < currGameTime)
+			{
+				// Start the no-reset run
+				StopCountdown(id);
+
+				console_print(0, "[%.3f] Starting No-Reset run for %s", currGameTime, playerName);
+
+				strip_user_weapons(id);
+				ExecuteHamB(Ham_Spawn, id);
+
+				amxclient_cmd(id, "fullupdate");
+
+				g_NoResetStart[id]  = 0.0;
+				g_IsNoResetMode[id] = true;
+
+				StartClimb(id, true);
+			}
+			else if (g_NoResetNextCountdown[id] && g_NoResetNextCountdown[id] < currGameTime)
+			{
+				if (g_NoResetNextCountdown[id])
+					g_NoResetNextCountdown[id] += 1.0;
+
+				Countdown(id, currGameTime);
+			}
+		}
 
 		// Select target from whom to take timer and pressed keys
 		mode = pev(id, pev_iuser1);
@@ -3478,7 +3603,6 @@ UpdateHud(Float:currentGameTime)
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
 			ClearSyncHud(id, g_SyncHudSpeedometer);
 			ClearSyncHud(id, g_SyncHudSpecList);
-			ClearSyncHud(id, g_SyncHudSpecList);
 			ClearSyncHud(targetId, g_SyncHudSpecList);
 		}
 		if (g_LastTarget[id] != targetId)
@@ -3489,7 +3613,6 @@ UpdateHud(Float:currentGameTime)
 			ClearSyncHud(id, g_SyncHudKeys);
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
 			ClearSyncHud(id, g_SyncHudSpeedometer);
-			ClearSyncHud(id, g_SyncHudSpecList);
 			ClearSyncHud(id, g_SyncHudSpecList);
 			ClearSyncHud(targetId, g_SyncHudSpecList);
 		}
@@ -3540,7 +3663,7 @@ UpdateHud(Float:currentGameTime)
 		// Show own or spectated target timer
 		if (get_bit(g_baIsClimbing, targetId) && g_ShowTimer[id])
 		{
-			kztime = get_bit(g_baIsPaused, targetId) ? g_PlayerTimePause[targetId] - g_PlayerTime[targetId] : currentGameTime - g_PlayerTime[targetId];
+			kztime = get_bit(g_baIsPaused, targetId) ? g_PlayerTimePause[targetId] - g_PlayerTime[targetId] : currGameTime - g_PlayerTime[targetId];
 
 			min = floatround(kztime / 60.0, floatround_floor);
 			sec = floatround(kztime - min * 60.0, floatround_floor);
@@ -3561,7 +3684,7 @@ UpdateHud(Float:currentGameTime)
 				}
 			case 2:
 				{
-					set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, 0.10, 0, 0.0, 999999.0, 0.0, 0.0, -1);
+					set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, 0.1, 0, 0.0, 999999.0, 0.0, 0.0, -1);
 					ShowSyncHudMsg(id, g_SyncHudTimer, "%s | Time: %02d:%02d | CPs: %d | TPs: %d %s",
 						g_RunType[id], min, sec, g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP], get_bit(g_baIsPaused, targetId) ? "| *Paused*" : "");
 				}
@@ -3584,6 +3707,60 @@ UpdateHud(Float:currentGameTime)
 			}
 		}
 	}
+}
+
+Countdown(id, Float:currGameTime)
+{
+	new countdownNumber       = floatround(g_NoResetStart[id] - currGameTime, floatround_tozero);
+	new conditionsCheckSecond = floatround(g_NoResetCountdown[id], floatround_tozero) - MATCH_START_CHECK_SECOND;
+
+	if (conditionsCheckSecond < 0)
+		conditionsCheckSecond = 0;
+
+	//client_print(id, print_chat, "counting down... %d", countdownNumber);
+
+	if (g_IsAgClient)
+	{
+		message_begin(MSG_ONE_UNRELIABLE, g_MsgCountdown, _, id);
+		write_byte(countdownNumber);	// countdown countdownNumber
+		write_byte(1);					// emit sound for countdown?
+		write_string("");				// player 1 (used for round-based gametypes, ignored here)
+		write_string("");				// player 2 (same as above, ignored)
+		message_end();
+	}
+	else
+	{
+		set_dhudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], _, 0.35, 0, 0.0, 0.999 - HUD_UPDATE_TIME, 0.0, 0.0);
+		show_dhudmessage(id, "%d", countdownNumber);
+
+		if (sizeof(g_CountdownSounds) > countdownNumber && countdownNumber >= 0)
+			client_cmd(id, "spk \"%s\"", g_CountdownSounds[countdownNumber]);
+	}
+
+	if (countdownNumber == conditionsCheckSecond)
+	{
+		CheckMatchStartConditions(TASKID_MATCH_START_CHECK);
+	}
+
+	if (countdownNumber == 0)
+	{
+		g_NoResetNextCountdown[id] = 0.0;
+	}
+}
+
+StopCountdown(id)
+{
+	if (g_IsAgClient)
+	{
+		// We hide the countdown number at the center, otherwise the last number (0) will stay there for a while
+		message_begin(MSG_ONE_UNRELIABLE, g_MsgCountdown, _, id);
+		write_byte(-1);		// countdown number
+		write_byte(0);		// emit sound for countdown?
+		write_string("");	// player 1 (used for round-based gametypes, ignored here)
+		write_string("");	// player 2 (same as above, ignored)
+		message_end();
+	}
+	// else the number is gone soon automatically as per the holdtime set in the DHUD message
 }
 
 GetSpectatorList(id, hud[], len, sendTo[])
@@ -3624,22 +3801,22 @@ HudStorePressedKeys(id)
 	if (!get_pcvar_num(pcvar_kz_show_keys))
 		return;
 
-	static Float:currentGameTime;
-	currentGameTime = get_gametime();
+	static Float:currGameTime;
+	currGameTime = get_gametime();
 
 	static button;
 	button = pev(id, pev_button);
 
 	// Prolong Jump key show
 	if (button & IN_JUMP)
-		g_LastPressedJump[id] = currentGameTime;
-	else if (currentGameTime > g_LastPressedJump[id] && currentGameTime - g_LastPressedJump[id] < 0.05)
+		g_LastPressedJump[id] = currGameTime;
+	else if (currGameTime > g_LastPressedJump[id] && currGameTime - g_LastPressedJump[id] < HUD_UPDATE_TIME)
 		button |= IN_JUMP;
 
 	// Prolong Duck key show
 	if (button & IN_DUCK)
-		g_LastPressedDuck[id] = currentGameTime;
-	else if (currentGameTime > g_LastPressedDuck[id] && currentGameTime - g_LastPressedDuck[id] < 0.05)
+		g_LastPressedDuck[id] = currGameTime;
+	else if (currGameTime > g_LastPressedDuck[id] && currGameTime - g_LastPressedDuck[id] < HUD_UPDATE_TIME)
 		button |= IN_DUCK;
 
 	g_LastButtons[id] = button;
@@ -3748,9 +3925,7 @@ public Fw_HamSpawnPlayerPost(id)
 
 	ShowMessage(id, "Timer has been paused");
 
-	set_pev(id, pev_flags, pev(id, pev_flags) | FL_FROZEN);
-	ShowPauseIcon(id + TASKID_ICON);
-	set_task(2.0, "ShowPauseIcon", id + TASKID_ICON, _, _, "b");
+	FreezePlayer(id);
 }
 
 public Fw_HamKilledPlayerPre(victim, killer, shouldgib)
@@ -3764,8 +3939,7 @@ public Fw_HamKilledPlayerPre(victim, killer, shouldgib)
 	if (!get_bit(g_baIsPaused, victim))
 		return;
 
-	set_pev(victim, pev_flags, pev(victim, pev_flags) & ~FL_FROZEN);
-	remove_task(victim + TASKID_ICON);
+	UnfreezePlayer(victim);
 }
 
 public Fw_HamKilledPlayerPost(victim, killer, shouldgib)
@@ -3913,7 +4087,7 @@ public Fw_FmWeaponRespawn(weaponId, worldspawnId)
 
 public Fw_FmClientKillPre(id)
 {
-	if (get_pcvar_num(pcvar_kz_nokill))
+	if (get_pcvar_num(pcvar_kz_nokill) || g_NoResetStart[id] || g_IsNoResetMode[id])
 	{
 		ShowMessage(id,"Command \"kill\" is disabled");
 		return FMRES_SUPERCEDE;
@@ -3932,16 +4106,28 @@ public Fw_MsgHealth(msg_id, msg_dest, msg_entity)
 
 public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 {
-	static arg1, arg2;
-	arg1 = get_msg_arg_int(1);
-	arg2 = get_msg_arg_int(2);
-	if (arg1 != -1 || arg2 != 0)
+	static count, sound;
+	count = get_msg_arg_int(1);
+	sound = get_msg_arg_int(2);
+	if (count != -1 || sound != 0)
+	{
+		new conditionsCheckSecond = floatround(AG_COUNTDOWN, floatround_tozero) - MATCH_START_CHECK_SECOND;
+		if (count == conditionsCheckSecond)
+		{
+			// Not doing the call instantly, because it crashes the server with this error message:
+			// "New message started when msg '98' has not been sent yet"
+			set_task(0.01, "CheckMatchStartConditions", TASKID_MATCH_START_CHECK + 1);
+		}
 		return;
+	}
 
 	// Start the timer, disable pause/reset/start button/commands
 	g_bMatchRunning = true;
 	for (new i = 1; i <= g_MaxPlayers; i++)
 	{
+		if (g_IsBannedFromMatch[i])
+			continue; // don't start the timer for these
+
 		if (is_user_alive(i) && pev(i, pev_iuser1) == OBS_NONE)
 		{
 			InitPlayer(i, true);
@@ -3986,10 +4172,15 @@ public Fw_MsgTempEntity()
 	}
 	return PLUGIN_CONTINUE;
 }
-
-
-
-
+/*
+public Fw_FmPlayerPreThinkPre(id)
+{
+	if (get_bit(g_baIsAgFrozen, id) && !(pev(id, pev_flags) & FL_FROZEN))
+	{
+		FreezePlayer(id);
+	}
+}
+*/
 //*******************************************************
 //*                                                     *
 //* Semiclip                                            *
@@ -3998,6 +4189,11 @@ public Fw_MsgTempEntity()
 
 public Fw_FmPlayerPreThinkPost(id)
 {
+	if (get_bit(g_baIsAgFrozen, id) && !(pev(id, pev_flags) & FL_FROZEN))
+	{
+		FreezePlayer(id);
+	}
+
 	g_bWasSurfing[id] = g_bIsSurfing[id];
 	g_bIsSurfing[id] = false;
 	g_bIsSurfingWithFeet[id] = false;
@@ -4631,17 +4827,63 @@ public CmdClearStartHandler(id, level, cid)
 	return PLUGIN_HANDLED;
 }
 
+public CmdNoReset(id)
+{
+	if (g_bMatchRunning || g_IsNoResetMode[id])
+	{
+		ShowMessage(id, "A match is already running. Please, try again later.");
+		return PLUGIN_HANDLED;
+	}
+
+	if (pev(id, pev_iuser1))
+	{
+		ShowMessage(id, "You have to quit spectator mode before starting a run.");
+		return PLUGIN_HANDLED;
+	}
+
+	FreezePlayer(id);
+
+	g_IsNoResetMode[id] = false; // will be set to true later right after countdown
+	g_NoResetStart[id] = get_gametime() + g_NoResetCountdown[id];
+	g_NoResetNextCountdown[id] = get_gametime();
+
+	return PLUGIN_HANDLED;
+}
+
+public CmdSetCountdown(id)
+{
+	new Float:countdown = GetFloatArg();
+
+	if (countdown < MIN_COUNTDOWN)
+	{
+		g_NoResetCountdown[id] = MIN_COUNTDOWN;
+		ShowMessage(id, "Countdown set to %.0fs (min. allowed)", MIN_COUNTDOWN);
+	}
+	else if (countdown > MAX_COUNTDOWN)
+	{
+		g_NoResetCountdown[id] = MAX_COUNTDOWN;
+		ShowMessage(id, "Countdown set to %.0fs (max. allowed)", MAX_COUNTDOWN);
+	}
+	else
+	{
+		g_NoResetCountdown[id] = countdown;
+		ShowMessage(id, "Countdown set to %.2fs", countdown);
+	}
+
+	return PLUGIN_HANDLED;
+}
+
 public CmdReady(id)
 {
-	if (g_bMatchRunning)
+	if (g_bMatchRunning || g_IsNoResetMode[id])
 	{
-		client_print(id, print_chat, "[%s] You're not allowed to ready the match is already running.", PLUGIN_TAG);
+		client_print(id, print_chat, "[%s] Cannot /ready yet, a match is already running!", PLUGIN_TAG);
 		return PLUGIN_HANDLED;
 	}
 
 	if (!IsCupPlayer(id))
 	{
-		client_print(id, print_chat, "[%s] You're not allowed to ready because you are not a participant in the current cup match.", PLUGIN_TAG);
+		client_print(id, print_chat, "[%s] Cannot /ready yet, you are not a participant in the current cup match.", PLUGIN_TAG);
 		return PLUGIN_HANDLED;
 	}
 
@@ -4653,7 +4895,7 @@ public CmdReady(id)
 
 	if (!IsCupMap())
 	{
-		client_print(id, print_chat, "[%s] Cannot /ready yet. You must be in one of the maps to be played.", PLUGIN_TAG);
+		client_print(id, print_chat, "[%s] Cannot /ready yet, you must be in one of the maps to be played.", PLUGIN_TAG);
 		return PLUGIN_HANDLED;
 	}
 
@@ -4670,7 +4912,7 @@ public CmdReady(id)
 	{
 		g_CupReady2 = !g_CupReady2;
 		ready = g_CupReady2;
-		server_print("player1 is %s", ready ? "ready" : "NOT ready");
+		server_print("player2 is %s", ready ? "ready" : "NOT ready");
 	}
 
 	new playerName[32];
@@ -4693,12 +4935,64 @@ public CmdReady(id)
 	if (g_CupReady1 && g_CupReady2)
 	{
 		client_print(0, print_chat, "[%s] Starting in 5 seconds... non-participants will now be switched to spectator mode.", PLUGIN_TAG);
-		set_task(1.5, "CupForceSpectators", TASKID_CUP_FORCE_SPECTATORS);
-		set_task(4.9, "CupForceSpectators", TASKID_CUP_FORCE_SPECTATORS + 1); // just in case someone's being an idiot
-		set_task(5.0, "CupStartMatch", TASKID_CUP_START_MATCH);
+		set_task(1.5,  "CupForceSpectators", TASKID_CUP_FORCE_SPECTATORS);
+		set_task(4.5,  "CupForceSpectators", TASKID_CUP_FORCE_SPECTATORS + 1);
+		set_task(4.98, "CupForceSpectators", TASKID_CUP_FORCE_SPECTATORS + 2); // just in case someone's being an idiot
+		set_task(5.0,  "CupStartMatch",      TASKID_CUP_START_MATCH);
 	}
 
 	return PLUGIN_HANDLED;
+}
+
+/**
+ *	Get the players that are not spectators and have no start point set,
+ *	and switch them to spectators and disable the possibility of finishing
+ *	the run, because otherwise they might start in a spawn point that gives them
+ *	advantage, specially if it's a deathmatch map
+ */
+public CheckMatchStartConditions(taskId)
+{
+	new isRealAgstart = taskId - TASKID_MATCH_START_CHECK;
+
+	new players[MAX_PLAYERS], playersNum, switchedPlayers = 0;
+	get_players_ex(players, playersNum, GetPlayers_ExcludeBots);
+	for (new i = 0; i < playersNum; i++)
+	{
+		
+		new id = players[i];
+
+		if (CanTeleport(id, CP_TYPE_START, false) || CanTeleport(id, CP_TYPE_DEFAULT_START, false))
+		{
+			// Might be entering here again after banning from match
+			// If they can teleport then it's fine, remove the ban
+			g_IsBannedFromMatch[id] = false;
+			continue;
+		}
+
+		if (pev(id, pev_iuser1))
+			continue;
+		
+		ShowMessage(id, "You had to press the start button before starting the match!");
+
+		ResetPlayer(id);
+		server_cmd("agforcespectator #%d", get_user_userid(id));
+
+		if (isRealAgstart)
+			g_IsBannedFromMatch[id] = true;
+
+		g_NoResetStart[id] = 0.0;
+		g_NoResetNextCountdown[id] = 0.0;
+
+		switchedPlayers++;
+	}
+	server_exec();
+	
+	if (switchedPlayers == playersNum && isRealAgstart)
+	{
+		// No player remaining for this agstart, so abort it
+		server_cmd("agabort");
+		server_exec();
+	}
 }
 
 bool:IsCupMap()
@@ -4748,6 +5042,8 @@ public CupForceSpectators(taskId)
 
 public CupStartMatch(taskId)
 {
+	CupForceSpectators(TASKID_CUP_FORCE_SPECTATORS + 3);
+
 	new bool:areParticipantsSpectating;
 	if (pev(g_CupPlayer1, pev_iuser1))
 	{
@@ -5220,17 +5516,19 @@ public CmdSpeedcap(id)
 
 	if (allowedSpeedcap && speedcap > allowedSpeedcap)
 	{
-		g_Speedcap[id] = speedcap;
-		ShowMessage(id, "Server doesn't allow a higher speedcap than %.2f", allowedSpeedcap);
-	} else {
-		g_Speedcap[id] = speedcap;
+		g_Speedcap[id] = allowedSpeedcap;
+		ShowMessage(id, "Horizontal speed set to %.2f (max. allowed)", allowedSpeedcap);
 	}
-	ShowMessage(id, "Your horizontal speedcap is now: %.2f", g_Speedcap[id]);
+	else
+	{
+		g_Speedcap[id] = speedcap;
+		ShowMessage(id, "Your horizontal speedcap is now: %.2f", g_Speedcap[id]);
+	}
 	clr_bit(g_baIsPureRunning, id);
 
 	return PLUGIN_HANDLED;
 }
-
+/*
 public SetPOV(id)
 {
 	new target = GetNumberArg();
@@ -5238,7 +5536,7 @@ public SetPOV(id)
 
 	return PLUGIN_HANDLED;
 }
-
+*/
 public CmdNightvision(id)
 {
 	new cvar_nightvision = get_pcvar_num(pcvar_kz_nightvision);
@@ -5595,27 +5893,19 @@ SaveRecordsFile(RUN_TYPE:topType)
 	fclose(file);
 }
 
-// Here instead of writing the whole file again, we just insert a few rows in the DB, so it's much less expensive in this case
-SaveRecordDB(RUN_TYPE:topType, stats[STATS])
+FillQueryData(queryData[QUERY], RUN_TYPE:topType, isNoReset, stats[STATS])
 {
-	//console_print(0, "SaveRecordDB(), copying stats into data...");
+	queryData[QUERY_RUN_TYPE] = topType;
+	queryData[QUERY_PID] = 0; // this will be filled in between queries
+	queryData[QUERY_NO_RESET] = isNoReset;
+	datacopy(queryData[QUERY_STATS], stats, sizeof(stats), 0, 0);
+}
 
-	new data[sizeof(stats)+1];
-	data[0] = topType;
-	datacopy(data, stats, sizeof(stats), 1, 0);
-	/*
-	new i = 1;
-	while (i < sizeof(stats)+1)
-	{
-		data[i] = stats[i-1];
-		i++;
-	}
-	*/
-	//add(data, sizeof(stats)+1, stats);
-	//data[1] = stats;
-
+// Here instead of writing the whole file again, we just insert a few rows in the DB, so it's much less expensive in this case
+SaveRecordDB(queryData[QUERY])
+{
 	new escapedUniqueId[64];
-	mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), stats[STATS_ID]);
+	mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), queryData[QUERY_STATS][STATS_ID]);
 
 	new query[592];
 	formatex(query, charsmax(query), "INSERT INTO player (unique_id) \
@@ -5631,7 +5921,7 @@ SaveRecordDB(RUN_TYPE:topType, stats[STATS])
 	// Here one callback will call another, and that one will call another, and another...
 	// because we have to wait until the previous data has been inserted, and only if it has been inserted at all
 	// so we insert the player if doesn't exist, then the name they were using at that time, then the run corresponding to that player
-	mysql_query(g_DbConnection, "SelectRunnerId", query, data, sizeof(data));
+	mysql_query(g_DbConnection, "SelectRunnerId", query, queryData, sizeof(queryData));
 }
 
 // Refactor if somehow more than 2 tops have to be passed
@@ -5718,7 +6008,12 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 
 	new mySQLStore = get_pcvar_num(pcvar_kz_mysql);
 	if (mySQLStore)
-		SaveRecordDB(topType, stats);
+	{
+		new queryData[QUERY];
+		FillQueryData(queryData, topType, 0, stats);
+
+		SaveRecordDB(queryData);
+	}
 
 	if (mySQLStore != 1)
 		SaveRecordsFile(topType);
@@ -6056,12 +6351,12 @@ public SelectRunsHandler(failstate, error[], errNo, data[], size, Float:queuetim
 {
 	if (failstate != TQUERY_SUCCESS)
 	{
-	log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectRunsHandler(): [%d] - [%s] - [%d]", errNo, error, data[1]);
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectRunsHandler(): [%d] - [%s] - [%d]", errNo, error, data[1]);
 
-	if (get_pcvar_num(pcvar_kz_mysql) == 2)
-		LoadRecordsFile(data[0]);
+		if (get_pcvar_num(pcvar_kz_mysql) == 2)
+			LoadRecordsFile(data[0]);
 
-	return;
+		return;
 	}
 
 	//console_print(0, "SelectRunsHandler()");
@@ -6081,7 +6376,7 @@ public SelectRunsHandler(failstate, error[], errNo, data[], size, Float:queuetim
 		mysql_read_result(4, kztime);
 		timestamp = mysql_read_result(5);
 
-		// FIXME check if this language allows to dump the data directly to the stats array
+		// TODO check if this language allows to dump the data directly to the stats array
 		//console_print(0, "ts %%d = %d", timestamp);
 
 		stats[STATS_TIMESTAMP] = timestamp;
@@ -6102,88 +6397,62 @@ public SelectRunsHandler(failstate, error[], errNo, data[], size, Float:queuetim
 }
 
 // Gets the player id from the `player` table so we can use it to insert stuff in the `player_name` table
-public SelectRunnerId(failstate, error[], errNo, data[], size, Float:queuetime)
+public SelectRunnerId(failstate, error[], errNo, queryData[], size, Float:queuetime)
 {
     if (failstate != TQUERY_SUCCESS)
     {
-        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectRunnerId(): [%d] - [%s] - [%s]", errNo, error, data);
+        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectRunnerId(): [%d] - [%s] - [%s]", errNo, error, queryData);
         return;
     }
-    //new RUN_TYPE:topType = data[0];
-    new stats[STATS];
-    //add(stats, sizeof(stats), data[STATS]);
-    //console_print(0, "sizeof(data) = %d", size);
-    //console_print(0, "sizeof(stats) = %d", sizeof(stats));
-    datacopy(stats, data, sizeof(stats), 0, 1);
-/*
-    console_print(0, "data[1]: %s", data[1]);
-    console_print(0, "data[STATS_ID+1]: %s", data[STATS_ID+1]);
-    console_print(0, "data[STATS_NAME+1]: %s", data[STATS_NAME+1]);
-    console_print(0, "stats[STATS_NAME]: %s", stats[STATS_NAME]);
-    console_print(0, "time: %.3f", stats[STATS_TIME]);
-    console_print(0, "ts %%i: %i", stats[STATS_TIMESTAMP]);
-    console_print(0, "ts %%d: %d", stats[STATS_TIMESTAMP]);
-*/    
+    //console_print(0, "SelectRunnerId :: queryData[QUERY_PID]: %d", queryData[QUERY_PID]);
 
-    server_print("[%.3f] Inserted runner %s, QueueTime:[%.3f]", get_gametime(), stats[STATS_ID], queuetime);
+    server_print("[%.3f] Inserted runner %s, QueueTime:[%.3f]", get_gametime(), queryData[QUERY_STATS][STATS_ID], queuetime);
 
-    if (stats[STATS_ID])
+    if (queryData[QUERY_STATS][STATS_ID])
     {
       new escapedUniqueId[64], query[108];
-      mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), stats[STATS_ID]);
+      mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), queryData[QUERY_STATS][STATS_ID]);
       formatex(query, charsmax(query), "SELECT id FROM player WHERE unique_id = '%s'", escapedUniqueId);
 
       // Here one callback will call another, and that one will call another, and another...
       // because we have to wait until the previous data has been inserted, and only if it has been inserted at all
       // so we insert the player if doesn't exist, then the name they were using at that time, then the run corresponding to that player
-      mysql_query(g_DbConnection, "InsertRunPlayerName", query, data, size);
+      mysql_query(g_DbConnection, "InsertRunPlayerName", query, queryData, size);
     }
     else
     {
       // Something new must have been inserted in SaveRecordDB because there's no unique_id...
       // so we get directly the last inserted id
-      new playerId = mysql_get_insert_id();
-      DoQueryInsertRunPlayerName(data, size, playerId);
+      queryData[QUERY_PID] = mysql_get_insert_id();
+      DoQueryInsertRunPlayerName(queryData, size);
     }
 }
 
 // Gets the player id from the SELECT query result
-public InsertRunPlayerName(failstate, error[], errNo, data[], size, Float:queuetime)
+public InsertRunPlayerName(failstate, error[], errNo, queryData[], size, Float:queuetime)
 {
     if (failstate != TQUERY_SUCCESS)
     {
-        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ InsertRunPlayerName(): [%d] - [%s] - [%s]", errNo, error, data);
+        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ InsertRunPlayerName(): [%d] - [%s] - [%s]", errNo, error, queryData);
         return;
     }
-    //new RUN_TYPE:topType = data[0];
-    //console_print(0, "topType: %d", topType);
-    new stats[STATS];
-    //copy(stats, sizeof(stats), data[1]);
-    datacopy(stats, data, sizeof(stats), 0, 1);
-
-    //console_print(0, "stats[STATS_ID]: %s", stats[STATS_ID]);
-    new playerId;
 
     if (mysql_more_results())
-    {
-        playerId = mysql_read_result(0);
-    }
+        queryData[QUERY_PID] = mysql_read_result(0);
 
-    server_print("[%.3f] Selected runner #%d, QueueTime:[%.3f]", get_gametime(), playerId, queuetime);
+    server_print("[%.3f] Selected runner #%d, QueueTime:[%.3f]", get_gametime(), queryData[QUERY_PID], queuetime);
 
-    DoQueryInsertRunPlayerName(data, size, playerId);
+    DoQueryInsertRunPlayerName(queryData, size);
 }
 
-// Launches the query to insert the player name that was in use when the record was one
-DoQueryInsertRunPlayerName(data[], size, playerId)
+// Launches the query to insert the player name that was in use when the record was done
+DoQueryInsertRunPlayerName(queryData[], size)
 {
-    new stats[STATS];
-    //copy(stats, sizeof(stats), data[1]);
-    datacopy(stats, data, sizeof(stats), 0, 1);
+    //console_print(0, "pid: %d, time: %.3f, no-reset: %d, type: %s",
+    //	queryData[QUERY_PID], queryData[QUERY_STATS][STATS_TIME], queryData[QUERY_NO_RESET], g_TopType[queryData[QUERY_RUN_TYPE]]);
 
     new escapedName[64], query[752];
-    //console_print(0, "ts %%i: %i", stats[STATS_TIMESTAMP]);
-    mysql_escape_string(escapedName, charsmax(escapedName), stats[STATS_NAME]);
+    mysql_escape_string(escapedName, charsmax(escapedName), queryData[QUERY_STATS][STATS_NAME]);
     formatex(query, charsmax(query), "INSERT INTO player_name (player, name, date) \
                                       SELECT %d, '%s', FROM_UNIXTIME(%i) \
                                       FROM (select 1) as a \
@@ -6192,69 +6461,60 @@ DoQueryInsertRunPlayerName(data[], size, playerId)
                                           FROM player_name \
                                           WHERE player = %d AND name = '%s' AND date = FROM_UNIXTIME(%i) \
                                       ) \
-                                      LIMIT 1", playerId, escapedName, stats[STATS_TIMESTAMP], playerId, escapedName, stats[STATS_TIMESTAMP]);
+                                      LIMIT 1",
+                                      queryData[QUERY_PID], escapedName, queryData[QUERY_STATS][STATS_TIMESTAMP],
+                                      queryData[QUERY_PID], escapedName, queryData[QUERY_STATS][STATS_TIMESTAMP]);
 
-
-    //console_print(0, query);
-
-    new newData[sizeof(stats)+2];
-    newData[0] = data[0];
-    newData[1] = playerId;
-    //add(newData, charsmax(newData), data[1]);
-    datacopy(newData, data, sizeof(stats), 2, 1);
-
-    mysql_query(g_DbConnection, "InsertRun", query, newData, sizeof(newData));
+    mysql_query(g_DbConnection, "InsertRun", query, queryData, size);
 }
 
 // Launches the query to insert the run
-public InsertRun(failstate, error[], errNo, data[], size, Float:queuetime)
+public InsertRun(failstate, error[], errNo, queryData[], size, Float:queuetime)
 {
     if (failstate != TQUERY_SUCCESS)
     {
-        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ InsertRun(): [%d] - [%s] - [%s]", errNo, error, data);
+        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ InsertRun(): [%d] - [%s] - [%s]", errNo, error, queryData);
         return;
     }
-    new RUN_TYPE:topType = data[0];
-    new playerId = data[1];
-    new stats[STATS];
-    //copy(stats, sizeof(stats), data[2]);
-    datacopy(stats, data, sizeof(stats), 0, 2);
+    server_print("[%.3f] Inserted name of the runner with PID %d, QueueTime:[%.3f]", get_gametime(), queryData[QUERY_PID], queuetime);
 
-    server_print("[%.3f] Inserted name of the runner %s, QueueTime:[%.3f]", get_gametime(), stats[STATS_ID], queuetime);
+    //console_print(0, "SELECT %d, %d, '%s', %.6f, FROM_UNIXTIME(%i), %d, %d, %d",
+    //    queryData[QUERY_PID], g_MapId, g_TopType[queryData[QUERY_RUN_TYPE]], queryData[QUERY_STATS][STATS_TIME],
+    //    queryData[QUERY_STATS][STATS_TIMESTAMP], queryData[QUERY_STATS][STATS_CP], queryData[QUERY_STATS][STATS_TP], queryData[QUERY_NO_RESET]);
+    //console_print(0, "... WHERE player = %d AND date = FROM_UNIXTIME(%i) AND type = '%s'",
+    //    queryData[QUERY_PID], queryData[QUERY_STATS][STATS_TIMESTAMP], g_TopType[queryData[QUERY_RUN_TYPE]]);
 
-    new escapedUniqueId[64], query[624];
-    mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), stats[STATS_ID]);
-    formatex(query, charsmax(query), "INSERT INTO run (player, map, type, time, date, checkpoints, teleports) \
-                                      SELECT %d, %d, '%s', %.6f, FROM_UNIXTIME(%i), %d, %d \
+    new escapedUniqueId[64], query[672];
+    mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), queryData[QUERY_STATS][STATS_ID]);
+
+    // This query only inserts a run if it doesn't exist, I'm not sure how it would be possible for a run to have the same player/date/type
+    formatex(query, charsmax(query), "INSERT INTO run (player, map, type, time, date, checkpoints, teleports, is_no_reset) \
+                                      SELECT %d, %d, '%s', %.6f, FROM_UNIXTIME(%i), %d, %d, %d \
                                       FROM (select 1) as a \
                                       WHERE NOT EXISTS( \
-                                          SELECT player, map, type, time, date, checkpoints, teleports \
+                                          SELECT player, map, type, time, date, checkpoints, teleports, is_no_reset \
                                           FROM run \
                                           WHERE player = %d AND date = FROM_UNIXTIME(%i) AND type = '%s' \
                                       ) \
                                       LIMIT 1",
-                                      playerId, g_MapId, g_TopType[topType], stats[STATS_TIME], stats[STATS_TIMESTAMP], stats[STATS_CP], stats[STATS_TP],
-                                      playerId, stats[STATS_TIMESTAMP], g_TopType[topType]);
+                                      queryData[QUERY_PID], g_MapId, g_TopType[queryData[QUERY_RUN_TYPE]], queryData[QUERY_STATS][STATS_TIME],
+                                      queryData[QUERY_STATS][STATS_TIMESTAMP], queryData[QUERY_STATS][STATS_CP], queryData[QUERY_STATS][STATS_TP], queryData[QUERY_NO_RESET],
+                                      queryData[QUERY_PID], queryData[QUERY_STATS][STATS_TIMESTAMP], g_TopType[queryData[QUERY_RUN_TYPE]]);
 
-    new newData[1];
-    newData[0] = topType;
-
-    mysql_query(g_DbConnection, "InsertRunHandler", query, newData, sizeof(newData));
+    mysql_query(g_DbConnection, "InsertRunHandler", query, queryData, size);
 }
 
-public InsertRunHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+public InsertRunHandler(failstate, error[], errNo, queryData[], size, Float:queuetime)
 {
     if (failstate != TQUERY_SUCCESS)
     {
-        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ DefaultInsertHandler(): [%d] - [%s] - [%d]", errNo, error, data[0]);
+        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ InsertRunHandler(): [%d] - [%s] - [%d]", errNo, error, queryData[QUERY_RUN_TYPE]);
         return;
     }
     server_print("[%.3f] Inserted run, QueueTime:[%.3f]", get_gametime(), queuetime);
 
-    new RUN_TYPE:topType = data[0];
-
     // Load records and hope that they're retrieved before the client requests the data (e.g.: writes /pure)
-    LoadRecords(topType);
+    LoadRecords(queryData[QUERY_RUN_TYPE]);
 }
 
 // Gets the map id corresponding to the map that is currently being played
@@ -6267,9 +6527,7 @@ public SelectMapIdHandler(failstate, error[], errNo, data[], size, Float:queueti
     }
 
     if (mysql_more_results())
-    {
-      g_MapId = mysql_read_result(0);
-    }
+        g_MapId = mysql_read_result(0);
 
     server_print("[%.3f] Selected map #%d, QueueTime:[%.3f]", get_gametime(), g_MapId, queuetime);
 }
