@@ -32,6 +32,15 @@ enum _:QUERY
 	QUERY_STATS[STATS]			// steam id, nickname, cps, tps, run duration, end date
 }
 
+enum _:NORESET
+{
+	NORESET_ID[32],
+	NORESET_NAME[32],
+	Float:NORESET_AVG_TIME,
+	NORESET_RUNS,
+	NORESET_LATEST_RUN
+}
+
 // TODO: put this into a file and read from it...
 new const g_DeathmatchMaps[][] =
 {

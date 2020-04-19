@@ -308,7 +308,7 @@ new g_CheatCommandsGuard[MAX_PLAYERS + 1];
 new g_ShowStartMsg[MAX_PLAYERS + 1];
 new g_TimeDecimals[MAX_PLAYERS + 1];
 new g_Nightvision[MAX_PLAYERS + 1];
-new g_Slopefix[MAX_PLAYERS + 1];
+new bool:g_Slopefix[MAX_PLAYERS + 1];
 new Float:g_Speedcap[MAX_PLAYERS + 1];
 new g_ShowSpeed[MAX_PLAYERS + 1];
 new g_ShowSpecList[MAX_PLAYERS + 1];
@@ -340,7 +340,7 @@ new Float:g_FrameTimeInMsec[MAX_PLAYERS + 1];
 
 new g_ControlPoints[MAX_PLAYERS + 1][CP_TYPES][CP_DATA];
 new g_CpCounters[MAX_PLAYERS + 1][COUNTERS];
-new g_RunType[MAX_PLAYERS + 1][9];
+new g_RunType[MAX_PLAYERS + 1][5];
 new Float:g_Velocity[MAX_PLAYERS + 1][3];
 new Float:g_Origin[MAX_PLAYERS + 1][3];
 new Float:g_Angles[MAX_PLAYERS + 1][3];
@@ -383,6 +383,7 @@ new g_ReplaysDir[256];
 new g_StatsFile[RUN_TYPE][256];
 new g_TopType[RUN_TYPE][32];
 new Array:g_ArrayStats[RUN_TYPE];
+new Array:g_NoResetLeaderboard;
 
 new g_MapIniFile[256];
 new g_MapDefaultStart[CP_DATA];
@@ -667,7 +668,6 @@ public plugin_init()
 	register_forward(FM_ClientKill,"Fw_FmClientKillPre");
 	register_forward(FM_ClientCommand, "Fw_FmClientCommandPost", 1);
 	register_forward(FM_Think, "Fw_FmThinkPre");
-	//register_forward(FM_PlayerPreThink, "Fw_FmPlayerPreThinkPre");
 	register_forward(FM_PlayerPreThink, "Fw_FmPlayerPreThinkPost", 1);
 	register_forward(FM_PlayerPostThink, "Fw_FmPlayerPostThinkPre");
 	register_forward(FM_AddToFullPack, "Fw_FmAddToFullPackPost", 1);
@@ -712,9 +712,10 @@ public plugin_init()
 	g_SyncHudSpecList       = CreateHudSyncObj();
 	g_SyncHudCupMaps        = CreateHudSyncObj();
 
-	g_ArrayStats[NOOB] = ArrayCreate(STATS);
-	g_ArrayStats[PRO]  = ArrayCreate(STATS);
-	g_ArrayStats[PURE] = ArrayCreate(STATS);
+	g_ArrayStats[NOOB]   = ArrayCreate(STATS);
+	g_ArrayStats[PRO]    = ArrayCreate(STATS);
+	g_ArrayStats[PURE]   = ArrayCreate(STATS);
+	g_NoResetLeaderboard = ArrayCreate(NORESET);
 
 	g_ReplayNum = 0;
 }
@@ -805,6 +806,7 @@ public plugin_end()
 	ArrayDestroy(g_ArrayStats[NOOB]);
 	ArrayDestroy(g_ArrayStats[PRO]);
 	ArrayDestroy(g_ArrayStats[PURE]);
+	ArrayDestroy(g_NoResetLeaderboard);
 	TrieDestroy(g_CupMapPool);
 }
 
@@ -865,6 +867,8 @@ public InitTopsAndDB()
 
 		formatex(selectMapQuery, charsmax(selectMapQuery), "SELECT id FROM map WHERE name = '%s'", g_EscapedMap); // FIXME check if the escaped name may differ from the one in DB
 		mysql_query(g_DbConnection, "SelectMapIdHandler", selectMapQuery);
+
+		LoadNoResetRecords();
 
 		// TODO: Insert server location data
 		// TODO: Insert the `server` if doesn't exist
@@ -1098,12 +1102,13 @@ DisplayKzMenu(id, mode)
 		}
 	case 5:
 		{
-			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3;
+			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4;
 
 			len = formatex(menuBody[len], charsmax(menuBody) - len, "Show Top Climbers\n\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Pure 15\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Pro 15\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Noob 15\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. No-Reset 15\n");
 		}
 	}
 
@@ -1119,7 +1124,7 @@ DisplayKzMenu(id, mode)
 	return PLUGIN_HANDLED;
 }
 
-createMapMenu(id, const menu_id[], bool:wasBadChoice=false)
+CreateMapMenu(id, const menu_id[], bool:wasBadChoice=false)
 {
 	new playerName[32];
 	GetColorlessName(id, playerName, charsmax(playerName));
@@ -1262,18 +1267,18 @@ public ActionMapBanMenu(id, key)
 			// Player1 started banning, now Player2 has to start picking
 			nextId = (g_FirstBanner == g_CupPlayer1) ? g_CupPlayer2 : g_CupPlayer1;
 			g_PrevChooser = 0;
-			createMapMenu(nextId, MAP_PICK_MENU_ID);
+			CreateMapMenu(nextId, MAP_PICK_MENU_ID);
 		}
 		else
 		{
 			// Continue banning
-			createMapMenu(nextId, MAP_BAN_MENU_ID);
+			CreateMapMenu(nextId, MAP_BAN_MENU_ID);
 		}
 	}
 	else
 	{
 		client_print(id, print_chat, "[%s] Please, ban a map that's not already banned.", PLUGIN_TAG);
-		createMapMenu(id, MAP_BAN_MENU_ID, true);
+		CreateMapMenu(id, MAP_BAN_MENU_ID, true);
 	}
 
 	return PLUGIN_HANDLED;
@@ -1385,14 +1390,14 @@ public ActionMapPickMenu(id, key)
 		else
 		{
 			// Continue picking
-			createMapMenu(nextId, MAP_PICK_MENU_ID);
+			CreateMapMenu(nextId, MAP_PICK_MENU_ID);
 		}
 		CmdMapsShowHandler(0);
 	}
 	else
 	{
 		client_print(id, print_chat, "[%s] Please, pick a map that's not already banned/picked.", PLUGIN_TAG);
-		createMapMenu(id, MAP_PICK_MENU_ID, true);
+		CreateMapMenu(id, MAP_PICK_MENU_ID, true);
 	}
 
 	return PLUGIN_HANDLED;
@@ -1456,6 +1461,7 @@ public ActionKzMenu(id, key)
 		case 1: ShowTopClimbers(id, PURE);
 		case 2: ShowTopClimbers(id, PRO);
 		case 3: ShowTopClimbers(id, NOOB);
+		case 4: ShowTopNoReset(id);
 		}
 	}
 
@@ -1486,7 +1492,7 @@ public client_putinserver(id)
 	// FIXME: get default value from client, and then fall back to server if client doesn't have the command set
 	g_TimeDecimals[id] = get_pcvar_num(pcvar_kz_time_decimals);
 	g_Nightvision[id] = get_pcvar_num(pcvar_kz_nightvision);
-	g_Slopefix[id] = 0;
+	g_Slopefix[id] = false;
 	// Nightvision value 1 in server cvar is "all modes allowed", if that's the case we default it to mode 2 in client,
 	// every other mode in cvar is +1 than client command, so we do -1 to get the correct mode
 	if (g_Nightvision[id] > 1)
@@ -1542,7 +1548,7 @@ public client_disconnect(id)
 
 	if (g_RecordRun[id])
 	{
-		if (IsCupPlayer(id))
+		if (IsCupPlayer(id) && g_bMatchRunning)
 		{
 			// A participant might ragequit or get disconnected due to lag or something
 			// before finishing the run, so we save their demo to the point where they disconnected
@@ -1550,6 +1556,7 @@ public client_disconnect(id)
 		}
 		else
 		{
+			//console_print(id, "clearing recorded run with %d frames from memory", ArraySize(g_RunFrames[id]));
 			g_RecordRun[id] = 0;
 			ArrayClear(g_RunFrames[id]);
 		}
@@ -1910,6 +1917,8 @@ CmdReplay(id, RUN_TYPE:runType)
 		client_print(id, print_chat, "[%s] Your bot will start running at %.2f fps (on average) in %.1f seconds", PLUGIN_TAG, demoFramerate, setupTime);
 		//console_print(1, "replayft=%.3f, replay0t=%.2f, i=%d, mult=%d", replay[RP_TIME], replay0[RP_TIME], i, g_ReplayFpsMultiplier[id]);
 	}
+
+	return PLUGIN_HANDLED;
 }
 
 SpawnBot(id)
@@ -2502,7 +2511,7 @@ public CmdSayHandler(id, level, cid)
 	else if (equali(args[1], "spectate") || equali(args[1], "spec"))
 		CmdSpec(id);
 
-	else if (equali(args[1], "checkspec"))
+	else if (equali(args[1], "checkspec")) // TODO: is this useful?
 		CmdSpectatingName(id);
 
 	else if (equali(args[1], "setstart") || equali(args[1], "ss"))
@@ -2514,7 +2523,8 @@ public CmdSayHandler(id, level, cid)
 	else if (equali(args[1], "invis"))
 		CmdInvis(id);
 
-	else if (equali(args[1], "winvis") || equali(args[1], "waterinvis") || equali(args[1], "liquidinvis"))
+	else if (equali(args[1], "winvis") || equali(args[1], "waterinvis") || equali(args[1], "water")
+		|| equali(args[1], "liquidinvis") || equali(args[1], "liquids"))
 		CmdWaterInvis(id);
 
 	else if (equali(args[1], "showkeys") || equali(args[1], "keys"))
@@ -2584,6 +2594,9 @@ public CmdSayHandler(id, level, cid)
 
 	else if (containi(args[1], "nub") == 0 || containi(args[1], "noob") == 0)
 		ShowTopClimbers(id, NOOB);
+
+	else if (containi(args[1], "nrtop") == 0 || containi(args[1], "topnr") == 0)
+		ShowTopNoReset(id);
 
 	else if (containi(args[1], "top") == 0)
 		DisplayKzMenu(id, 5);
@@ -3142,10 +3155,9 @@ StartClimb(id, bool:isMatch = false)
 
 	if (g_RecordRun[id])
 	{
-		//fclose(g_RecordRun[id]);
+		//console_print(id, "clearing recorded run with %d frames from memory", ArraySize(g_RunFrames[id]));
 		g_RecordRun[id] = 0;
 		ArrayClear(g_RunFrames[id]);
-		//console_print(id, "stopped recording");
 	}
 
 	if (get_pcvar_num(pcvar_kz_autorecord))
@@ -3217,7 +3229,11 @@ StartTimer(id)
 	if (g_ShowStartMsg[id])
 	{
 		new msg[38];
-		formatex(msg, charsmax(msg), "Timer started with speed %5.2fu/s", speed);
+		if (g_IsNoResetMode[id])
+			formatex(msg, charsmax(msg), "No-Reset run started!");
+		else
+			formatex(msg, charsmax(msg), "Timer started with speed %5.2fu/s", speed);
+
 		ShowMessage(id, msg);
 	}
 
@@ -3236,8 +3252,8 @@ FinishTimer(id)
 	client_cmd(0, "spk fvox/bell");
 
 	get_user_name(id, name, charsmax(name));
-	client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s finished in %02d:%", "(CPs: %d | TPs: %d) %s"),
-		PLUGIN_TAG, name, minutes, seconds, g_CpCounters[id][COUNTER_CP], g_CpCounters[id][COUNTER_TP], pureRun);
+	client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s finished in %02d:%", "(CPs: %d | TPs: %d) %s%s"),
+		PLUGIN_TAG, name, minutes, seconds, g_CpCounters[id][COUNTER_CP], g_CpCounters[id][COUNTER_TP], pureRun, g_IsNoResetMode[id] ? " No-Reset" : "");
 
 	if (!get_pcvar_num(pcvar_kz_nostat) && !IsBot(id))
 	{
@@ -3250,6 +3266,7 @@ FinishTimer(id)
 				// Update both: pure and pro
 				topType = PURE;
 				UpdateRecords(id, kztime, PURE);
+				g_IsNoResetMode[id] = false;
 				UpdateRecords(id, kztime, PRO);
 			}
 			else
@@ -3345,6 +3362,14 @@ FinishTimer(id)
 	clr_bit(g_baIsClimbing, id);
 	clr_bit(g_baIsPureRunning, id);
 	g_IsNoResetMode[id] = false;
+
+	if (g_RecordRun[id])
+	{
+		// By this point any worthy run should have been saved already
+		//console_print(id, "clearing recorded run with %d frames from memory", ArraySize(g_RunFrames[id]));
+		g_RecordRun[id] = 0;
+		ArrayClear(g_RunFrames[id]);
+	}
 }
 
 PauseTimer(id, bool:specModeProcessing)
@@ -3669,24 +3694,27 @@ UpdateHud(Float:currGameTime)
 			sec = floatround(kztime - min * 60.0, floatround_floor);
 
 			if (g_CpCounters[id][COUNTER_CP] || g_CpCounters[id][COUNTER_TP])
-				g_RunType[id] = "Noob run";
+				g_RunType[id] = "Noob";
 			else if (get_bit(g_baIsPureRunning, id))
-				g_RunType[id] = "Pure run";
+				g_RunType[id] = "Pure";
 			else
-				g_RunType[id] = "Pro run";
+				g_RunType[id] = "Pro";
+
+			new timerText[64];
+			formatex(timerText, charsmax(timerText), "%s%s run | Time: %02d:%02d | CPs: %d | TPs: %d%s",
+					g_RunType[id], g_IsNoResetMode[id] ? " NR" : "", min, sec,
+					g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP], get_bit(g_baIsPaused, targetId) ? " | *Paused*" : "");
 
 			switch (g_ShowTimer[id])
 			{
 			case 1:
 				{
-					client_print(id, print_center, "%s | Time: %02d:%02d | CPs: %d | TPs: %d %s",
-							g_RunType[id], min, sec, g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP], get_bit(g_baIsPaused, targetId) ? "| *Paused*" : "");
+					client_print(id, print_center, timerText);
 				}
 			case 2:
 				{
 					set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, 0.1, 0, 0.0, 999999.0, 0.0, 0.0, -1);
-					ShowSyncHudMsg(id, g_SyncHudTimer, "%s | Time: %02d:%02d | CPs: %d | TPs: %d %s",
-						g_RunType[id], min, sec, g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP], get_bit(g_baIsPaused, targetId) ? "| *Paused*" : "");
+					ShowSyncHudMsg(id, g_SyncHudTimer, timerText);
 				}
 			}
 		}
@@ -4126,12 +4154,14 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 	for (new i = 1; i <= g_MaxPlayers; i++)
 	{
 		if (g_IsBannedFromMatch[i])
-			continue; // don't start the timer for these
+			continue; // don't start the timer for these; TODO: maybe ResetPlayer(i)?
 
 		if (is_user_alive(i) && pev(i, pev_iuser1) == OBS_NONE)
 		{
 			InitPlayer(i, true);
 			StartTimer(i);
+
+			g_IsNoResetMode[i] = true;
 
 			g_RecordRun[i] = 1;
 			g_RunFrames[i] = ArrayCreate(REPLAY);
@@ -4172,15 +4202,9 @@ public Fw_MsgTempEntity()
 	}
 	return PLUGIN_CONTINUE;
 }
-/*
-public Fw_FmPlayerPreThinkPre(id)
-{
-	if (get_bit(g_baIsAgFrozen, id) && !(pev(id, pev_flags) & FL_FROZEN))
-	{
-		FreezePlayer(id);
-	}
-}
-*/
+
+
+
 //*******************************************************
 //*                                                     *
 //* Semiclip                                            *
@@ -4359,9 +4383,9 @@ CheckHealthBoost(id)
 			// Very likely used healthboost, so this is not a pure run anymore
 			clr_bit(g_baIsPureRunning, id);
 			if (g_CpCounters[id][COUNTER_CP] || g_CpCounters[id][COUNTER_TP])
-				g_RunType[id] = "Noob run";
+				g_RunType[id] = "Noob";
 			else
-				g_RunType[id] = "Pro run";
+				g_RunType[id] = "Pro";
 
 			g_HBFrameCounter[id] = 0;
 
@@ -4857,12 +4881,12 @@ public CmdSetCountdown(id)
 	if (countdown < MIN_COUNTDOWN)
 	{
 		g_NoResetCountdown[id] = MIN_COUNTDOWN;
-		ShowMessage(id, "Countdown set to %.0fs (min. allowed)", MIN_COUNTDOWN);
+		ShowMessage(id, "Countdown set to %.2fs (min. allowed)", MIN_COUNTDOWN);
 	}
 	else if (countdown > MAX_COUNTDOWN)
 	{
 		g_NoResetCountdown[id] = MAX_COUNTDOWN;
-		ShowMessage(id, "Countdown set to %.0fs (max. allowed)", MAX_COUNTDOWN);
+		ShowMessage(id, "Countdown set to %.2fs (max. allowed)", MAX_COUNTDOWN);
 	}
 	else
 	{
@@ -5126,7 +5150,7 @@ public CmdCupHandler(id, level, cid)
 		else
 		{
 			g_FirstBanner = g_CupPlayer1;
-			createMapMenu(g_FirstBanner, MAP_BAN_MENU_ID);
+			CreateMapMenu(g_FirstBanner, MAP_BAN_MENU_ID);
 		}
 		WriteCupFile(id);
 	}
@@ -5153,7 +5177,7 @@ public CupFinallyFirstBan(taskId)
 	client_print(0, print_chat, "[%s] Okay, %s bans first!", PLUGIN_TAG, playerName[0] ? playerName : "the unnamed player");
 
 	g_FirstBanner = id;
-	createMapMenu(g_FirstBanner, MAP_BAN_MENU_ID);
+	CreateMapMenu(g_FirstBanner, MAP_BAN_MENU_ID);
 }
 
 public CmdMapsShowHandler(id)
@@ -5476,7 +5500,14 @@ public CmdShowStartMsg(id)
 public CmdSlopefix(id)
 {
 	g_Slopefix[id] = !g_Slopefix[id];
-	ShowMessage(id, "Slopebug/Surfbug fix is now %s", g_Slopefix[id] ? "enabled" : "disabled");
+	if (g_Slopefix[id] && !get_pcvar_num(pcvar_kz_slopefix))
+	{
+		g_Slopefix[id] = false;
+		ShowMessage(id, "Slopebug/Surfbug fix is disabled by server");
+	}
+	else
+		ShowMessage(id, "Slopebug/Surfbug fix is now %s", g_Slopefix[id] ? "enabled" : "disabled");
+
 	return PLUGIN_HANDLED;
 }
 
@@ -5865,8 +5896,33 @@ LoadRecordsFile(RUN_TYPE:topType)
 
 		ArrayPushArray(arr, stats);
 	}
-
 	fclose(file);
+}
+
+LoadNoResetRecords()
+{
+	if (get_pcvar_num(pcvar_kz_mysql))
+	{
+		new query[1280];
+		formatex(query, charsmax(query), "SELECT t.unique_id, pn.name, t.average_time, t.runs, UNIX_TIMESTAMP(t.latest_run) \
+		                                    FROM ( \
+		                                        SELECT p.unique_id, p.id AS pid, AVG(r.time) AS average_time, COUNT(*) AS runs, MAX(r.date) AS latest_run \
+		                                        FROM run r \
+		                                        INNER JOIN player p ON p.id = r.player \
+		                                        INNER JOIN map m ON m.id = r.map \
+		                                        WHERE \
+		                                            r.is_valid \
+		                                            AND r.is_no_reset = true \
+		                                            AND m.name = '%s' \
+		                                        GROUP BY p.id \
+		                                        ORDER BY average_time \
+		                                    ) as t \
+		                                    INNER JOIN player_name pn ON pn.player = t.pid AND pn.date = t.latest_run",
+											g_EscapedMap);
+
+		new data[1];
+		mysql_query(g_DbConnection, "SelectNoResetRunsHandler", query, data, sizeof(data));
+	}
 }
 
 SaveRecordsFile(RUN_TYPE:topType)
@@ -5889,7 +5945,6 @@ SaveRecordsFile(RUN_TYPE:topType)
 			stats[STATS_TIME],
 			stats[STATS_TIMESTAMP]);
 	}
-
 	fclose(file);
 }
 
@@ -5904,24 +5959,24 @@ FillQueryData(queryData[QUERY], RUN_TYPE:topType, isNoReset, stats[STATS])
 // Here instead of writing the whole file again, we just insert a few rows in the DB, so it's much less expensive in this case
 SaveRecordDB(queryData[QUERY])
 {
-	new escapedUniqueId[64];
-	mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), queryData[QUERY_STATS][STATS_ID]);
+    new escapedUniqueId[64];
+    mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), queryData[QUERY_STATS][STATS_ID]);
 
-	new query[592];
-	formatex(query, charsmax(query), "INSERT INTO player (unique_id) \
-	                                SELECT '%s' \
-	                                FROM (select 1) as a \
-	                                WHERE NOT EXISTS( \
-	                                    SELECT unique_id \
-	                                    FROM player \
-	                                    WHERE unique_id = '%s' \
-	                                ) \
-	                                LIMIT 1", escapedUniqueId, escapedUniqueId);
+    new query[592];
+    formatex(query, charsmax(query), "INSERT INTO player (unique_id) \
+                                    SELECT '%s' \
+                                    FROM (select 1) as a \
+                                    WHERE NOT EXISTS( \
+                                        SELECT unique_id \
+                                        FROM player \
+                                        WHERE unique_id = '%s' \
+                                    ) \
+                                    LIMIT 1", escapedUniqueId, escapedUniqueId);
 
-	// Here one callback will call another, and that one will call another, and another...
-	// because we have to wait until the previous data has been inserted, and only if it has been inserted at all
-	// so we insert the player if doesn't exist, then the name they were using at that time, then the run corresponding to that player
-	mysql_query(g_DbConnection, "SelectRunnerId", query, queryData, sizeof(queryData));
+    // Here one callback will call another, and that one will call another, and another...
+    // because we have to wait until the previous data has been inserted, and only if it has been inserted at all
+    // so we insert the player if doesn't exist, then the name they were using at that time, then the run corresponding to that player
+    mysql_query(g_DbConnection, "SelectRunnerId", query, queryData, sizeof(queryData));
 }
 
 // Refactor if somehow more than 2 tops have to be passed
@@ -5934,7 +5989,8 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	new minutes, Float:seconds, Float:slower, Float:faster;
 	LoadRecords(topType);
 
-	new Array:arr = g_ArrayStats[topType];
+	new storeInMySql = get_pcvar_num(pcvar_kz_mysql);
+	new Array:arr = g_ArrayStats[topType]; // contains the current leaderboard
 
 	GetUserUniqueId(id, uniqueid, charsmax(uniqueid));
 	GetColorlessName(id, name, charsmax(name));
@@ -5962,6 +6018,24 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 					PLUGIN_TAG, g_TopType[topType], minutes, seconds);
 			}
 
+			if (storeInMySql && g_IsNoResetMode[id] && topType == PURE)
+			{
+				// Runs that are pure and in no-reset mode are saved even if failed,
+				// so we can later make the leaderboard for No-Reset averages
+				new failedStats[STATS];
+				copy(failedStats[STATS_ID], charsmax(failedStats[STATS_ID]), uniqueid);
+				copy(failedStats[STATS_NAME], charsmax(failedStats[STATS_NAME]), name);
+				failedStats[STATS_CP] = g_CpCounters[id][COUNTER_CP];
+				failedStats[STATS_TP] = g_CpCounters[id][COUNTER_TP];
+				failedStats[STATS_TIME] = _:kztime;
+				failedStats[STATS_TIMESTAMP] = get_systime();
+
+				new queryData[QUERY];
+				FillQueryData(queryData, topType, g_IsNoResetMode[id], failedStats);
+
+				SaveRecordDB(queryData);
+			}
+
 			return;
 		}
 
@@ -5976,6 +6050,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 		break;
 	}
 
+	// Put into stats the current run's data
 	copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueid);
 	copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
 	stats[STATS_CP] = g_CpCounters[id][COUNTER_CP];
@@ -6006,23 +6081,21 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	else
 		client_print(0, print_chat, "[%s] %s's rank is %d of %d among %s players", PLUGIN_TAG, name, rank, ArraySize(arr), g_TopType[topType]);
 
-	new mySQLStore = get_pcvar_num(pcvar_kz_mysql);
-	if (mySQLStore)
+	if (storeInMySql)
 	{
+		// Every No-Reset pure run is saved in DB, so it's been already saved before, right before where failed runs are discarded
 		new queryData[QUERY];
-		FillQueryData(queryData, topType, 0, stats);
+		FillQueryData(queryData, topType, g_IsNoResetMode[id], stats);
 
 		SaveRecordDB(queryData);
 	}
 
-	if (mySQLStore != 1)
+	if (storeInMySql != 1)
 		SaveRecordsFile(topType);
-
 
 	if (g_RecordRun[id])
 	{
-		//fclose(g_RecordRun[id]);
-		g_RecordRun[id] = 0;
+		//g_RecordRun[id] = 0;
 		//ArrayClear(g_RunFrames[id]);
 		//console_print(id, "stopped recording");
 		SaveRecordedRun(id, topType);
@@ -6057,16 +6130,14 @@ ShowTopClimbers(id, RUN_TYPE:topType)
 	if (recMin < 0) recMin = 0;
 	if (recMax < 0) recMax = 1;
 	if (recMin) 	recMin -= 1; // so that in "say /pro 1-20" it takes from 1 to 20 both inclusive
-	// yeah this one below is duplicated, because recMax may have changed in the previous checks and the first check is only to notify the player
+	// Yeah this one below is duplicated, because recMax may have changed in the previous checks and the first check is only to notify the player
 	if (recMax > ArraySize(arr)) recMax = ArraySize(arr); // there may be less records than the player is requesting, limit it to that amount
 	if (recMax - cvarMaxRecords > recMin)
 	{
-		// limit max. records to show
+		// Limit max. records to show
 		recMax = recMin + cvarMaxRecords;
-		client_print(id, print_chat, "[%s] Sorry, not showing all the requested records because the server won't allow loading more than %d records at once", PLUGIN_TAG, cvarMaxRecords);
+		client_print(id, print_chat, "[%s] Sorry, cannot load more than %d records at once", PLUGIN_TAG, cvarMaxRecords);
 	}
-
-
 
 	if (topType == NOOB)
 		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time       CP  TP         Date        Demo\n\n");
@@ -6075,7 +6146,7 @@ ShowTopClimbers(id, RUN_TYPE:topType)
 
 	new szTopType[32], szTopTypeUCFirst[32];
 	formatex(szTopType, charsmax(szTopType), g_TopType[topType]);
-	formatex(szTopType, charsmax(szTopType), g_TopType[topType]);
+	formatex(szTopTypeUCFirst, charsmax(szTopTypeUCFirst), g_TopType[topType]);
 	ucfirst(szTopTypeUCFirst);
 
 	for (new i = recMin; i < recMax && charsmax(buffer) - len > 0; i++)
@@ -6109,7 +6180,6 @@ ShowTopClimbers(id, RUN_TYPE:topType)
 		else
 			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s         %s   %s\n", i + 1, stats[STATS_NAME], time, date, hasDemo ? "yes" : "no");
 	}
-
 	len += formatex(buffer[len], charsmax(buffer) - len, "\n%s %s", PLUGIN, VERSION);
 
 	new header[24];
@@ -6130,6 +6200,61 @@ ComparePro2PureTime(runnerId[], Float:runnerTime)
 			return floatcmp(runnerTime, stats[STATS_TIME]);
 	}
 	return 1;
+}
+
+ShowTopNoReset(id)
+{
+	new buffer[1536], len;
+	new stats[NORESET], date[32], time[32], minutes, Float:seconds;
+	LoadNoResetRecords();
+
+	new cvarDefaultRecords = get_pcvar_num(pcvar_kz_top_records);
+	new cvarMaxRecords = get_pcvar_num(pcvar_kz_top_records_max);
+
+	// TODO: DRY, same as ShowTopClimbers
+	// Get the info... from what record until what record we have to show
+	new topArgs[2];
+	GetRangeArg(topArgs); // e.g.: "say /pro 20-30" --> the '20' goes to topArgs[0] and '30' to topArgs[1]
+	new recMin = min(topArgs[0], topArgs[1]);
+	new recMax = max(topArgs[0], topArgs[1]);
+	if (recMax > ArraySize(g_NoResetLeaderboard)) ShowMessage(id, "There are less records than requested");
+	if (!recMax)	recMax = cvarDefaultRecords;
+	if (recMin < 0) recMin = 0;
+	if (recMax < 0) recMax = 1;
+	if (recMin) 	recMin -= 1; // so that in "say /pro 1-20" it takes from 1 to 20 both inclusive
+	// Yeah this one below is duplicated, because recMax may have changed in the previous checks and the first check is only to notify the player
+	if (recMax > ArraySize(g_NoResetLeaderboard)) recMax = ArraySize(g_NoResetLeaderboard); // there may be less records than the player is requesting, limit it to that amount
+	if (recMax - cvarMaxRecords > recMin)
+	{
+		// Limit max. records to show
+		recMax = recMin + cvarMaxRecords;
+		client_print(id, print_chat, "[%s] Sorry, cannot load more than %d records at once", PLUGIN_TAG, cvarMaxRecords);
+	}
+
+	len = formatex(buffer[len], charsmax(buffer) - len, "#   Player               Avg. Time    Runs      Latest Run\n\n");
+
+	for (new i = recMin; i < recMax && charsmax(buffer) - len > 0; i++)
+	{
+		ArrayGetArray(g_NoResetLeaderboard, i, stats);
+
+		// TODO: Solve UTF halfcut at the end
+		stats[NORESET_NAME][17] = EOS;
+
+		minutes = floatround(stats[NORESET_AVG_TIME], floatround_floor) / 60;
+		seconds = stats[NORESET_AVG_TIME] - (60 * minutes);
+
+		formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%"), minutes, seconds);
+		format_time(date, charsmax(date), "%d/%m/%Y", stats[NORESET_LATEST_RUN]);
+
+		len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s  %3d        %s\n", i + 1, stats[NORESET_NAME], time, stats[NORESET_RUNS], date);
+	}
+	len += formatex(buffer[len], charsmax(buffer) - len, "\n%s %s", PLUGIN, VERSION);
+
+	new header[36];
+	formatex(header, charsmax(header), "No-Reset Average Times [%d-%d]", recMin ? recMin : 1, recMax);
+	show_motd(id, buffer, header);
+
+	return PLUGIN_HANDLED;
 }
 
 // Checks if the bounding box of the player has its nearest boundary to the wall inside that same wall
@@ -6212,9 +6337,9 @@ SaveRecordedRun(id, RUN_TYPE:topType)
 
 	ConvertSteamID32ToNumbers(authid, idNumbers);
 	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, g_TopType[topType]);
-	//console_print(id, "saving run to: '%s'", replayFile);
 
 	g_RecordRun[id] = fopen(replayFile, "wb");
+	console_print(id, "saving run to: '%s'", replayFile);
 	//console_print(id, "opened replay file");
 
 	//fwrite(g_RecordRun[id], DEMO_VERSION, BLOCK_SHORT); // version
@@ -6227,10 +6352,11 @@ SaveRecordedRun(id, RUN_TYPE:topType)
 		fwrite(g_RecordRun[id], frameState[RP_BUTTONS], BLOCK_SHORT); // buttons
 	}
 	fclose(g_RecordRun[id]);
-	//console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
+	console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
+
+	//console_print(id, "clearing recorded run with %d frames from memory", ArraySize(g_RunFrames[id]));
 	g_RecordRun[id] = 0;
 	ArrayClear(g_RunFrames[id]);
-	//console_print(id, "clearing replay from memory");
 }
 
 SaveRecordedRunCup(id, RUN_TYPE:topType)
@@ -6243,6 +6369,7 @@ SaveRecordedRunCup(id, RUN_TYPE:topType)
 		g_ReplaysDir, g_Map, idNumbers, g_TopType[topType], ArraySize(g_RunFrames[id]));
 
 	g_RecordRun[id] = fopen(replayFile, "wb");
+	console_print(id, "saving cup run to: '%s'", replayFile);
 
 	new frameState[REPLAY];
 	for (new i; i < ArraySize(g_RunFrames[id]); i++)
@@ -6252,7 +6379,9 @@ SaveRecordedRunCup(id, RUN_TYPE:topType)
 		fwrite(g_RecordRun[id], frameState[RP_BUTTONS], BLOCK_SHORT); // buttons
 	}
 	fclose(g_RecordRun[id]);
+	console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
 
+	//console_print(id, "clearing recorded run with %d frames from memory", ArraySize(g_RunFrames[id]));
 	g_RecordRun[id] = 0;
 	ArrayClear(g_RunFrames[id]);
 }
@@ -6396,6 +6525,40 @@ public SelectRunsHandler(failstate, error[], errNo, data[], size, Float:queuetim
 	server_print("[%.3f] Selected %s runs, QueueTime:[%.3f]", get_gametime(), g_TopType[topType], queuetime);
 }
 
+public SelectNoResetRunsHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectNoResetRunsHandler(): [%d] - [%s]", errNo, error);
+		return;
+	}
+
+	new stats[NORESET], uniqueId[32], name[32], Float:avgtime, runs, latestRun;
+
+	ArrayClear(g_NoResetLeaderboard);
+
+	while (mysql_more_results())
+	{
+		mysql_read_result(0, uniqueId, charsmax(uniqueId));
+		mysql_read_result(1, name, charsmax(name));
+		mysql_read_result(2, avgtime);
+		runs = mysql_read_result(3);
+		latestRun = mysql_read_result(4);
+
+		copy(stats[NORESET_ID], charsmax(stats[NORESET_ID]), uniqueId);
+		copy(stats[NORESET_NAME], charsmax(stats[NORESET_NAME]), name);
+		stats[NORESET_AVG_TIME] = _:avgtime;
+		stats[NORESET_RUNS] = runs;
+		stats[NORESET_LATEST_RUN] = latestRun;
+
+		ArrayPushArray(g_NoResetLeaderboard, stats);
+
+		mysql_next_row();
+	}
+
+	server_print("[%.3f] Selected No-Reset runs, QueueTime:[%.3f]", get_gametime(), queuetime);
+}
+
 // Gets the player id from the `player` table so we can use it to insert stuff in the `player_name` table
 public SelectRunnerId(failstate, error[], errNo, queryData[], size, Float:queuetime)
 {
@@ -6515,6 +6678,9 @@ public InsertRunHandler(failstate, error[], errNo, queryData[], size, Float:queu
 
     // Load records and hope that they're retrieved before the client requests the data (e.g.: writes /pure)
     LoadRecords(queryData[QUERY_RUN_TYPE]);
+
+    if (queryData[QUERY_NO_RESET])
+    	LoadNoResetRecords();
 }
 
 // Gets the map id corresponding to the map that is currently being played
@@ -6534,8 +6700,9 @@ public SelectMapIdHandler(failstate, error[], errNo, data[], size, Float:queueti
 
 
 /*
-
+------------------------------------------
 Query to get Pure WR Top:
+------------------------------------------
 SELECT p.id, p.realname, (SELECT COUNT(*)
                           FROM (SELECT r1.map, r1.player, MIN(r1.time) as wr
                                 FROM run r1
@@ -6550,8 +6717,9 @@ FROM player p
 HAVING wr_count > 0
 ORDER BY wr_count DESC
 
-
+------------------------------------------
 Query to get Pure WRs of a given player:
+------------------------------------------
 SELECT m.name, r.player, t1.time
 FROM (SELECT r1.map, MIN(r1.time) as time
       FROM run r1
