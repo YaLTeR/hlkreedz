@@ -20,6 +20,7 @@
 #include <hamsandwich>
 #include <hl>
 #include <hl_kreedz_util>
+#include <amx_settings_api>
 #include <mysqlt>
 
 // Compilation options
@@ -169,12 +170,14 @@ new const TELE_MENU_ID[] = "HL KreedZ Teleport Menu";
 new const MAP_BAN_MENU_ID[] = "Ban a map";
 new const MAP_PICK_MENU_ID[] = "Pick a map";
 
-new const CONFIGS_SUB_DIR[] = "/hl_kreedz";
+new const CONFIGS_SUB_DIR[] = "hl_kreedz";
 new const PLUGIN_CFG_FILENAME[] = "hl_kreedz.cfg";
 new const PLUGIN_CFG_SHORTENED[] = "hlkz";
 new const MYSQL_LOG_FILENAME[] = "kz_mysql.log";
 new const MAP_POOL_FILE[] = "map_pool.ini";
 new const CUP_FILE[] = "cup.ini";
+new const HUD_SETTINGS[] = "HUD Settings";
+new const GAMEPLAY_SETTINGS[] = "Gameplay Settings";
 
 new const FIREWORK_SOUND[] = "firework.wav";
 
@@ -290,6 +293,7 @@ new g_baIsAgFrozen; // only used when we're running on an AG server, because it 
 
 new Float:g_PlayerTime[MAX_PLAYERS + 1];
 new Float:g_PlayerTimePause[MAX_PLAYERS + 1];
+new Float:g_PlayerTimeFromSave[MAX_PLAYERS + 1];
 new g_ShowTimer[MAX_PLAYERS + 1];
 new g_ShowKeys[MAX_PLAYERS + 1];
 new g_SolidState[MAX_PLAYERS + 1];
@@ -390,6 +394,7 @@ new g_MapDefaultStart[CP_DATA];
 new g_MapPoolFile[256];
 new g_CupFile[256];
 new g_MapDefaultLightStyle[32];
+new g_PlayerMapIniFile[128];
 
 new g_SpectatePreSpecMode;
 new bool:g_InForcedRespawn;
@@ -399,6 +404,7 @@ new bool:g_IsAgClient;
 new bool:g_IsAgServer;
 new bool:g_bMatchRunning;
 new bool:g_bCanTakeAdvantageOfRespawn;
+new bool:g_DisableSpec;
 
 new g_CupMatches; // how many maps will runners play to decide who qualifies
 new g_CupPlayer1; // player index of opponent 1
@@ -468,6 +474,7 @@ new pcvar_kz_mysql_db;
 new pcvar_kz_cup_max_maps;
 new pcvar_kz_cup_map_change_delay;
 new pcvar_kz_stop_moving_platforms;
+new pcvar_kz_noreset_agstart;
 
 new Handle:g_DbHost;
 new Handle:g_DbConnection;
@@ -588,6 +595,8 @@ public plugin_init()
 
 	pcvar_kz_stop_moving_platforms = register_cvar("kz_stop_moving_platforms", "0");
 
+	pcvar_kz_noreset_agstart = register_cvar("kz_noreset_agstart", "0");
+
 	register_dictionary("telemenu.txt");
 	register_dictionary("common.txt");
 
@@ -619,6 +628,10 @@ public plugin_init()
 	register_clcmd("say",		"CmdSayHandler");
 	register_clcmd("say_team",	"CmdSayHandler");
 	register_clcmd("spectate",	"CmdSpectateHandler");
+
+	register_clcmd("agstart",			"CmdVoteAgstartHandler");
+	register_clcmd("vote agstart",		"CmdVoteAgstartHandler");
+	register_clcmd("callvote agstart",	"CmdVoteAgstartHandler");
 
 	register_clcmd("+hook",					"CheatCmdHandler");
 	register_clcmd("-hook",					"CheatCmdHandler");
@@ -746,13 +759,19 @@ public plugin_cfg()
 	}
 
 	// Dive into our custom directory
-	add(g_ConfigsDir, charsmax(g_ConfigsDir), CONFIGS_SUB_DIR);
+	format(g_ConfigsDir, charsmax(g_ConfigsDir), "%s/%s", g_ConfigsDir, CONFIGS_SUB_DIR);
 	if (!dir_exists(g_ConfigsDir))
 		mkdir(g_ConfigsDir);
 
 	formatex(g_ReplaysDir, charsmax(g_ReplaysDir), "%s/%s", g_ConfigsDir, "replays");
 	if (!dir_exists(g_ReplaysDir))
 		mkdir(g_ReplaysDir);
+
+	new playersDir[256];
+	formatex(playersDir, charsmax(playersDir), "%s/%s", g_ConfigsDir, "players");
+	console_print(0, "Players directory: %s", playersDir);
+	if (!dir_exists(playersDir))
+		mkdir(playersDir);
 
 	GetTopTypeString(NOOB, g_TopType[NOOB]);
 	GetTopTypeString(PRO,  g_TopType[PRO]);
@@ -766,6 +785,9 @@ public plugin_cfg()
 	// Load map settings
 	formatex(g_MapIniFile, charsmax(g_MapIniFile), "%s/%s.ini", g_ConfigsDir, g_Map);
 	LoadMapSettings();
+
+	// Player settings relative to the map are in this file
+	formatex(g_PlayerMapIniFile, charsmax(g_PlayerMapIniFile), "%s/players/%s.ini", CONFIGS_SUB_DIR, g_Map);
 
 	g_isAnyBoostWeaponInMap = false;
 	CheckMapWeapons();
@@ -1034,7 +1056,7 @@ DisplayKzMenu(id, mode)
 		}
 	case 1:
 		{
-			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6;
+			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7;
 
 			len = formatex(menuBody[len], charsmax(menuBody) - len, "Climb Menu\n\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Start position\n");
@@ -1042,7 +1064,8 @@ DisplayKzMenu(id, mode)
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Pause timer\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Reset\n\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Set custom start position\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Clear custom start position\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Clear custom start position\n\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "7. Start a No-Reset run\n");
 		}
 	case 2:
 		{
@@ -1432,6 +1455,7 @@ public ActionKzMenu(id, key)
 		case 4: CmdReset(id);
 		case 5: CmdSetCustomStartHandler(id);
 		case 6: CmdClearCustomStartHandler(id);
+		case 7: CmdStartNoReset(id);
 		}
 	case 2:
 		switch (key)
@@ -1514,8 +1538,7 @@ public client_putinserver(id)
 
 	//query_client_cvar(id, "kz_nightvision", "ClCmdNightvision"); // TODO save user variables in a file and retrieve them when they connect to server
 
-	new Float:time = get_gametime();
-	//console_print(0, "[%.3f] Setting map default start for %d", time, id);
+	//console_print(0, "[%.3f] Setting map default start for %d", get_gametime(), id);
 	g_ControlPoints[id][CP_TYPE_DEFAULT_START] = g_MapDefaultStart;
 
 	g_ReplayFrames[id] = ArrayCreate(REPLAY);
@@ -1530,11 +1553,15 @@ public client_putinserver(id)
 	if (equal(g_CupSteam2, uniqueId))
 		g_CupPlayer2 = id;
 
+	LoadPlayerSettings(id);
+
 	set_task(1.20, "DisplayWelcomeMessage", id + TASKID_WELCOME);
 }
 
 public client_disconnect(id)
 {
+	SavePlayerSettings(id);
+
 	clr_bit(g_bit_is_connected, id);
 	clr_bit(g_bit_is_hltv, id);
 	clr_bit(g_bit_is_bot, id);
@@ -1542,9 +1569,15 @@ public client_disconnect(id)
 	clr_bit(g_bit_waterinvis, id);
 	clr_bit(g_baIsFirstSpawn, id);
 	clr_bit(g_baIsPureRunning, id);
+
 	g_SolidState[id] = -1;
 	g_PlayerEndReqs[id] = 0;
 	g_IsBannedFromMatch[id] = false;
+
+	g_IsNoResetMode[id] = false;
+	g_NoResetStart[id] = 0.0;
+	g_NoResetCountdown[id] = DEFAULT_COUNTDOWN;
+	g_NoResetNextCountdown[id] = 0.0;
 
 	if (g_RecordRun[id])
 	{
@@ -1568,6 +1601,92 @@ public client_disconnect(id)
 	ResetPlayer(id, true, false);
 
 	g_ControlPoints[id][CP_TYPE_START][CP_VALID] = false;
+}
+
+LoadPlayerSettings(id)
+{
+	static authid[32], idNumbers[24], playerFileName[48];
+	get_user_authid(id, authid, charsmax(authid));
+	ConvertSteamID32ToNumbers(authid, idNumbers);
+	formatex(playerFileName, charsmax(playerFileName), "%s/players/%s.ini", CONFIGS_SUB_DIR, idNumbers);
+
+	// Map-dependent player settings
+	amx_load_setting_int(g_PlayerMapIniFile, idNumbers, "no_reset", g_IsNoResetMode[id]);
+	if (g_IsNoResetMode[id])
+	{
+		new Float:kztime, isPure, isFirstSpawn, isPaused;
+
+		amx_load_setting_int(g_PlayerMapIniFile, idNumbers, "run_type", isPure);
+		amx_load_setting_float(g_PlayerMapIniFile, idNumbers, "run_time", kztime);
+		amx_load_setting_int(g_PlayerMapIniFile, idNumbers, "first_spawn", isFirstSpawn);
+		amx_load_setting_int(g_PlayerMapIniFile, idNumbers, "paused", isPaused);
+
+		console_print(0, "loading kztime: %.3f", kztime);
+
+		g_PlayerTime[id] = get_gametime() - kztime;
+
+		if (isPure)			set_bit(g_baIsPureRunning, id);
+		if (isFirstSpawn)	set_bit(g_baIsFirstSpawn, id);
+		if (isPaused)		set_bit(g_baIsPaused, id);
+
+		// If we're in no-reset mode, it means the run was ongoing, so set this right away
+		set_bit(g_baIsClimbing, id);
+	}
+
+	// Global player settings
+	new hasLiquidsInvis, hasPlayersInvis;
+
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_timer",     g_ShowTimer[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_keys",      g_ShowKeys[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_start_msg", g_ShowStartMsg[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_speed",     g_ShowSpeed[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",  g_TimeDecimals[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list", g_ShowSpecList[id]);
+
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_liquids", hasLiquidsInvis);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_players", hasPlayersInvis);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "nightvision",   g_Nightvision[id]);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "slopefix",      g_Slopefix[id]);
+	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",      g_Speedcap[id]);
+
+	if (hasLiquidsInvis) set_bit(g_bit_waterinvis, id);
+	if (hasPlayersInvis) set_bit(g_bit_invis, id);
+}
+
+SavePlayerSettings(id)
+{
+	static authid[32], idNumbers[24], playerFileName[48];
+	get_user_authid(id, authid, charsmax(authid));
+	ConvertSteamID32ToNumbers(authid, idNumbers);
+	formatex(playerFileName, charsmax(playerFileName), "%s/players/%s.ini", CONFIGS_SUB_DIR, idNumbers);
+
+	// Map-dependent player settings
+	amx_save_setting_int(g_PlayerMapIniFile, idNumbers, "no_reset",      g_IsNoResetMode[id]);
+	if (g_IsNoResetMode[id])
+	{
+		new Float:kztime = get_gametime() - g_PlayerTime[id];
+		console_print(0, "saving kztime: %.3f", kztime);
+
+		// TODO: also save position and velocity?
+		amx_save_setting_int(g_PlayerMapIniFile, idNumbers, "run_type", get_bit(g_baIsPureRunning, id));
+		amx_save_setting_float(g_PlayerMapIniFile, idNumbers, "run_time", kztime);
+		amx_save_setting_int(g_PlayerMapIniFile, idNumbers, "first_spawn", get_bit(g_baIsFirstSpawn, id));
+		amx_save_setting_int(g_PlayerMapIniFile, idNumbers, "paused", get_bit(g_baIsPaused, id));
+	}
+
+	// Global player settings
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_timer",     g_ShowTimer[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_keys",      g_ShowKeys[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_start_msg", g_ShowStartMsg[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_speed",     g_ShowSpeed[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",  g_TimeDecimals[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list", g_ShowSpecList[id]);
+
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_liquids", get_bit(g_bit_waterinvis, id));
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_players", get_bit(g_bit_invis, id));
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "nightvision",   g_Nightvision[id]);
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "slopefix",      g_Slopefix[id] ? 1 : 0);
+	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",      g_Speedcap[id]);
 }
 
 ResetPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
@@ -1699,7 +1818,7 @@ CmdPracticePrev(id)
 		Teleport(id, CP_TYPE_PRACTICE_OLD);
 }
 
-CmdStart(id)
+CmdStart(id, bool:isNoReset = false)
 {
 	if (!g_bMatchRunning && !g_IsNoResetMode[id] && CanTeleport(id, CP_TYPE_CUSTOM_START, false))
 	{
@@ -1708,10 +1827,17 @@ CmdStart(id)
 		return;
 	}
 
-	if (CanTeleport(id, CP_TYPE_START))
-		Teleport(id, CP_TYPE_START);
-	else if (CanTeleport(id, CP_TYPE_DEFAULT_START))
-		Teleport(id, CP_TYPE_DEFAULT_START);
+	if (!isNoReset && g_IsNoResetMode[id])
+	{
+		ShowMessage(id, "You're in No-Reset mode! Say /startnr if you really want to go back to the start");
+	}
+	else
+	{
+		if (CanTeleport(id, CP_TYPE_START))
+			Teleport(id, CP_TYPE_START);
+		else if (CanTeleport(id, CP_TYPE_DEFAULT_START))
+			Teleport(id, CP_TYPE_DEFAULT_START);
+	}
 }
 
 CmdPause(id)
@@ -1988,7 +2114,7 @@ SpawnBot(id)
 	else
 		client_print(id, print_chat, "[%s] Sorry, won't spawn the bot since there are only 4 slots left for players", PLUGIN_TAG);
 
-    return PLUGIN_HANDLED;
+	return PLUGIN_HANDLED;
 }
 
 SpawnDummyBot(id)
@@ -2502,6 +2628,9 @@ public CmdSayHandler(id, level, cid)
 	else if (equali(args[1], "start"))
 		CmdStart(id);
 
+	else if (equali(args[1], "startnr") || equali(args[1], "nrstart"))
+		CmdStart(id, true);
+
 	else if (equali(args[1], "timer"))
 		CmdTimer(id);
 
@@ -2552,7 +2681,7 @@ public CmdSayHandler(id, level, cid)
 		CmdReady(id);
 
 	else if (equali(args[1], "noreset") || equali(args[1], "no-reset") || equali(args[1], "nr"))
-		CmdNoReset(id);
+		CmdStartNoReset(id);
 
 	else if (equali(args[1], "bot"))
 	{
@@ -2957,6 +3086,12 @@ Float:GetPlayerSpeed(id)
 
 bool:CanSpectate(id, bool:showMessages = true)
 {
+	if (g_DisableSpec)
+	{
+		if (showMessages) ShowMessage(id, "Spectator mode is disabled during agstart countdown start");
+		return false;
+	}
+
 	if (pcvar_allow_spectators && !get_pcvar_num(pcvar_allow_spectators))
 	{
 		if (showMessages) ShowMessage(id, "Spectator mode is disabled");
@@ -2984,6 +3119,30 @@ public CmdSpectateHandler(id)
 		return PLUGIN_CONTINUE;
 
 	return ClientCommandSpectatePre(id);
+}
+
+public CmdVoteAgstartHandler(id)
+{
+	new players[MAX_PLAYERS], playersNum, switchedPlayers = 0;
+	get_players_ex(players, playersNum, GetPlayers_ExcludeBots);
+	for (new i = 0; i < playersNum; i++)
+	{
+		new id = players[i];
+
+		if (g_IsNoResetMode[id])
+		{
+			new playerName[32];
+			GetColorlessName(id, playerName, charsmax(playerName));
+
+			// TODO: think of a better way to handle the situation where a player is doing a No-Reset run,
+			// and people in the server want to agstart. Can this be exploited to bother other players?
+			// FIXME: What you leave in the middle of a No-Reset run, and when you come back some people is in agstart? your timer would continue going on...
+			client_print(0, print_chat, "[%s] Cannot vote agstart because %s is doing a No-Reset run", PLUGIN_TAG, playerName);
+			return PLUGIN_HANDLED;
+		}
+	}
+
+	return PLUGIN_CONTINUE;
 }
 
 public Fw_FmClientCommandPost(id)
@@ -3266,6 +3425,9 @@ FinishTimer(id)
 				// Update both: pure and pro
 				topType = PURE;
 				UpdateRecords(id, kztime, PURE);
+
+				// We set this so that it doesn't count the pro one as a No-Reset run,
+				// and thus be much easier to handle No-Reset average times for leaderboard
 				g_IsNoResetMode[id] = false;
 				UpdateRecords(id, kztime, PRO);
 			}
@@ -4139,12 +4301,18 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 	sound = get_msg_arg_int(2);
 	if (count != -1 || sound != 0)
 	{
-		new conditionsCheckSecond = floatround(AG_COUNTDOWN, floatround_tozero) - MATCH_START_CHECK_SECOND;
-		if (count == conditionsCheckSecond)
+		if (get_pcvar_num(pcvar_kz_noreset_agstart))
 		{
-			// Not doing the call instantly, because it crashes the server with this error message:
-			// "New message started when msg '98' has not been sent yet"
-			set_task(0.01, "CheckMatchStartConditions", TASKID_MATCH_START_CHECK + 1);
+			new conditionsCheckSecond = floatround(AG_COUNTDOWN, floatround_tozero) - MATCH_START_CHECK_SECOND;
+			if (count == conditionsCheckSecond)
+			{
+				// We don't want players to spec in the little timeframe between the countdown start and the match check
+				g_DisableSpec = true;
+
+				// Not doing the call instantly, because it crashes the server with this error message:
+				// "New message started when msg '98' has not been sent yet"
+				set_task(0.01, "CheckMatchStartConditions", TASKID_MATCH_START_CHECK + 1);
+			}
 		}
 		return;
 	}
@@ -4161,7 +4329,8 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 			InitPlayer(i, true);
 			StartTimer(i);
 
-			g_IsNoResetMode[i] = true;
+			if (get_pcvar_num(pcvar_kz_noreset_agstart))
+				g_IsNoResetMode[i] = true;
 
 			g_RecordRun[i] = 1;
 			g_RunFrames[i] = ArrayCreate(REPLAY);
@@ -4851,7 +5020,7 @@ public CmdClearStartHandler(id, level, cid)
 	return PLUGIN_HANDLED;
 }
 
-public CmdNoReset(id)
+public CmdStartNoReset(id)
 {
 	if (g_bMatchRunning || g_IsNoResetMode[id])
 	{
@@ -4978,11 +5147,12 @@ public CheckMatchStartConditions(taskId)
 {
 	new isRealAgstart = taskId - TASKID_MATCH_START_CHECK;
 
+	g_DisableSpec = false;
+
 	new players[MAX_PLAYERS], playersNum, switchedPlayers = 0;
 	get_players_ex(players, playersNum, GetPlayers_ExcludeBots);
 	for (new i = 0; i < playersNum; i++)
 	{
-		
 		new id = players[i];
 
 		if (CanTeleport(id, CP_TYPE_START, false) || CanTeleport(id, CP_TYPE_DEFAULT_START, false))
@@ -4996,7 +5166,10 @@ public CheckMatchStartConditions(taskId)
 		if (pev(id, pev_iuser1))
 			continue;
 		
-		ShowMessage(id, "You had to press the start button before starting the match!");
+		ShowMessage(id, "You have to press the start button before starting the match!");
+		// The ShowMessage doesn't actually seem to appear, maybe because the HUD is reset upon switching to spectator
+		// or something, so showing also this chat print just in case
+		client_print(id, print_chat, "[%s] You have to press the start button before starting the match!", PLUGIN_TAG);
 
 		ResetPlayer(id);
 		server_cmd("agforcespectator #%d", get_user_userid(id));
@@ -5009,7 +5182,9 @@ public CheckMatchStartConditions(taskId)
 
 		switchedPlayers++;
 	}
-	server_exec();
+
+	if (switchedPlayers)
+		server_exec();
 	
 	if (switchedPlayers == playersNum && isRealAgstart)
 	{
@@ -5608,6 +5783,7 @@ public CmdNightvision(id)
  	return PLUGIN_HANDLED;
 }
 
+// TODO: refactor to use AMX_SETTINGS_API
 LoadMapSettings()
 {
 	new file = fopen(g_MapIniFile, "rt");
@@ -5641,7 +5817,7 @@ LoadMapSettings()
 		g_MapDefaultStart[CP_VELOCITY][2] = _:GetNextFloat(buffer, pos);
 		g_MapDefaultStart[CP_HEALTH] = _:GetNextFloat(buffer, pos);
 		g_MapDefaultStart[CP_ARMOR] = _:GetNextFloat(buffer, pos);
-		g_MapDefaultStart[CP_LONGJUMP] = GetNextNumber(buffer, pos);
+		g_MapDefaultStart[CP_LONGJUMP] = GetNextNumber(buffer, pos) ? true : false;
 		g_MapDefaultStart[CP_VALID] = true;
 	}
 
@@ -6483,14 +6659,14 @@ public SelectRunsHandler(failstate, error[], errNo, data[], size, Float:queuetim
 		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectRunsHandler(): [%d] - [%s] - [%d]", errNo, error, data[1]);
 
 		if (get_pcvar_num(pcvar_kz_mysql) == 2)
-			LoadRecordsFile(data[0]);
+			LoadRecordsFile(RUN_TYPE:data[0]);
 
 		return;
 	}
 
 	//console_print(0, "SelectRunsHandler()");
 
-	new RUN_TYPE:topType = data[0];
+	new RUN_TYPE:topType = RUN_TYPE:data[0];
 	new stats[STATS], uniqueId[32], name[32], cp, tp, Float:kztime, timestamp;
 
 	new Array:arr = g_ArrayStats[topType];

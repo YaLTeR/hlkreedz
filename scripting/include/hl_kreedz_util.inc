@@ -466,4 +466,3 @@ stock datacopy(any:into[], any:from[], positionsToCopy, intoStartPos = 0, fromSt
         i++;
     }
 }
-

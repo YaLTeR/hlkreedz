@@ -5,6 +5,7 @@
 *.inc
 
 // Whitelist our custom includes
+!amx_settings_api.inc
 !curl.inc
 !ham_const.inc
 !hamsandwich.inc
