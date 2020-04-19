@@ -466,3 +466,10 @@ stock datacopy(any:into[], any:from[], positionsToCopy, intoStartPos = 0, fromSt
         i++;
     }
 }
+
+GetNumberOfBitsSet(iBitField)
+{
+	iBitField = iBitField - ((iBitField >> 1) & 0x55555555);
+	iBitField = (iBitField & 0x33333333) + ((iBitField >> 2) & 0x33333333);
+	return (((iBitField + (iBitField >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24;
+}

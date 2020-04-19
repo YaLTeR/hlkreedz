@@ -161,7 +161,7 @@ enum _:WEAPON
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.40";
+new const VERSION[] = "0.41";
 new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the replay format changes
 new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, execut4ble, naz, mxpph";
 
@@ -3855,17 +3855,27 @@ UpdateHud(Float:currGameTime)
 			min = floatround(kztime / 60.0, floatround_floor);
 			sec = floatround(kztime - min * 60.0, floatround_floor);
 
-			if (g_CpCounters[id][COUNTER_CP] || g_CpCounters[id][COUNTER_TP])
-				g_RunType[id] = "Noob";
-			else if (get_bit(g_baIsPureRunning, id))
-				g_RunType[id] = "Pure";
+			if (g_CpCounters[targetId][COUNTER_CP] || g_CpCounters[targetId][COUNTER_TP])
+				g_RunType[targetId] = "Noob";
+			else if (get_bit(g_baIsPureRunning, targetId))
+				g_RunType[targetId] = "Pure";
 			else
-				g_RunType[id] = "Pro";
+				g_RunType[targetId] = "Pro";
+
+			new completedReqs = g_PlayerEndReqs[targetId];
+			new totalReqs = g_MapEndTotalReq;
+			completedReqs = GetNumberOfBitsSet(completedReqs);
+			totalReqs = GetNumberOfBitsSet(totalReqs);
+
+			new reqsText[16];
+			if (totalReqs)
+				formatex(reqsText, charsmax(reqsText), " | Reqs: %d/%d", completedReqs, totalReqs);
 
 			new timerText[64];
-			formatex(timerText, charsmax(timerText), "%s%s run | Time: %02d:%02d | CPs: %d | TPs: %d%s",
-					g_RunType[id], g_IsNoResetMode[id] ? " NR" : "", min, sec,
-					g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP], get_bit(g_baIsPaused, targetId) ? " | *Paused*" : "");
+			formatex(timerText, charsmax(timerText), "%s%s run | Time: %02d:%02d | CPs: %d | TPs: %d%s%s",
+					g_RunType[targetId], g_IsNoResetMode[targetId] ? " NR" : "", min, sec,
+					g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP],
+					reqsText, get_bit(g_baIsPaused, targetId) ? " | *Paused*" : "");
 
 			switch (g_ShowTimer[id])
 			{
