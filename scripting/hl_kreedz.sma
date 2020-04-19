@@ -1800,9 +1800,11 @@ CmdPracticeCp(id)
 
 CmdPracticeTp(id)
 {
-	ResetPlayer(id, false, true);
 	if (CanTeleport(id, CP_TYPE_PRACTICE))
+	{
+		ResetPlayer(id, false, true);
 		Teleport(id, CP_TYPE_PRACTICE);
+	}
 }
 
 CmdStuck(id)
@@ -1813,9 +1815,11 @@ CmdStuck(id)
 
 CmdPracticePrev(id)
 {
-	ResetPlayer(id, false, true)
 	if(CanTeleport(id, CP_TYPE_PRACTICE_OLD))
+	{
+		ResetPlayer(id, false, true)
 		Teleport(id, CP_TYPE_PRACTICE_OLD);
+	}
 }
 
 CmdStart(id, bool:isNoReset = false)
@@ -2864,6 +2868,12 @@ bool:CanTeleport(id, cp, bool:showMessages = true)
 {
 	if (cp >= CP_TYPES)
 		return false;
+
+	if (g_IsNoResetMode[id] && cp != CP_TYPE_START && cp != CP_TYPE_DEFAULT_START)
+	{
+		if (showMessages) ShowMessage(id, "Unable to teleport to a checkpoint during No-Reset run!");
+		return false;
+	}
 
 	if (cp != CP_TYPE_START && cp != CP_TYPE_CUSTOM_START && cp != CP_TYPE_PRACTICE && !get_pcvar_num(pcvar_kz_checkpoints))
 	{
