@@ -294,8 +294,6 @@ new g_baIsAgFrozen; // only used when we're running on an AG server, because it 
 new Float:g_PlayerTime[MAX_PLAYERS + 1];
 new Float:g_PlayerTimePause[MAX_PLAYERS + 1];
 new Float:g_PlayerTimeFromSave[MAX_PLAYERS + 1];
-new g_ShowTimer[MAX_PLAYERS + 1];
-new g_ShowKeys[MAX_PLAYERS + 1];
 new g_SolidState[MAX_PLAYERS + 1];
 new g_LastButtons[MAX_PLAYERS + 1];
 new g_LastSentButtons[MAX_PLAYERS + 1];
@@ -309,6 +307,16 @@ new g_TeleMenuPlayersNum[MAX_PLAYERS + 1];
 new g_TeleMenuOption[MAX_PLAYERS + 1];
 new g_KzMenuOption[MAX_PLAYERS + 1];
 new g_CheatCommandsGuard[MAX_PLAYERS + 1];
+new Float:g_PlayerTASed[MAX_PLAYERS + 1];
+new bool:g_IsNoResetMode[MAX_PLAYERS + 1];			// means the player is in a no-reset run; only set during run (NOT during countdown)
+new Float:g_NoResetNextCountdown[MAX_PLAYERS + 1];	// gametime where the next countdown message has to be sent; only set during countdown
+new Float:g_NoResetStart[MAX_PLAYERS + 1];			// what gametime does this player's no-reset run start at?; only set during countdown
+new Float:g_NoResetCountdown[MAX_PLAYERS + 1];		// how many seconds of countdown the player wants in no-reset mode
+new bool:g_IsBannedFromMatch[MAX_PLAYERS + 1];
+
+// Player preferences/settings
+new g_ShowTimer[MAX_PLAYERS + 1];
+new g_ShowKeys[MAX_PLAYERS + 1];
 new g_ShowStartMsg[MAX_PLAYERS + 1];
 new g_TimeDecimals[MAX_PLAYERS + 1];
 new g_Nightvision[MAX_PLAYERS + 1];
@@ -316,12 +324,7 @@ new bool:g_Slopefix[MAX_PLAYERS + 1];
 new Float:g_Speedcap[MAX_PLAYERS + 1];
 new g_ShowSpeed[MAX_PLAYERS + 1];
 new g_ShowSpecList[MAX_PLAYERS + 1];
-new Float:g_PlayerTASed[MAX_PLAYERS + 1];
-new bool:g_IsNoResetMode[MAX_PLAYERS + 1];			// means the player is in a no-reset run; only set during run (NOT during countdown)
-new Float:g_NoResetNextCountdown[MAX_PLAYERS + 1];	// gametime where the next countdown message has to be sent; only set during countdown
-new Float:g_NoResetStart[MAX_PLAYERS + 1];			// what gametime does this player's no-reset run start at?; only set during countdown
-new Float:g_NoResetCountdown[MAX_PLAYERS + 1];		// how many seconds of countdown the player wants in no-reset mode
-new bool:g_IsBannedFromMatch[MAX_PLAYERS + 1];
+new bool:g_TpOnCountdown[MAX_PLAYERS + 1]; // Teleport to start position when agstart or NR countdown starts?
 
 new g_BotOwner[MAX_PLAYERS + 1];
 new g_BotEntity[MAX_PLAYERS + 1];
@@ -1528,6 +1531,8 @@ public client_putinserver(id)
 
 	g_ShowSpeed[id] = false;
 	g_ShowSpecList[id] = true;
+	g_TpOnCountdown[id] = false;
+
 	g_ConsolePrintNextFrames[id] = 0;
 	g_ReplayFpsMultiplier[id] = 1;
 
@@ -1573,6 +1578,17 @@ public client_disconnect(id)
 	g_SolidState[id] = -1;
 	g_PlayerEndReqs[id] = 0;
 	g_IsBannedFromMatch[id] = false;
+
+	g_ShowTimer[id] = get_pcvar_num(pcvar_kz_show_timer);
+	g_ShowKeys[id] = get_pcvar_num(pcvar_kz_show_keys);
+	g_ShowStartMsg[id] = get_pcvar_num(pcvar_kz_show_start_msg);
+	g_TimeDecimals[id] = get_pcvar_num(pcvar_kz_time_decimals);
+	g_Nightvision[id] = get_pcvar_num(pcvar_kz_nightvision);
+	g_Speedcap[id] = get_pcvar_float(pcvar_kz_speedcap);
+	g_ShowSpeed[id] = false;
+	g_ShowSpecList[id] = true;
+	g_Slopefix[id] = false;
+	g_TpOnCountdown[id] = false;
 
 	g_IsNoResetMode[id] = false;
 	g_NoResetStart[id] = 0.0;
@@ -1643,11 +1659,12 @@ LoadPlayerSettings(id)
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",  g_TimeDecimals[id]);
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list", g_ShowSpecList[id]);
 
-	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_liquids", hasLiquidsInvis);
-	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_players", hasPlayersInvis);
-	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "nightvision",   g_Nightvision[id]);
-	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "slopefix",      g_Slopefix[id]);
-	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",      g_Speedcap[id]);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_liquids",   hasLiquidsInvis);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_players",   hasPlayersInvis);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "nightvision",     g_Nightvision[id]);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "slopefix",        g_Slopefix[id]);
+	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",        g_Speedcap[id]);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown", g_TpOnCountdown[id]);
 
 	if (hasLiquidsInvis) set_bit(g_bit_waterinvis, id);
 	if (hasPlayersInvis) set_bit(g_bit_invis, id);
@@ -1682,11 +1699,12 @@ SavePlayerSettings(id)
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",  g_TimeDecimals[id]);
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list", g_ShowSpecList[id]);
 
-	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_liquids", get_bit(g_bit_waterinvis, id));
-	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_players", get_bit(g_bit_invis, id));
-	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "nightvision",   g_Nightvision[id]);
-	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "slopefix",      g_Slopefix[id] ? 1 : 0);
-	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",      g_Speedcap[id]);
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_liquids",   get_bit(g_bit_waterinvis, id));
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_players",   get_bit(g_bit_invis, id));
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "nightvision",     g_Nightvision[id]);
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "slopefix",        g_Slopefix[id]);
+	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",        g_Speedcap[id]);
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown", g_TpOnCountdown[id]);
 }
 
 ResetPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
@@ -2692,6 +2710,8 @@ public CmdSayHandler(id, level, cid)
 		if (is_user_admin(id))
 			SpawnDummyBot(id);
 	}
+	else if (equali(args[1], "tpcountdown"))
+		CmdSetTpOnCountdown(id);
 
 	// The ones below use containi() because they can be passed parameters
 	else if (containi(args[1], "printframes") == 0)
@@ -5040,7 +5060,7 @@ public CmdClearStartHandler(id, level, cid)
 	return PLUGIN_HANDLED;
 }
 
-public CmdStartNoReset(id)
+CmdStartNoReset(id)
 {
 	if (g_bMatchRunning || g_IsNoResetMode[id])
 	{
@@ -5063,7 +5083,15 @@ public CmdStartNoReset(id)
 	return PLUGIN_HANDLED;
 }
 
-public CmdSetCountdown(id)
+CmdSetTpOnCountdown(id)
+{
+	g_TpOnCountdown[id] = !g_TpOnCountdown[id];
+	ShowMessage(id, "TP on countdown is now %s", g_TpOnCountdown[id] ? "enabled" : "disabled");
+
+	return PLUGIN_HANDLED;
+}
+
+CmdSetCountdown(id)
 {
 	new Float:countdown = GetFloatArg();
 
@@ -5175,17 +5203,25 @@ public CheckMatchStartConditions(taskId)
 	{
 		new id = players[i];
 
+		if (pev(id, pev_iuser1)) // ignore specs
+			continue;
+
 		if (CanTeleport(id, CP_TYPE_START, false) || CanTeleport(id, CP_TYPE_DEFAULT_START, false))
 		{
 			// Might be entering here again after banning from match
 			// If they can teleport then it's fine, remove the ban
 			g_IsBannedFromMatch[id] = false;
+
+			if (g_TpOnCountdown[id])
+			{
+				if (CanTeleport(id, CP_TYPE_START, false))
+					Teleport(id, CP_TYPE_START);
+				else if (CanTeleport(id, CP_TYPE_DEFAULT_START, false))
+					Teleport(id, CP_TYPE_DEFAULT_START);
+			}
 			continue;
 		}
 
-		if (pev(id, pev_iuser1))
-			continue;
-		
 		ShowMessage(id, "You have to press the start button before starting the match!");
 		// The ShowMessage doesn't actually seem to appear, maybe because the HUD is reset upon switching to spectator
 		// or something, so showing also this chat print just in case
