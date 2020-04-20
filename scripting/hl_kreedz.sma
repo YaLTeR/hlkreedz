@@ -1605,7 +1605,7 @@ public client_disconnect(id)
 
 LoadPlayerSettings(id)
 {
-	static authid[32], idNumbers[24], playerFileName[48];
+	static authid[32], idNumbers[24], playerFileName[56];
 	get_user_authid(id, authid, charsmax(authid));
 	ConvertSteamID32ToNumbers(authid, idNumbers);
 	formatex(playerFileName, charsmax(playerFileName), "%s/players/%s.ini", CONFIGS_SUB_DIR, idNumbers);
@@ -1655,7 +1655,7 @@ LoadPlayerSettings(id)
 
 SavePlayerSettings(id)
 {
-	static authid[32], idNumbers[24], playerFileName[48];
+	static authid[32], idNumbers[24], playerFileName[56];
 	get_user_authid(id, authid, charsmax(authid));
 	ConvertSteamID32ToNumbers(authid, idNumbers);
 	formatex(playerFileName, charsmax(playerFileName), "%s/players/%s.ini", CONFIGS_SUB_DIR, idNumbers);

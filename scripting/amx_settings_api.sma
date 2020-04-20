@@ -37,12 +37,12 @@ public plugin_natives()
 public native_load_setting_int(plugin_id, num_params)
 {
 	// Retrieve and check params
-	new filename[32], setting_section[64], setting_key[64]
+	new filename[128], setting_section[64], setting_key[64]
 	if (!RetrieveParams(filename, charsmax(filename), setting_section, charsmax(setting_section), setting_key, charsmax(setting_key)))
 		return false;
 	
 	// Open file for read
-	new path[64], file
+	new path[256], file
 	if (!OpenCustomFileRead(path, charsmax(path), filename, file))
 		return false;
 	
@@ -74,12 +74,12 @@ public native_load_setting_int(plugin_id, num_params)
 public native_load_setting_float(plugin_id, num_params)
 {
 	// Retrieve and check params
-	new filename[32], setting_section[64], setting_key[64]
+	new filename[128], setting_section[64], setting_key[64]
 	if (!RetrieveParams(filename, charsmax(filename), setting_section, charsmax(setting_section), setting_key, charsmax(setting_key)))
 		return false;
 	
 	// Open file for read
-	new path[64], file
+	new path[256], file
 	if (!OpenCustomFileRead(path, charsmax(path), filename, file))
 		return false;
 	
@@ -111,12 +111,12 @@ public native_load_setting_float(plugin_id, num_params)
 public native_load_setting_string(plugin_id, num_params)
 {
 	// Retrieve and check params
-	new filename[32], setting_section[64], setting_key[64]
+	new filename[128], setting_section[64], setting_key[64]
 	if (!RetrieveParams(filename, charsmax(filename), setting_section, charsmax(setting_section), setting_key, charsmax(setting_key)))
 		return false;
 	
 	// Open file for read
-	new path[64], file
+	new path[256], file
 	if (!OpenCustomFileRead(path, charsmax(path), filename, file))
 		return false;
 	
@@ -148,7 +148,7 @@ public native_load_setting_string(plugin_id, num_params)
 public native_save_setting_int(plugin_id, num_params)
 {
 	// Retrieve and check params
-	new filename[32], setting_section[64], setting_key[64]
+	new filename[128], setting_section[64], setting_key[64]
 	if (!RetrieveParams(filename, charsmax(filename), setting_section, charsmax(setting_section), setting_key, charsmax(setting_key)))
 		return false;
 	
@@ -156,7 +156,7 @@ public native_save_setting_int(plugin_id, num_params)
 	new value = get_param(4)
 	
 	// Open file for read
-	new path[64], file
+	new path[256], file
 	if (!OpenCustomFileRead(path, charsmax(path), filename, file, true))
 		return false;
 	
@@ -189,7 +189,7 @@ public native_save_setting_int(plugin_id, num_params)
 	}
 	
 	// We have to use a second file (tempfile) to add data at an arbitrary position
-	new temppath[64], tempfile
+	new temppath[256], tempfile
 	if (!OpenTempFileWrite(temppath, charsmax(temppath), tempfile))
 	{
 		fclose(file)
@@ -214,7 +214,7 @@ public native_save_setting_int(plugin_id, num_params)
 public native_save_setting_float(plugin_id, num_params)
 {
 	// Retrieve and check params
-	new filename[32], setting_section[64], setting_key[64]
+	new filename[128], setting_section[64], setting_key[64]
 	if (!RetrieveParams(filename, charsmax(filename), setting_section, charsmax(setting_section), setting_key, charsmax(setting_key)))
 		return false;
 	
@@ -222,7 +222,7 @@ public native_save_setting_float(plugin_id, num_params)
 	new Float:value = get_param_f(4)
 	
 	// Open file for read
-	new path[64], file
+	new path[256], file
 	if (!OpenCustomFileRead(path, charsmax(path), filename, file, true))
 		return false;
 	
@@ -255,7 +255,7 @@ public native_save_setting_float(plugin_id, num_params)
 	}
 	
 	// We have to use a second file (tempfile) to add data at an arbitrary position
-	new temppath[64], tempfile
+	new temppath[256], tempfile
 	if (!OpenTempFileWrite(temppath, charsmax(temppath), tempfile))
 	{
 		fclose(file)
@@ -279,7 +279,7 @@ public native_save_setting_float(plugin_id, num_params)
 public native_save_setting_string(plugin_id, num_params)
 {
 	// Retrieve and check params
-	new filename[32], setting_section[64], setting_key[64]
+	new filename[128], setting_section[64], setting_key[64]
 	if (!RetrieveParams(filename, charsmax(filename), setting_section, charsmax(setting_section), setting_key, charsmax(setting_key)))
 		return false;
 	
@@ -288,7 +288,7 @@ public native_save_setting_string(plugin_id, num_params)
 	get_string(4, string, charsmax(string))
 	
 	// Open file for read
-	new path[64], file
+	new path[256], file
 	if (!OpenCustomFileRead(path, charsmax(path), filename, file, true))
 		return false;
 	
@@ -321,7 +321,7 @@ public native_save_setting_string(plugin_id, num_params)
 	}
 	
 	// We have to use a second file (tempfile) to add data at an arbitrary position
-	new temppath[64], tempfile
+	new temppath[256], tempfile
 	if (!OpenTempFileWrite(temppath, charsmax(temppath), tempfile))
 	{
 		fclose(file)
@@ -346,7 +346,7 @@ public native_save_setting_string(plugin_id, num_params)
 public native_load_setting_int_arr(plugin_id, num_params)
 {
 	// Retrieve and check params
-	new filename[32], setting_section[64], setting_key[64]
+	new filename[128], setting_section[64], setting_key[64]
 	if (!RetrieveParams(filename, charsmax(filename), setting_section, charsmax(setting_section), setting_key, charsmax(setting_key)))
 		return false;
 	
@@ -355,7 +355,7 @@ public native_load_setting_int_arr(plugin_id, num_params)
 		return false;
 	
 	// Open file for read
-	new path[64], file
+	new path[256], file
 	if (!OpenCustomFileRead(path, charsmax(path), filename, file))
 		return false;
 	
@@ -387,7 +387,7 @@ public native_load_setting_int_arr(plugin_id, num_params)
 public native_load_setting_float_arr(plugin_id, num_params)
 {
 	// Retrieve and check params
-	new filename[32], setting_section[64], setting_key[64]
+	new filename[128], setting_section[64], setting_key[64]
 	if (!RetrieveParams(filename, charsmax(filename), setting_section, charsmax(setting_section), setting_key, charsmax(setting_key)))
 		return false;
 	
@@ -396,7 +396,7 @@ public native_load_setting_float_arr(plugin_id, num_params)
 		return false;
 	
 	// Open file for read
-	new path[64], file
+	new path[256], file
 	if (!OpenCustomFileRead(path, charsmax(path), filename, file))
 		return false;
 	
@@ -428,7 +428,7 @@ public native_load_setting_float_arr(plugin_id, num_params)
 public native_load_setting_string_arr(plugin_id, num_params)
 {
 	// Retrieve and check params
-	new filename[32], setting_section[64], setting_key[64]
+	new filename[128], setting_section[64], setting_key[64]
 	if (!RetrieveParams(filename, charsmax(filename), setting_section, charsmax(setting_section), setting_key, charsmax(setting_key)))
 		return false;
 	
@@ -437,7 +437,7 @@ public native_load_setting_string_arr(plugin_id, num_params)
 		return false;
 	
 	// Open file for read
-	new path[64], file
+	new path[256], file
 	if (!OpenCustomFileRead(path, charsmax(path), filename, file))
 		return false;
 	
@@ -469,7 +469,7 @@ public native_load_setting_string_arr(plugin_id, num_params)
 public native_save_setting_int_arr(plugin_id, num_params)
 {
 	// Retrieve and check params
-	new filename[32], setting_section[64], setting_key[64]
+	new filename[128], setting_section[64], setting_key[64]
 	if (!RetrieveParams(filename, charsmax(filename), setting_section, charsmax(setting_section), setting_key, charsmax(setting_key)))
 		return false;
 	
@@ -478,7 +478,7 @@ public native_save_setting_int_arr(plugin_id, num_params)
 		return false;
 	
 	// Open file for read
-	new path[64], file
+	new path[256], file
 	if (!OpenCustomFileRead(path, charsmax(path), filename, file, true))
 		return false;
 	
@@ -511,7 +511,7 @@ public native_save_setting_int_arr(plugin_id, num_params)
 	}
 	
 	// We have to use a second file (tempfile) to add data at an arbitrary position
-	new temppath[64], tempfile
+	new temppath[256], tempfile
 	if (!OpenTempFileWrite(temppath, charsmax(temppath), tempfile))
 	{
 		fclose(file)
@@ -536,7 +536,7 @@ public native_save_setting_int_arr(plugin_id, num_params)
 public native_save_setting_float_arr(plugin_id, num_params)
 {
 	// Retrieve and check params
-	new filename[32], setting_section[64], setting_key[64]
+	new filename[128], setting_section[64], setting_key[64]
 	if (!RetrieveParams(filename, charsmax(filename), setting_section, charsmax(setting_section), setting_key, charsmax(setting_key)))
 		return false;
 	
@@ -545,7 +545,7 @@ public native_save_setting_float_arr(plugin_id, num_params)
 		return false;
 	
 	// Open file for read
-	new path[64], file
+	new path[256], file
 	if (!OpenCustomFileRead(path, charsmax(path), filename, file, true))
 		return false;
 	
@@ -578,7 +578,7 @@ public native_save_setting_float_arr(plugin_id, num_params)
 	}
 	
 	// We have to use a second file (tempfile) to add data at an arbitrary position
-	new temppath[64], tempfile
+	new temppath[256], tempfile
 	if (!OpenTempFileWrite(temppath, charsmax(temppath), tempfile))
 	{
 		fclose(file)
@@ -603,7 +603,7 @@ public native_save_setting_float_arr(plugin_id, num_params)
 public native_save_setting_string_arr(plugin_id, num_params)
 {
 	// Retrieve and check params
-	new filename[32], setting_section[64], setting_key[64]
+	new filename[128], setting_section[64], setting_key[64]
 	if (!RetrieveParams(filename, charsmax(filename), setting_section, charsmax(setting_section), setting_key, charsmax(setting_key)))
 		return false;
 	
@@ -612,7 +612,7 @@ public native_save_setting_string_arr(plugin_id, num_params)
 		return false;
 	
 	// Open file for read
-	new path[64], file
+	new path[256], file
 	if (!OpenCustomFileRead(path, charsmax(path), filename, file, true))
 		return false;
 	
@@ -645,7 +645,7 @@ public native_save_setting_string_arr(plugin_id, num_params)
 	}
 	
 	// We have to use a second file (tempfile) to add data at an arbitrary position
-	new temppath[64], tempfile
+	new temppath[256], tempfile
 	if (!OpenTempFileWrite(temppath, charsmax(temppath), tempfile))
 	{
 		fclose(file)
