@@ -143,7 +143,7 @@ new const g_DeathmatchMaps[][] =
 	"xbounce2"
 };
 
-public GetNextNumber(buffer[], &pos)
+GetNextNumber(buffer[], &pos)
 {
 	while ((buffer[pos] < '0' || buffer[pos] > '9') && buffer[pos] != '-' && buffer[pos] != 0)
 		pos++;
@@ -159,7 +159,7 @@ public GetNextNumber(buffer[], &pos)
 	return str_to_num(buffer[i]);
 }
 
-public Float:GetNextFloat(buffer[], &pos)
+Float:GetNextFloat(buffer[], &pos)
 {
 	while ((buffer[pos] < '0' || buffer[pos] > '9') && buffer[pos] != '-' && buffer[pos] != '.' && buffer[pos] != 0)
 		pos++;
@@ -200,7 +200,7 @@ GetColorlessName(id, name[], len)
 }
 
 // Get the normal of the plane that is in the given direction from the player
-public GetNormalPlaneRelativeToPlayer(id, Float:start[3], Float:direction[3], Float:origin[3], Float:normal[3])
+GetNormalPlaneRelativeToPlayer(id, Float:start[3], Float:direction[3], Float:origin[3], Float:normal[3])
 {
     static Float:dest[3];
     // Make a vector that points to the given direction, and add it to the player position
@@ -227,7 +227,7 @@ public GetNormalPlaneRelativeToPlayer(id, Float:start[3], Float:direction[3], Fl
 
 // Get the normal of the nearest plane at a side of the player,
 // (e.g.: player is surfing a slope, get that slope's plane the player is touching)
-public GetNormalPlaneAtSideOfPlayer(id, Float:start[3], Float:origin[3], Float:normal[3])
+GetNormalPlaneAtSideOfPlayer(id, Float:start[3], Float:origin[3], Float:normal[3])
 {
 	new Float:lfOrigin[3], Float:rtOrigin[3], Float:lfNormal[3], Float:rtNormal[3];
 	GetNormalPlaneRelativeToPlayer(id, start, Float:{-9999.0, 0.0, 0.0}, lfOrigin, lfNormal); // get plane at left
@@ -248,12 +248,12 @@ public GetNormalPlaneAtSideOfPlayer(id, Float:start[3], Float:origin[3], Float:n
 }
 
 // e.g.: say "/decimals 4" // get the '4'
-public GetNumberArg()
+GetNumberArg()
 {
-	new cmdArg[32], numberPart[32];
-	read_args(cmdArg, charsmax(cmdArg));
+    new cmdArg[64], numberPart[64];
+    read_args(cmdArg, charsmax(cmdArg));
 
-	new bool:prevWasDigit = false;
+    new bool:prevWasDigit = false;
     for (new i = 0; cmdArg[i]; i++)
     {
         if (isdigit(cmdArg[i]))
@@ -262,37 +262,41 @@ public GetNumberArg()
             prevWasDigit = true;
         }
         else if (prevWasDigit)
-        	break; // e.g.: say "/top 42 some text and 123 numbers here" --> get out when parsing the '42'
+            break; // e.g.: say "/top 42 some text and 123 numbers here" --> get out when parsing the '42'
     }
     return str_to_num(numberPart);
 }
 
 // e.g.: say "/speedcap 499.5" // get the '499.5'
-public Float:GetFloatArg()
+Float:GetFloatArg(str[]="")
 {
-	new cmdArg[32], numberPart[32];
-	read_args(cmdArg, charsmax(cmdArg));
+	new cmdArg[64], numberPart[64];
+
+	if (str[0])
+		formatex(cmdArg, charsmax(cmdArg), str);
+	else
+		read_args(cmdArg, charsmax(cmdArg));
 
 	new bool:prevWasDigit = false;
-    for (new i = 0; cmdArg[i]; i++)
-    {
-        if (isdigit(cmdArg[i]))
-        {
-            add(numberPart, charsmax(numberPart), cmdArg[i], 1);
-            prevWasDigit = true;
-        }
-        else if (prevWasDigit) {
-        	if (equal(cmdArg[i], "."))
-        		add(numberPart, charsmax(numberPart), ".", 1);
-        	else
-        		break; // e.g.: say "/speedcap 499.5 some text and 123 numbers here" --> get out when parsing the '499.5'
-        }
-    }
-    return str_to_float(numberPart);
+	for (new i = 0; cmdArg[i]; i++)
+	{
+		if (isdigit(cmdArg[i]))
+		{
+			add(numberPart, charsmax(numberPart), cmdArg[i], 1);
+			prevWasDigit = true;
+		}
+		else if (prevWasDigit) {
+			if (equal(cmdArg[i], "."))
+				add(numberPart, charsmax(numberPart), ".", 1);
+			else
+				break; // e.g.: say "/speedcap 499.5 some text and 123 numbers here" --> get out when parsing the '499.5'
+		}
+	}
+	return str_to_float(numberPart);
 }
 
 // e.g.: say "/pro 1-18" --> get the 1 and 18 in an array of 2 cells
-public GetRangeArg(range[2])
+GetRangeArg(range[2])
 {
 	new cmdArg[32], numberPart[2][32];
 	read_args(cmdArg, charsmax(cmdArg));

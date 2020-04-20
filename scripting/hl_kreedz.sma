@@ -37,6 +37,12 @@
 #define OBS_MAP_FREE		5
 #define OBS_MAP_CHASE		6
 
+// AG Vote status
+#define AGVOTE_NOT_RUNNING		0x00
+#define AGVOTE_CALLED			0x01
+#define AGVOTE_ACCEPTED			0x02
+#define AGVOTE_DENIED			0x03
+
 #define get_bit(%1,%2) (%1 & (1 << (%2 - 1)))
 #define set_bit(%1,%2) (%1 |= (1 << (%2 - 1)))
 #define clr_bit(%1,%2) (%1 &= ~(1 << (%2 - 1)))
@@ -62,6 +68,7 @@
 #define MAX_COUNTDOWN					30.0
 #define MATCH_START_CHECK_SECOND		1
 #define HUD_UPDATE_TIME					0.05
+#define MIN_TIMELEFT_ALLOWED_NORESET	5.0
 
 #define TASKID_ICON						5633445
 #define TASKID_WELCOME					43321
@@ -293,7 +300,6 @@ new g_baIsAgFrozen; // only used when we're running on an AG server, because it 
 
 new Float:g_PlayerTime[MAX_PLAYERS + 1];
 new Float:g_PlayerTimePause[MAX_PLAYERS + 1];
-new Float:g_PlayerTimeFromSave[MAX_PLAYERS + 1];
 new g_SolidState[MAX_PLAYERS + 1];
 new g_LastButtons[MAX_PLAYERS + 1];
 new g_LastSentButtons[MAX_PLAYERS + 1];
@@ -484,6 +490,9 @@ new Handle:g_DbConnection;
 
 new g_FwLightStyle;
 
+new Array:g_AgAllowedGamemodes;
+new bool:g_AgVoteRunning;
+new bool:g_AgInterruptingVoteRunning;
 new g_MsgCountdown;
 
 new pcvar_sv_ag_match_running;
@@ -632,9 +641,55 @@ public plugin_init()
 	register_clcmd("say_team",	"CmdSayHandler");
 	register_clcmd("spectate",	"CmdSpectateHandler");
 
-	register_clcmd("agstart",			"CmdVoteAgstartHandler");
-	register_clcmd("vote agstart",		"CmdVoteAgstartHandler");
-	register_clcmd("callvote agstart",	"CmdVoteAgstartHandler");
+	if (g_IsAgServer)
+	{
+		register_clcmd("agstart",				"CmdAgVoteHandler");
+		register_clcmd("vote agstart",			"CmdAgVoteHandler");
+		register_clcmd("callvote agstart",		"CmdAgVoteHandler");
+		register_clcmd("vote map",				"CmdAgVoteHandler");
+		register_clcmd("callvote map",			"CmdAgVoteHandler");
+		register_clcmd("vote changelevel",		"CmdAgVoteHandler");
+		register_clcmd("callvote changelevel",	"CmdAgVoteHandler");
+		register_clcmd("agmap",					"CmdAgVoteHandler");
+		register_clcmd("vote agmap",			"CmdAgVoteHandler");
+		register_clcmd("callvote agmap",		"CmdAgVoteHandler");
+		register_clcmd("mp_timelimit",			"CmdTimelimitVoteHandler");
+		register_clcmd("vote mp_timelimit",		"CmdTimelimitVoteHandler");
+		register_clcmd("callvote mp_timelimit",	"CmdTimelimitVoteHandler");
+
+		// Changing the gamemode requires the map to change (or restart), leading to No-Reset runners potentially losing
+		// their run, so we want to get all the votable gamemodes in this server and handle them
+		new ag_allowed_gamemodes[256];
+		get_cvar_string("sv_ag_allowed_gamemodes", ag_allowed_gamemodes, charsmax(ag_allowed_gamemodes));
+
+		g_AgAllowedGamemodes = ArrayCreate(32, 24);
+
+		new buffer[33];
+		new isSplit = strtok2(ag_allowed_gamemodes, buffer, charsmax(buffer), ag_allowed_gamemodes, charsmax(ag_allowed_gamemodes), ';', 1); // trim just in case
+		while (isSplit > -1)
+		{
+			ArrayPushString(g_AgAllowedGamemodes, buffer);
+
+			buffer[0] = EOS; // clear the string just in case
+			isSplit = strtok2(ag_allowed_gamemodes, buffer, charsmax(buffer), ag_allowed_gamemodes, charsmax(ag_allowed_gamemodes), ';', 1);
+		}
+		ArrayPushString(g_AgAllowedGamemodes, buffer); // push the last one
+
+		for (new i = 0; i < ArraySize(g_AgAllowedGamemodes); i++)
+		{
+			new gamemode[32], voteGamemode[37], callvoteGamemode[41];
+			ArrayGetString(g_AgAllowedGamemodes, i, gamemode, charsmax(gamemode));
+
+			//server_print("registering handler for gamemode '%s'", gamemode);
+
+			formatex(voteGamemode, charsmax(voteGamemode), "vote %s", gamemode);
+			formatex(callvoteGamemode, charsmax(callvoteGamemode), "callvote %s", gamemode);
+
+			register_clcmd(gamemode,         "CmdAgVoteHandler");
+			register_clcmd(voteGamemode,     "CmdAgVoteHandler");
+			register_clcmd(callvoteGamemode, "CmdAgVoteHandler");
+		}
+	}
 
 	register_clcmd("+hook",					"CheatCmdHandler");
 	register_clcmd("-hook",					"CheatCmdHandler");
@@ -704,12 +759,15 @@ public plugin_init()
 
 	register_message(get_user_msgid("Health"), "Fw_MsgHealth");
 	register_message(SVC_TEMPENTITY, "Fw_MsgTempEntity");
-	g_MsgCountdown = get_user_msgid("Countdown");
-	if (g_MsgCountdown > 0)
-		register_message(g_MsgCountdown, "Fw_MsgCountdown");
-	new msgSettings = get_user_msgid("Settings");
-	if (msgSettings > 0)
-		register_message(msgSettings, "Fw_MsgSettings");
+
+	if (g_IsAgServer)
+	{
+		g_MsgCountdown = get_user_msgid("Countdown");
+
+		register_message(g_MsgCountdown,				"Fw_MsgCountdown");
+		register_message(get_user_msgid("Vote"),		"Fw_MsgVote");
+		register_message(get_user_msgid("Settings"),	"Fw_MsgSettings");
+	}
 
 	g_TaskEnt = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
 	set_pev(g_TaskEnt, pev_classname, engfunc(EngFunc_AllocString, "timer_entity"));
@@ -832,6 +890,7 @@ public plugin_end()
 	ArrayDestroy(g_ArrayStats[PRO]);
 	ArrayDestroy(g_ArrayStats[PURE]);
 	ArrayDestroy(g_NoResetLeaderboard);
+	ArrayDestroy(g_AgAllowedGamemodes);
 	TrieDestroy(g_CupMapPool);
 }
 
@@ -2618,7 +2677,8 @@ public CmdSayHandler(id, level, cid)
 {
 	static args[64];
 	read_args(args, charsmax(args));
-	remove_quotes(args); trim(args);
+	remove_quotes(args);
+	trim(args);
 
 	if (args[0] != '/' && args[0] != '.' && args[0] != '!')
 		return PLUGIN_CONTINUE;
@@ -2652,6 +2712,9 @@ public CmdSayHandler(id, level, cid)
 
 	else if (equali(args[1], "startnr") || equali(args[1], "nrstart"))
 		CmdStart(id, true);
+
+	else if (equali(args[1], "cancelnr") || equali(args[1], "nrcancel"))
+		CmdCancelNoReset(id);
 
 	else if (equali(args[1], "timer"))
 		CmdTimer(id);
@@ -3151,27 +3214,46 @@ public CmdSpectateHandler(id)
 	return ClientCommandSpectatePre(id);
 }
 
-public CmdVoteAgstartHandler(id)
+public CmdAgVoteHandler(id)
 {
-	new players[MAX_PLAYERS], playersNum, switchedPlayers = 0;
+	new players[MAX_PLAYERS], playersNum;
 	get_players_ex(players, playersNum, GetPlayers_ExcludeBots);
 	for (new i = 0; i < playersNum; i++)
 	{
-		new id = players[i];
+		new id2 = players[i];
 
-		if (g_IsNoResetMode[id])
+		if (g_IsNoResetMode[id2])
 		{
 			new playerName[32];
-			GetColorlessName(id, playerName, charsmax(playerName));
+			GetColorlessName(id2, playerName, charsmax(playerName));
 
 			// TODO: think of a better way to handle the situation where a player is doing a No-Reset run,
 			// and people in the server want to agstart. Can this be exploited to bother other players?
-			// FIXME: What you leave in the middle of a No-Reset run, and when you come back some people is in agstart? your timer would continue going on...
-			client_print(0, print_chat, "[%s] Cannot vote agstart because %s is doing a No-Reset run", PLUGIN_TAG, playerName);
+			// FIXME: What if you leave in the middle of a No-Reset run, and when you come back some people is in agstart? your timer would continue going on...
+			client_print(id, print_chat, "[%s] Cannot vote agstart or agmap because %s is doing a No-Reset run", PLUGIN_TAG, playerName);
+			client_print(id, print_chat, "[%s] You can vote right when they finish their run", PLUGIN_TAG, playerName);
+			ShowMessage(id, "Please, vote when %s finishes their No-Reset run", playerName);
 			return PLUGIN_HANDLED;
 		}
 	}
 
+	return PLUGIN_CONTINUE;
+}
+
+public CmdTimelimitVoteHandler(id)
+{
+	new Float:proposedTimelimit = GetFloatArg(); // minutes
+
+	new Float:timeleft  = get_cvar_float("mp_timeleft") / 60.0; // mp_timeleft comes in seconds
+	new Float:timelimit = get_cvar_float("mp_timelimit"); // minutes
+
+	//server_print("timeleft: %.2f, timelimit: %.2f, proposed timelimit: %.2f", timeleft, timelimit, proposedTimelimit);
+
+	if (proposedTimelimit && (proposedTimelimit < (timelimit - timeleft + MIN_TIMELEFT_ALLOWED_NORESET)))
+	{
+		client_print(id, print_chat, "[%s] Sorry, there are No-Reset runs ongoing and they might run out of time with your proposed timelimit", PLUGIN_TAG);
+		return PLUGIN_HANDLED;
+	}
 	return PLUGIN_CONTINUE;
 }
 
@@ -4401,6 +4483,65 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 	}
 }
 
+public Fw_MsgVote(id)
+{
+	static status, setting[32], value[32];
+
+	status = get_msg_arg_int(1);
+	get_msg_arg_string(5, setting, charsmax(setting));
+	get_msg_arg_string(6, value,   charsmax(value));
+
+	if (status == AGVOTE_CALLED)
+		g_AgVoteRunning = true;
+	else
+	{
+		g_AgVoteRunning = false;
+		g_AgInterruptingVoteRunning = false;
+
+		//server_print("Fw_MsgVote :: %s vote not running anymore (status: %d)", setting, status);
+	}
+
+	if (!g_AgVoteRunning)
+		return;
+
+	if (containi(setting, "agstart") != -1 || containi(setting, "map") != -1 || containi(setting, "changelevel") != -1)
+	{
+		g_AgInterruptingVoteRunning = true;
+		//server_print("interrupting vote going on");
+	}
+	else if (containi(setting, "mp_timelimit") != -1)
+	{
+		new Float:proposedTimelimit = GetFloatArg(value); // minutes
+
+		new Float:timeleft  = get_cvar_float("mp_timeleft") / 60.0; // mp_timeleft comes in seconds
+		new Float:timelimit = get_cvar_float("mp_timelimit"); // minutes
+
+		//server_print("Fw_MsgVote :: timeleft: %.2f, timelimit: %.2f, proposed timelimit: %.2f", timeleft, timelimit, proposedTimelimit);
+
+		if (proposedTimelimit && (proposedTimelimit < (timelimit - timeleft + MIN_TIMELEFT_ALLOWED_NORESET)))
+		{
+			g_AgInterruptingVoteRunning = true;
+			//server_print("interrupting vote going on");
+		}
+	}
+	else
+	{
+		for (new i = 0; i < ArraySize(g_AgAllowedGamemodes); i++)
+		{
+			new gamemode[32];
+			ArrayGetString(g_AgAllowedGamemodes, i, gamemode, charsmax(gamemode));
+
+			if (containi(setting, gamemode) != -1)
+			{
+				g_AgInterruptingVoteRunning = true;
+				//server_print("interrupting vote going on");
+			}
+		}
+	}
+
+	//server_print("[%.4f] Vote :: status = %d, setting = %s", get_gametime(), status, setting);
+}
+
 public Fw_MsgSettings(msg_id, msg_dest, msg_entity)
 {
 	static arg1;
@@ -5082,17 +5223,48 @@ public CmdClearStartHandler(id, level, cid)
 	return PLUGIN_HANDLED;
 }
 
+CmdCancelNoReset(id)
+{
+	if (g_IsNoResetMode[id])
+	{
+		ShowMessage(id, "You can only cancel a No-Reset during countdown");
+		return PLUGIN_HANDLED;
+	}
+	
+	if (g_NoResetStart[id])
+	{
+		client_print(id, print_chat, "[%s] No-Reset run cancelled!", PLUGIN_TAG);
+
+		ResetPlayer(id);
+
+		g_NoResetStart[id] = 0.0;
+		g_NoResetNextCountdown[id] = 0.0;
+
+		return PLUGIN_HANDLED;
+	}
+
+	ShowMessage(id, "This command only works during No-Reset run countdown");
+
+	return PLUGIN_HANDLED;
+}
+
 CmdStartNoReset(id)
 {
 	if (g_bMatchRunning || g_IsNoResetMode[id])
 	{
-		ShowMessage(id, "A match is already running. Please, try again later.");
+		ShowMessage(id, "A match is already running. Please, try again later");
 		return PLUGIN_HANDLED;
 	}
 
 	if (pev(id, pev_iuser1))
 	{
-		ShowMessage(id, "You have to quit spectator mode before starting a run.");
+		ShowMessage(id, "You have to quit spectator mode before starting a run");
+		return PLUGIN_HANDLED;
+	}
+
+	if (g_AgInterruptingVoteRunning)
+	{
+		ShowMessage(id, "Cannot start. There's a vote running that can potentially interrupt your run");
 		return PLUGIN_HANDLED;
 	}
 
@@ -5680,7 +5852,7 @@ WriteCupMapPoolFile(id)
 	fclose(file);
 }
 
-// Writes to a file the map pool in its current state
+// Writes to a file the cup match in its current state
 WriteCupFile(id)
 {
 	new file = fopen(g_CupFile, "wt");
