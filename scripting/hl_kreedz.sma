@@ -3969,7 +3969,29 @@ Countdown(id, Float:currGameTime)
 
 	if (countdownNumber == conditionsCheckSecond)
 	{
-		CheckMatchStartConditions(TASKID_MATCH_START_CHECK);
+		//CheckMatchStartConditions(TASKID_MATCH_START_CHECK);
+		if (CanTeleport(id, CP_TYPE_START, false) || CanTeleport(id, CP_TYPE_DEFAULT_START, false))
+		{
+			if (g_TpOnCountdown[id])
+			{
+				if (CanTeleport(id, CP_TYPE_START, false))
+					Teleport(id, CP_TYPE_START);
+				else if (CanTeleport(id, CP_TYPE_DEFAULT_START, false))
+					Teleport(id, CP_TYPE_DEFAULT_START);
+			}
+		}
+		else
+		{
+			ShowMessage(id, "You have to press the start button before starting the match!");
+			// The ShowMessage doesn't actually seem to appear, maybe because the HUD is reset upon switching to spectator
+			// or something, so showing also this chat print just in case
+			client_print(id, print_chat, "[%s] You have to press the start button before starting the match!", PLUGIN_TAG);
+
+			ResetPlayer(id);
+
+			g_NoResetStart[id] = 0.0;
+			g_NoResetNextCountdown[id] = 0.0;
+		}
 	}
 
 	if (countdownNumber == 0)
@@ -4351,7 +4373,7 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 
 				// Not doing the call instantly, because it crashes the server with this error message:
 				// "New message started when msg '98' has not been sent yet"
-				set_task(0.01, "CheckMatchStartConditions", TASKID_MATCH_START_CHECK + 1);
+				set_task(0.01, "CheckMatchStartConditions", TASKID_MATCH_START_CHECK);
 			}
 		}
 		return;
@@ -5193,8 +5215,6 @@ public CmdReady(id)
  */
 public CheckMatchStartConditions(taskId)
 {
-	new isRealAgstart = taskId - TASKID_MATCH_START_CHECK;
-
 	g_DisableSpec = false;
 
 	new players[MAX_PLAYERS], playersNum, switchedPlayers = 0;
@@ -5230,9 +5250,7 @@ public CheckMatchStartConditions(taskId)
 		ResetPlayer(id);
 		server_cmd("agforcespectator #%d", get_user_userid(id));
 
-		if (isRealAgstart)
-			g_IsBannedFromMatch[id] = true;
-
+		g_IsBannedFromMatch[id] = true;
 		g_NoResetStart[id] = 0.0;
 		g_NoResetNextCountdown[id] = 0.0;
 
@@ -5242,7 +5260,7 @@ public CheckMatchStartConditions(taskId)
 	if (switchedPlayers)
 		server_exec();
 	
-	if (switchedPlayers == playersNum && isRealAgstart)
+	if (switchedPlayers == playersNum)
 	{
 		// No player remaining for this agstart, so abort it
 		server_cmd("agabort");
@@ -6571,8 +6589,7 @@ SaveRecordedRun(id, RUN_TYPE:topType)
 	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, g_TopType[topType]);
 
 	g_RecordRun[id] = fopen(replayFile, "wb");
-	console_print(id, "saving run to: '%s'", replayFile);
-	//console_print(id, "opened replay file");
+	//console_print(id, "saving run to: '%s'", replayFile);
 
 	//fwrite(g_RecordRun[id], DEMO_VERSION, BLOCK_SHORT); // version
 
@@ -6584,7 +6601,7 @@ SaveRecordedRun(id, RUN_TYPE:topType)
 		fwrite(g_RecordRun[id], frameState[RP_BUTTONS], BLOCK_SHORT); // buttons
 	}
 	fclose(g_RecordRun[id]);
-	console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
+	//console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
 
 	//console_print(id, "clearing recorded run with %d frames from memory", ArraySize(g_RunFrames[id]));
 	g_RecordRun[id] = 0;
@@ -6601,7 +6618,7 @@ SaveRecordedRunCup(id, RUN_TYPE:topType)
 		g_ReplaysDir, g_Map, idNumbers, g_TopType[topType], ArraySize(g_RunFrames[id]));
 
 	g_RecordRun[id] = fopen(replayFile, "wb");
-	console_print(id, "saving cup run to: '%s'", replayFile);
+	//console_print(id, "saving cup run to: '%s'", replayFile);
 
 	new frameState[REPLAY];
 	for (new i; i < ArraySize(g_RunFrames[id]); i++)
@@ -6611,7 +6628,7 @@ SaveRecordedRunCup(id, RUN_TYPE:topType)
 		fwrite(g_RecordRun[id], frameState[RP_BUTTONS], BLOCK_SHORT); // buttons
 	}
 	fclose(g_RecordRun[id]);
-	console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
+	//console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
 
 	//console_print(id, "clearing recorded run with %d frames from memory", ArraySize(g_RunFrames[id]));
 	g_RecordRun[id] = 0;
