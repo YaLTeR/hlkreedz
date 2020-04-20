@@ -28,7 +28,7 @@ HLKreedz TODO:
 	- [ ] Sort map pool by name after sorting it by state (currently only being sorted by state).
 - [ ] Make spectator speed customizable per player (e.g.: /specspeed 500).
 - [ ] Implement commands to show tops of any other map.
-- [ ] Implement cookies to store client preferences.
+- [x] Implement a system to save/restore client preferences.
 - [ ] Implement achievements and ranks (ie. Diamond rank if you finish 5 classic maps in 1st-3rd position... Platinum, Gold, Silver, Bronze...).
 - [ ] Implement a small tool to measure distances ingame (by aiming position, etc.).
 - [x] Implement replay bot, so players can see how worldrecords or other records are done.
@@ -49,7 +49,7 @@ HLKreedz TODO:
 	- [ ] Save stage records to another file or to the same top15 table if SQL is already implemented.
 - [ ] Make a script to change mapcycle automatically by combining some classic maps and some unknown maps (with no records or a few).
 - [ ] Make a coop mode. Players of the same team have full clipping and the first who makes a record sets the record for their whole team. Teams can make strategies to make human ladders, etc.
-- [ ] Improve surfbug fix.
+- [ ] Improve surfbug fix. This won't really be an HLKZ thing, as it's fixed in AG 6.7, so will mark as completed when it's released.
 - [ ] Add a nice style to all MOTDs. This requires a modification in the OpenAG client.
 - [ ] Add noclip (requested by *Muty*)
 
