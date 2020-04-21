@@ -3866,6 +3866,8 @@ UpdateHud(Float:currGameTime)
 			{
 				// Start the no-reset run
 				StopCountdown(id);
+				g_NoResetStart[id]  = 0.0;
+				g_IsNoResetMode[id] = true;
 
 				console_print(0, "[%.3f] Starting No-Reset run for %s", currGameTime, playerName);
 
@@ -3873,9 +3875,6 @@ UpdateHud(Float:currGameTime)
 				ExecuteHamB(Ham_Spawn, id);
 
 				amxclient_cmd(id, "fullupdate");
-
-				g_NoResetStart[id]  = 0.0;
-				g_IsNoResetMode[id] = true;
 
 				StartClimb(id, true);
 			}
