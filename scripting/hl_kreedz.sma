@@ -3986,7 +3986,7 @@ UpdateHud(Float:currGameTime)
 			formatex(timerText, charsmax(timerText), "%s%s run | Time: %02d:%02d | CPs: %d | TPs: %d%s%s",
 					g_RunType[targetId], g_IsNoResetMode[targetId] ? " NR" : "", min, sec,
 					g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP],
-					reqsText, get_bit(g_baIsPaused, targetId) ? " | *Paused*" : "");
+					totalReqs ? reqsText : "", get_bit(g_baIsPaused, targetId) ? " | *Paused*" : "");
 
 			switch (g_ShowTimer[id])
 			{
