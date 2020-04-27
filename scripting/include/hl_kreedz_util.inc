@@ -23,6 +23,30 @@ enum RUN_TYPE
 	PURE
 }
 
+enum RUN_MODE
+{
+	MODE_NORMAL,		// not racing, not in agstart, not in a No-Rest run... so definitely a normal run without countdowns
+	MODE_AGSTART,
+	MODE_RACE,
+	MODE_NORESET
+}
+
+enum AGVOTE_STATUS
+{
+	AGVOTE_NOT_RUNNING,
+	AGVOTE_CALLED,
+	AGVOTE_ACCEPTED,
+	AGVOTE_DENIED
+}
+
+enum KZVOTE_VALUE
+{
+	KZVOTE_NO,
+	KZVOTE_YES,
+	KZVOTE_UNKNOWN,	// this player doesn't know about the vote, it was not shown/directed to him
+	//KZVOTE_UNDECIDED
+}
+
 // Encapsulates all the info that might be required in the different queries to DB
 enum _:QUERY
 {
