@@ -2952,8 +2952,10 @@ bool:CanTeleport(id, cp, bool:showMessages = true)
 	if (cp >= CP_TYPES)
 		return false;
 
-	if (g_IsNoResetMode[id] && cp != CP_TYPE_START && cp != CP_TYPE_DEFAULT_START)
+	if ((g_IsNoResetMode[id] || g_NoResetStart[id]) && cp != CP_TYPE_START && cp != CP_TYPE_DEFAULT_START)
 	{
+		// If a NR is during countdown or already started, cannot TP to any other than start or default one,
+		// no custom TP, no practice TP, no normal TP, no old TP to unstuck
 		if (showMessages) ShowMessage(id, "Unable to teleport to a checkpoint during No-Reset run!");
 		return false;
 	}
