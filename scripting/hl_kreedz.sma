@@ -2934,6 +2934,11 @@ bool:CanCreateCp(id, bool:showMessages = true, bool:practiceMode = false)
 		if (showMessages) ShowMessage(id, "You can't create a checkpoint while in pause");
 		return false;
 	}
+	if (g_IsNoResetMode[id] || g_NoResetStart[id])
+	{
+		if (showMessages) ShowMessage(id, "You can't create a checkpoint while in No-Reset run");
+		return false;
+	}
 
 	if (!practiceMode)
 	{
