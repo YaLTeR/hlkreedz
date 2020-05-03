@@ -65,6 +65,27 @@ enum _:NORESET
 	NORESET_LATEST_RUN
 }
 
+enum KZ_VOTE_POSITION
+{
+	POSITION_LEFT,
+	POSITION_CENTER,
+	POSITION_RIGHT
+}
+
+new const g_KzVotePositionString[][] =
+{
+	"left",
+	"center",
+	"right"
+}
+
+new const Float:g_KzVotePosition[] =
+{
+	0.05,
+	-1.0,
+	0.75
+}
+
 // TODO: put this into a file and read from it...
 new const g_DeathmatchMaps[][] =
 {

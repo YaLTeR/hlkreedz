@@ -54,6 +54,7 @@
 #define MAP_PLAYED				3
 #define MAP_DECIDER				4
 
+#define MAX_RACE_ID						65535
 #define MAX_FPS_MULTIPLIER				4	// for replaying demos at a max. fps of 250*MAX_FPS_MULTIPLIER
 #define MIN_DISTANCE_RESPAWN_ADVANTAGE	1300.0
 #define MIN_COUNTDOWN					1.0
@@ -193,6 +194,14 @@ new const g_MapStateString[][] =
 	"decider"
 };
 
+new const g_RunModeString[][] =
+{
+	"",
+	"AGStart",
+	"Race",
+	"NR"
+}
+
 new const g_szStarts[][] =
 {
 	"hlkz_start", "counter_start", "clockstartbutton", "firsttimerelay", "but_start", "counter_start_button",
@@ -307,14 +316,25 @@ new g_TeleMenuOption[MAX_PLAYERS + 1];
 new g_KzMenuOption[MAX_PLAYERS + 1];
 new g_CheatCommandsGuard[MAX_PLAYERS + 1];
 new Float:g_PlayerTASed[MAX_PLAYERS + 1];
+
+// These are for No-Reset runs, races and matches (agstart)
+new g_RaceId[MAX_PLAYERS + 1];
+new RUN_MODE:g_RunMode[MAX_PLAYERS + 1];
+new RUN_MODE:g_RunModeStarting[MAX_PLAYERS + 1];
+new Float:g_RunStartTime[MAX_PLAYERS + 1];
+new Float:g_RunNextCountdown[MAX_PLAYERS + 1];
+new Float:g_RunCountdown[MAX_PLAYERS + 1];
+new bool:g_IsBannedFromMatch[MAX_PLAYERS + 1];
+
+/*
 new bool:g_IsNoResetMode[MAX_PLAYERS + 1];			// means the player is in a no-reset run; only set during run (NOT during countdown)
 new Float:g_NoResetNextCountdown[MAX_PLAYERS + 1];	// gametime where the next countdown message has to be sent; only set during countdown
 new Float:g_NoResetStartTime[MAX_PLAYERS + 1];			// what gametime does this player's no-reset run start at?; only set during countdown
 new Float:g_NoResetCountdown[MAX_PLAYERS + 1];		// how many seconds of countdown the player wants in no-reset mode
-new bool:g_IsBannedFromMatch[MAX_PLAYERS + 1];
 new bool:g_IsInRace[MAX_PLAYERS + 1];
 new Float:g_RaceNextCountdown[MAX_PLAYERS + 1];
 new Float:g_RaceStartTime[MAX_PLAYERS + 1];
+*/
 
 // Player preferences/settings
 new g_ShowTimer[MAX_PLAYERS + 1];
@@ -338,7 +358,7 @@ new g_ReplayFramesIdx[MAX_PLAYERS + 1]; // How many frames have been replayed
 new bool:g_Unfreeze[MAX_PLAYERS + 1];
 new g_ReplayNum; // How many replays are running
 new Float:g_ReplayStartGameTime[MAX_PLAYERS + 1]; // gametime() of the first frame of the demo
-//new bool:g_isCustomFpsReplay[MAX_PLAYERS + 1]; // to know if the current run is a replay with modified FPS, so if there's a replay running when changing the FPS multiplier, that replay's FPS is not changed
+//new bool:g_isCustomFpsReplay[MAX_PLAYERS + 1]; // to know if it's replay with custom FPS, so if there's a replay running when changing the FPS multiplier, that replay's FPS is not changed
 new g_ConsolePrintNextFrames[MAX_PLAYERS + 1];
 new g_ReplayFpsMultiplier[MAX_PLAYERS + 1]; // atm not gonna implement custom fps replays, just ability to multiply demo fps by an integer up to 4
 //new Float:g_ArtificialFrames[MAX_PLAYERS + 1][MAX_FPS_MULTIPLIER]; // when will the calculated extra frames happen
@@ -438,6 +458,7 @@ new g_MapEndTotalReq;
 new bool:g_IsKzVoteRunning[MAX_PLAYERS + 1]; // if there's a vote running for this player (may not be for all; directed at specific players)
 new bool:g_IsKzVoteVisible[MAX_PLAYERS + 1]; // player preference to hide or show kz votes, as they might want to participate but then hide to not clutter the screen
 new bool:g_IsKzVoteIgnoring[MAX_PLAYERS + 1]; // player preference to ignore kz votes, not being able to see or participate in them
+new KZ_VOTE_POSITION:g_KzVoteAlignment[MAX_PLAYERS + 1];
 new g_KzVoteSetting[MAX_PLAYERS + 1][32]; // the thing that we're voting, e.g.: race
 new KZVOTE_VALUE:g_KzVoteValue[MAX_PLAYERS + 1]; // the actual vote: yes, no, undecided, unknown
 new Float:g_KzVoteStartTime[MAX_PLAYERS + 1];
@@ -490,7 +511,7 @@ new pcvar_kz_cup_max_maps;
 new pcvar_kz_cup_map_change_delay;
 new pcvar_kz_stop_moving_platforms;
 new pcvar_kz_noreset_agstart; // count agstarts as no-reset runs? (there might be some exploit or annoyance with agstart)
-new pcvar_kz_noreset_race; // same as for agstarts, but for races made through custom kz votes
+//new pcvar_kz_noreset_race; // same as for agstarts, but for races made through custom kz votes
 new pcvar_kz_noreset_countdown; // default countdown for no-reset runs
 new pcvar_kz_race_countdown; // countdown for races done with custom kz votes
 new pcvar_kz_vote_hold_time; // time that the vote will appear and be votable
@@ -606,12 +627,12 @@ public plugin_init()
 
 	// How many threads to use with MySQL, so it can use that many threads per frame to query stuff (1 query per thread?). This depends on the CPU you have in the server I guess
 	pcvar_kz_mysql_threads = register_cvar("kz_mysql_threads", "1");
-	pcvar_kz_mysql_thread_fps = register_cvar("kz_mysql_thread_fps", "25"); // MySQLT module only admits values between 4 and 33 fps
-	pcvar_kz_mysql_collect_time_ms = register_cvar("kz_mysql_collect_time_ms", "75"); // MySQLT module only admits values between 30 and 300 ms
+	pcvar_kz_mysql_thread_fps = register_cvar("kz_mysql_thread_fps", "30"); // MySQLT module only admits values between 4 and 33 fps
+	pcvar_kz_mysql_collect_time_ms = register_cvar("kz_mysql_collect_time_ms", "50"); // MySQLT module only admits values between 30 and 300 ms
 	pcvar_kz_mysql_host = register_cvar("kz_mysql_host", ""); // IP:port, FQDN:port, etc.
 	pcvar_kz_mysql_user = register_cvar("kz_mysql_user", ""); // Name of the MySQL user that will be used to read/write data in the DB
 	pcvar_kz_mysql_pass = register_cvar("kz_mysql_pass", ""); // Password of the MySQL user
-	pcvar_kz_mysql_db = register_cvar("kz_mysql_db", ""); // MySQL database name
+	pcvar_kz_mysql_db   = register_cvar("kz_mysql_db", ""); // MySQL database name
 
 	pcvar_kz_cup_max_maps = register_cvar("kz_cup_max_maps", "7");
 	pcvar_kz_cup_map_change_delay = register_cvar("kz_cup_map_change_delay", "8.0");
@@ -619,10 +640,10 @@ public plugin_init()
 	pcvar_kz_stop_moving_platforms = register_cvar("kz_stop_moving_platforms", "0");
 
 	pcvar_kz_noreset_agstart   = register_cvar("kz_noreset_agstart", "0");
-	pcvar_kz_noreset_race      = register_cvar("kz_noreset_race", "0");
+	//pcvar_kz_noreset_race      = register_cvar("kz_noreset_race", "0");
 	pcvar_kz_noreset_countdown = register_cvar("kz_noreset_countdown", "5");
-	pcvar_kz_race_countdown    = register_cvar("kz_race_countdown", "10");
-	pcvar_kz_vote_hold_time    = register_cvar("kz_vote_hold_time", "15");
+	pcvar_kz_race_countdown    = register_cvar("kz_race_countdown", "5");
+	pcvar_kz_vote_hold_time    = register_cvar("kz_vote_hold_time", "10");
 	pcvar_kz_vote_wait_time    = register_cvar("kz_vote_wait_time", "10");
 	
 
@@ -914,7 +935,7 @@ public plugin_end()
 
 // To be executed after cvars in amxx.cfg and other configs have been set,
 // important for the DB connection to be up before loading any top
-// FIXME: this should be put back in the init without delay, and the commands should go in kl_kreedz.cfg
+// FIXME: this should be put back in the init without delay, and the commands should go in hl_kreedz.cfg
 public InitTopsAndDB()
 {
 	if (get_pcvar_num(pcvar_kz_remove_func_friction))
@@ -1136,7 +1157,7 @@ DisplayKzMenu(id, mode)
 		}
 	case 1:
 		{
-			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7;
+			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7 | MENU_KEY_8;
 
 			len = formatex(menuBody[len], charsmax(menuBody) - len, "Climb Menu\n\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Start position\n");
@@ -1146,6 +1167,7 @@ DisplayKzMenu(id, mode)
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Set custom start position\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Clear custom start position\n\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "7. Start a No-Reset run\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "8. Start a Race\n");
 		}
 	case 2:
 		{
@@ -1536,6 +1558,7 @@ public ActionKzMenu(id, key)
 		case 5: CmdSetCustomStartHandler(id);
 		case 6: CmdClearCustomStartHandler(id);
 		case 7: CmdStartNoReset(id);
+		case 8: CmdVoteRace(id);
 		}
 	case 2:
 		switch (key)
@@ -1613,14 +1636,21 @@ public client_putinserver(id)
 	g_ConsolePrintNextFrames[id] = 0;
 	g_ReplayFpsMultiplier[id] = 1;
 
-	g_IsNoResetMode[id] = false;
-	g_NoResetStartTime[id] = 0.0;
-	g_NoResetCountdown[id] = get_pcvar_float(pcvar_kz_noreset_countdown);
-	g_NoResetNextCountdown[id] = 0.0;
+	g_RaceId[id] = 0;
+	g_RunMode[id] = MODE_NORMAL;
+	g_RunModeStarting[id] = MODE_NORMAL;
+	g_RunStartTime[id] = 0.0;
+	g_RunNextCountdown[id] = 0.0;
+	g_RunCountdown[id] = get_pcvar_float(pcvar_kz_noreset_countdown);
 
-	g_IsInRace[id] = false;
-	g_RaceStartTime[id] = 0.0;
-	g_RaceNextCountdown[id] = 0.0;
+	g_IsKzVoteRunning[id] = false;
+	g_IsKzVoteVisible[id] = true;
+	g_IsKzVoteIgnoring[id] = false;
+	g_KzVoteAlignment[id] = POSITION_RIGHT;
+	g_KzVoteSetting[id][0] = EOS;
+	g_KzVoteValue[id] = 0;
+	g_KzVoteStartTime[id] = 0.0;
+	g_KzVoteCaller[id] = 0;
 
 	//query_client_cvar(id, "kz_nightvision", "ClCmdNightvision"); // TODO save user variables in a file and retrieve them when they connect to server
 
@@ -1671,18 +1701,17 @@ public client_disconnect(id)
 	g_Slopefix[id] = false;
 	g_TpOnCountdown[id] = false;
 
-	g_IsNoResetMode[id] = false;
-	g_NoResetStartTime[id] = 0.0;
-	g_NoResetCountdown[id] = get_pcvar_float(pcvar_kz_noreset_countdown);
-	g_NoResetNextCountdown[id] = 0.0;
-
-	g_IsInRace[id] = false;
-	g_RaceStartTime[id] = 0.0;
-	g_RaceNextCountdown[id] = 0.0;
+	g_RaceId[id] = 0;
+	g_RunMode[id] = MODE_NORMAL;
+	g_RunModeStarting[id] = MODE_NORMAL;
+	g_RunStartTime[id] = 0.0;
+	g_RunNextCountdown[id] = 0.0;
+	g_RunCountdown[id] = get_pcvar_float(pcvar_kz_noreset_countdown);
 
 	g_IsKzVoteRunning[id] = false;
 	g_IsKzVoteVisible[id] = true;
 	g_IsKzVoteIgnoring[id] = false;
+	g_KzVoteAlignment[id] = POSITION_RIGHT;
 	g_KzVoteSetting[id][0] = EOS;
 	g_KzVoteValue[id] = 0;
 	g_KzVoteStartTime[id] = 0.0;
@@ -1720,8 +1749,8 @@ LoadPlayerSettings(id)
 	formatex(playerFileName, charsmax(playerFileName), "%s/players/%s.ini", CONFIGS_SUB_DIR, idNumbers);
 
 	// Map-dependent player settings
-	amx_load_setting_int(g_PlayerMapIniFile, idNumbers, "no_reset", g_IsNoResetMode[id]);
-	if (g_IsNoResetMode[id])
+	amx_load_setting_int(g_PlayerMapIniFile, idNumbers, "no_reset", g_RunMode[id]);
+	if (g_RunMode[id] == MODE_NORESET)
 	{
 		new Float:kztime, isPure, isFirstSpawn, isPaused;
 
@@ -1745,19 +1774,24 @@ LoadPlayerSettings(id)
 	// Global player settings
 	new hasLiquidsInvis, hasPlayersInvis;
 
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_timer",     g_ShowTimer[id]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_keys",      g_ShowKeys[id]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_start_msg", g_ShowStartMsg[id]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_speed",     g_ShowSpeed[id]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",  g_TimeDecimals[id]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list", g_ShowSpecList[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_timer",      g_ShowTimer[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_keys",       g_ShowKeys[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_start_msg",  g_ShowStartMsg[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_speed",      g_ShowSpeed[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",   g_TimeDecimals[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list",  g_ShowSpecList[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "kz_vote_visible", g_IsKzVoteVisible[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "kz_vote_ignore",  g_IsKzVoteIgnoring[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "kz_vote_align",   g_KzVoteAlignment[id]);
 
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_liquids",   hasLiquidsInvis);
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_players",   hasPlayersInvis);
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "nightvision",     g_Nightvision[id]);
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "slopefix",        g_Slopefix[id]);
 	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",        g_Speedcap[id]);
+	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "run_countdown",   g_RunCountdown[id]);
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown", g_TpOnCountdown[id]);
+
 
 	if (hasLiquidsInvis) set_bit(g_bit_waterinvis, id);
 	if (hasPlayersInvis) set_bit(g_bit_invis, id);
@@ -1771,8 +1805,8 @@ SavePlayerSettings(id)
 	formatex(playerFileName, charsmax(playerFileName), "%s/players/%s.ini", CONFIGS_SUB_DIR, idNumbers);
 
 	// Map-dependent player settings
-	amx_save_setting_int(g_PlayerMapIniFile, idNumbers, "no_reset", g_IsNoResetMode[id]);
-	if (g_IsNoResetMode[id])
+	amx_save_setting_int(g_PlayerMapIniFile, idNumbers, "no_reset", g_RunMode[id]);
+	if (g_RunMode[id] == MODE_NORESET)
 	{
 		new Float:kztime = get_gametime() - g_PlayerTime[id];
 		console_print(0, "saving kztime: %.3f", kztime);
@@ -1785,18 +1819,22 @@ SavePlayerSettings(id)
 	}
 
 	// Global player settings
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_timer",     g_ShowTimer[id]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_keys",      g_ShowKeys[id]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_start_msg", g_ShowStartMsg[id]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_speed",     g_ShowSpeed[id]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",  g_TimeDecimals[id]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list", g_ShowSpecList[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_timer",      g_ShowTimer[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_keys",       g_ShowKeys[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_start_msg",  g_ShowStartMsg[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_speed",      g_ShowSpeed[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",   g_TimeDecimals[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list",  g_ShowSpecList[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "kz_vote_visible", g_IsKzVoteVisible[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "kz_vote_ignore",  g_IsKzVoteIgnoring[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "kz_vote_align",   g_KzVoteAlignment[id]);
 
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_liquids",   get_bit(g_bit_waterinvis, id));
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_players",   get_bit(g_bit_invis, id));
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "nightvision",     g_Nightvision[id]);
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "slopefix",        g_Slopefix[id]);
 	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",        g_Speedcap[id]);
+	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "run_countdown",   g_RunCountdown[id]);
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown", g_TpOnCountdown[id]);
 }
 
@@ -1935,14 +1973,14 @@ CmdPracticePrev(id)
 
 CmdStart(id, bool:isNoReset = false)
 {
-	if (!g_bMatchRunning && !g_IsNoResetMode[id] && !g_IsInRace[id] && CanTeleport(id, CP_TYPE_CUSTOM_START, false))
+	if (g_RunMode[id] == MODE_NORMAL && CanTeleport(id, CP_TYPE_CUSTOM_START, false))
 	{
 		ResetPlayer(id, false, true);
 		Teleport(id, CP_TYPE_CUSTOM_START);
 		return;
 	}
 
-	if (!isNoReset && g_IsNoResetMode[id])
+	if (!isNoReset && g_RunMode[id] == MODE_NORESET)
 	{
 		ShowMessage(id, "You're in No-Reset mode! Say /startnr if you really want to go back to the start");
 	}
@@ -2220,7 +2258,8 @@ SpawnBot(id)
 			g_Unfreeze[bot] = false;
 			//console_print(1, "player %d spawned the bot %d", id, bot);
 
-			entity_set_float(ent, EV_FL_nextthink, get_gametime() + get_pcvar_float(pcvar_kz_replay_setup_time)); // TODO: countdown hud; 2 seconds to start the replay, so there's time to switch to spectator
+			// TODO: countdown hud; 2 seconds to start the replay, so there's time to switch to spectator
+			entity_set_float(ent, EV_FL_nextthink, get_gametime() + get_pcvar_float(pcvar_kz_replay_setup_time));
 			engfunc(EngFunc_RunPlayerMove, bot, replay[RP_ANGLES], 0.0, 0.0, 0.0, replay[RP_BUTTONS], 0, 4);
 		}
 		else
@@ -2625,7 +2664,7 @@ CmdRespawn(id)
 		return;
 	}
 
-	if (g_bMatchRunning || g_NoResetStartTime[id] || g_IsNoResetMode[id] || g_IsInRace[id])
+	if (g_RunMode[id] != MODE_NORMAL || g_RunModeStarting[id] != MODE_NORMAL)
 	{
 		ShowMessage(id, "You can't respawn during a race or No-Reset run");
 		return;
@@ -2826,6 +2865,9 @@ public CmdSayHandler(id, level, cid)
 		CmdToggleVoteIgnore(id);
 
 	// The ones below use containi() because they can be passed parameters
+	else if (containi(args[1], "alignvote") == 0)
+		CmdAlignVote(id);
+
 	else if (containi(args[1], "printframes") == 0)
 		CmdPrintNextFrames(id);
 
@@ -2886,7 +2928,7 @@ public CmdSayHandler(id, level, cid)
 
 public CheatCmdHandler(id)
 {
-	if (g_bMatchRunning || g_IsNoResetMode[id] || g_IsInRace[id])
+	if (g_RunMode[id] != MODE_NORMAL)
 		return PLUGIN_HANDLED;
 
 	new cmd[32];
@@ -2924,7 +2966,7 @@ public CheatCmdHandler(id)
 // it isn't already inside it 'cos wasn't working properly at first try
 public TASCmdHandler(id)
 {
-	if (g_bMatchRunning || g_IsNoResetMode[id] || g_IsInRace[id])
+	if (g_RunMode[id] != MODE_NORMAL)
 		return PLUGIN_HANDLED;
 
 	new cmd[32];
@@ -2986,9 +3028,9 @@ bool:CanCreateCp(id, bool:showMessages = true, bool:practiceMode = false)
 		if (showMessages) ShowMessage(id, "You can't create a checkpoint while in pause");
 		return false;
 	}
-	if (g_IsNoResetMode[id] || g_NoResetStartTime[id])
+	if (g_RunMode[id] != MODE_NORMAL || g_RunModeStarting[id] != MODE_NORMAL)
 	{
-		if (showMessages) ShowMessage(id, "You can't create a checkpoint while in No-Reset run");
+		if (showMessages) ShowMessage(id, "You can't create a checkpoint while in race or No-Reset run");
 		return false;
 	}
 
@@ -3009,12 +3051,11 @@ bool:CanTeleport(id, cp, bool:showMessages = true)
 	if (cp >= CP_TYPES)
 		return false;
 
-	// TODO: REFACTOR!
-	if ((g_bMatchRunning || g_IsNoResetMode[id] || g_NoResetStartTime[id] || g_IsInRace[id] || g_RaceStartTime[id]) && cp != CP_TYPE_START && cp != CP_TYPE_DEFAULT_START)
+	if ((g_RunMode[id] != MODE_NORMAL || g_RunModeStarting[id] != MODE_NORMAL) && cp != CP_TYPE_START && cp != CP_TYPE_DEFAULT_START)
 	{
 		// If a NR is during countdown or already started, cannot TP to any other than start or default one,
 		// no custom TP, no practice TP, no normal TP, no old TP to unstuck
-		if (showMessages) ShowMessage(id, "Unable to teleport to a checkpoint during No-Reset run!");
+		if (showMessages) ShowMessage(id, "Unable to teleport to a checkpoint during race or No-Reset run!");
 		return false;
 	}
 
@@ -3191,7 +3232,7 @@ TeleportAfterRespawn(id)
 	else
 	{
 		// g_bMatchRunning isn't updated by this point yet.
-		if (get_pcvar_num(pcvar_sv_ag_match_running) == 1 || g_IsNoResetMode[id] || g_IsInRace[id])
+		if (get_pcvar_num(pcvar_sv_ag_match_running) == 1 || g_RunMode[id] != MODE_NORMAL || g_RunModeStarting[id] != MODE_NORMAL)
 		{
 			if (CanTeleport(id, CP_TYPE_START, false))
 				Teleport(id, CP_TYPE_START);
@@ -3256,7 +3297,7 @@ bool:CanSpectate(id, bool:showMessages = true)
 		if (showMessages) ShowMessage(id, "You must be on the ground to enter spectator mode");
 		return false;
 	}
-	if (g_bMatchRunning || g_IsNoResetMode[id] || g_IsInRace[id])
+	if (g_bMatchRunning || g_RunMode[id] != MODE_NORMAL || g_RunModeStarting[id] != MODE_NORMAL)
 	{
 		if (showMessages) ShowMessage(id, "A match is running, spectate is disabled");
 		return false;
@@ -3282,7 +3323,7 @@ public CmdAgVoteHandler(id)
 	{
 		new id2 = players[i];
 
-		if (g_IsNoResetMode[id2])
+		if (g_RunMode[id2] == MODE_NORESET)
 		{
 			new playerName[32];
 			GetColorlessName(id2, playerName, charsmax(playerName));
@@ -3349,6 +3390,9 @@ ClientCommandSpectatePre(id)
 		// Invalidate CP if dead
 		if (!IsAlive(id))
 			g_ControlPoints[id][CP_TYPE_SPEC][CP_VALID] = false;
+
+		if (g_IsKzVoteRunning[id])
+			g_KzVoteValue[id] = KZVOTE_UNKNOWN;
 	}
 
 	return PLUGIN_CONTINUE;
@@ -3447,7 +3491,7 @@ bool:CanPause(id, bool:showMessages = true)
 		if (showMessages) ShowMessage(id, "You must be on the ground to get paused");
 		return false;
 	}
-	if (g_bMatchRunning || g_IsNoResetMode[id] || g_IsInRace[id])
+	if (g_RunMode[id] != MODE_NORMAL) // not checking on countdown... if a vote pops up during countdown, cancel your run with /cancelnr
 	{
 		if (showMessages) ShowMessage(id, "A match is running, pause is disabled");
 		return false;
@@ -3458,7 +3502,7 @@ bool:CanPause(id, bool:showMessages = true)
 
 bool:CanReset(id, bool:showMessages = true)
 {
-	if (g_bMatchRunning || g_IsNoResetMode[id] || g_IsInRace[id])
+	if (g_RunMode[id] != MODE_NORMAL)
 	{
 		if (showMessages) ShowMessage(id, "A match is running, reset is disabled");
 		return false;
@@ -3478,7 +3522,7 @@ StartClimb(id, bool:isMatch = false)
 		ShowMessage(id, "Using timer while cheating is prohibited");
 		return;
 	}
-	if (!isMatch && (g_bMatchRunning || g_IsNoResetMode[id] || g_IsInRace[id]) && g_PlayerTime[id])
+	if (!isMatch && g_PlayerTime[id] && g_RunMode[id] != MODE_NORMAL)
 	{
 		ShowMessage(id, "A match is running, start is disabled");
 		return;
@@ -3522,7 +3566,7 @@ FinishClimb(id)
 		ShowMessage(id, "You must press the start button first");
 		canFinish = false;
 	}
-	if (g_NoResetStartTime[id])
+	if (g_RunStartTime[id])
 	{
 		ShowMessage(id, "It's not allowed to finish the map while on countdown");
 		canFinish = false;
@@ -3560,9 +3604,9 @@ StartTimer(id)
 	if (g_ShowStartMsg[id])
 	{
 		new msg[38];
-		if (g_IsNoResetMode[id])
+		if (g_RunMode[id] == MODE_NORESET)
 			formatex(msg, charsmax(msg), "No-Reset run started!");
-		else if (g_bMatchRunning || g_IsInRace[id])
+		else if (g_RunMode[id] == MODE_AGSTART || g_RunMode[id] == MODE_RACE)
 			formatex(msg, charsmax(msg), "Race started!");
 		else
 			formatex(msg, charsmax(msg), "Timer started with speed %5.2fu/s", speed);
@@ -3585,8 +3629,8 @@ FinishTimer(id)
 	client_cmd(0, "spk fvox/bell");
 
 	get_user_name(id, name, charsmax(name));
-	client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s finished in %02d:%", "(CPs: %d | TPs: %d) %s%s"),
-		PLUGIN_TAG, name, minutes, seconds, g_CpCounters[id][COUNTER_CP], g_CpCounters[id][COUNTER_TP], pureRun, g_IsNoResetMode[id] ? " No-Reset" : "");
+	client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s^0 finished in %02d:%", "(CPs: %d | TPs: %d) %s%s"),
+		PLUGIN_TAG, name, minutes, seconds, g_CpCounters[id][COUNTER_CP], g_CpCounters[id][COUNTER_TP], pureRun, g_RunMode[id] == MODE_NORESET ? " No-Reset" : "");
 
 	if (!get_pcvar_num(pcvar_kz_nostat) && !IsBot(id))
 	{
@@ -3602,7 +3646,7 @@ FinishTimer(id)
 
 				// We set this so that it doesn't count the pro one as a No-Reset run,
 				// and thus be much easier to handle No-Reset average times for leaderboard
-				g_IsNoResetMode[id] = false;
+				g_RunMode[id] = MODE_NORMAL;
 				UpdateRecords(id, kztime, PRO);
 			}
 			else
@@ -3620,7 +3664,7 @@ FinishTimer(id)
 
 	if (g_bMatchRunning && !IsBot(id))
 	{
-		g_bMatchRunning = false;
+		StopMatch();
 		server_cmd("agabort");
 		server_exec();
 		
@@ -3686,7 +3730,7 @@ FinishTimer(id)
 				GetNextCupMapToPlay(map, charsmax(map));
 
 				new Float:timeToChange = get_pcvar_float(pcvar_kz_cup_map_change_delay);
-				client_print(0, print_chat, "[%s] The next map to be played is %s. Changing the map in %.0f seconds...", PLUGIN_TAG, map, timeToChange);
+				client_print(0, print_chat, "[%s] The next map to be played is %s. Changing the map in %.1f seconds...", PLUGIN_TAG, map, timeToChange);
 
 				set_task(timeToChange, "CupChangeMap", TASKID_CUP_CHANGE_MAP, map, charsmax(map));
 			}
@@ -3695,15 +3739,15 @@ FinishTimer(id)
 		LaunchRecordFireworks();
 	}
 
-	if (g_IsInRace[id])
+	if (g_RunMode[id] == MODE_RACE)
 	{
-		// TODO: cancel the race mode for the rest of runners?
+		client_print(0, print_chat, "[%s] %s^0 won the race!", PLUGIN_TAG, name);
+		// Same behaviour as in agstart: the first one to finish also ends the runs of the rest of runners
+		CancelRaces(g_RaceId[id]);
 	}
 
 	clr_bit(g_baIsClimbing, id);
 	clr_bit(g_baIsPureRunning, id);
-	g_IsNoResetMode[id] = false;
-	g_IsInRace[id] = false;
 
 	if (g_RecordRun[id])
 	{
@@ -3711,6 +3755,40 @@ FinishTimer(id)
 		//console_print(id, "clearing recorded run with %d frames from memory", ArraySize(g_RunFrames[id]));
 		g_RecordRun[id] = 0;
 		ArrayClear(g_RunFrames[id]);
+	}
+}
+
+CancelRaces(runId)
+{
+	new players[MAX_PLAYERS], playersNum;
+	get_players_ex(players, playersNum, GetPlayers_ExcludeBots);
+	for (new i = 0; i < playersNum; i++)
+	{
+		new id = players[i];
+
+		if (g_RaceId[id] == runId)
+		{
+			g_RaceId[id] = 0;
+			g_RunMode[id] = MODE_NORMAL;
+			g_RunModeStarting[id] = MODE_NORMAL;
+		}
+	}
+}
+
+StopMatch()
+{
+	g_bMatchRunning = false;
+
+	new players[MAX_PLAYERS], playersNum;
+	get_players_ex(players, playersNum, GetPlayers_ExcludeBots);
+	for (new i = 0; i < playersNum; i++)
+	{
+		new id = players[i];
+
+		g_RunMode[id] = MODE_NORMAL;
+		g_RunModeStarting[id] = MODE_NORMAL;
+
+		ShowMessage(id, "Race or match has ended");
 	}
 }
 
@@ -3922,45 +4000,57 @@ UpdateHud(Float:currGameTime)
 
 	get_players(players, playersNum);
 
-	// This is for race votes, loop through players once out here and then it's the same HUD text for everyone
-	new raceCandidatesText[1344];
-	GetRaceCandidates(raceCandidatesText, players, playersNum);
-
 	for (i = 0; i < playersNum; i++)
 	{
 		id = players[i];
 		GetColorlessName(id, playerName, charsmax(playerName));
 		//if (IsBot(id) || IsHltv(id)) continue;
 
-		HudShowNoReset(id, currGameTime);
-
+		//server_print("[vote] setting: %s, running: %d, ignoring: %d, visible: %d, start: %.3f, hold: %.3f curr: %.3f",
+		//	g_KzVoteSetting[id], g_IsKzVoteRunning[id], g_IsKzVoteIgnoring[id], g_IsKzVoteVisible[id], g_KzVoteStartTime[id], get_pcvar_float(pcvar_kz_vote_hold_time), currGameTime);
+		
 		// HUD for custom votes
-		if (g_IsKzVoteRunning[id] && !g_IsKzVoteIgnoring[id] && g_IsKzVoteVisible[id] && !pev(id, pev_iuser1))
+		if (g_IsKzVoteRunning[id] && !g_IsKzVoteIgnoring[id] && g_IsKzVoteVisible[id])
 		{
-			if ((g_KzVoteStartTime[id] + get_pcvar_float(pcvar_kz_vote_hold_time)) < currGameTime)
+			new Float:voteCountdown = (g_KzVoteStartTime[id] + get_pcvar_float(pcvar_kz_vote_hold_time)) - currGameTime;
+			if (voteCountdown > 0.0)
 			{
-				new voteMsg[1408];
+				new voteMsg[1424], voteCallerName[33];
+				GetColorlessName(g_KzVoteCaller[id], voteCallerName, charsmax(voteCallerName));
 
 				if (equal(g_KzVoteSetting[id], "race"))
-					formatex(voteMsg, charsmax(voteMsg), "%s wants to race! Runners:\n%s", g_KzVoteCaller, raceCandidatesText);
+				{
+					// This is for race votes, loop through players once out here and then it's the same HUD text for everyone
+					new raceCandidatesText[1360];
+					GetRaceCandidates(raceCandidatesText, charsmax(raceCandidatesText), g_KzVoteCaller[id], players, playersNum);
+					formatex(voteMsg, charsmax(voteMsg), "%s wants to race in %d\nRunners:\n%s", voteCallerName, floatround(voteCountdown, floatround_tozero), raceCandidatesText);
+				}
+				// TODO: other votes
 
-				set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], _, 0.6, 0, 0.0, 999999.9, 0.0, 0.0, -1);
+				set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], g_KzVotePosition[g_KzVoteAlignment[id]], 0.35, 0, 0.0, 999999.9, 0.0, 0.0, -1);
 				ShowSyncHudMsg(id, g_SyncHudKzVote, voteMsg);
 			}
 			else
 			{
-				g_IsKzVoteRunning[id] = false;
 				ClearSyncHud(id, g_SyncHudKzVote);
 
-				if (equal(g_KzVoteSetting[id], "race"))
+				if (g_KzVoteValue[id] == KZVOTE_YES)
 				{
-					StartRace(id);
+					if (equal(g_KzVoteSetting[id], "race"))
+					{
+						g_RaceId[id] = 0;
+						StartRace(id);
+					}
+					else
+					{
+						// TODO: other votes
+					}
 				}
+				EndKzVote(id);
 			}
 		}
+		HudShowRun(id, currGameTime);
 
-		HudShowRace(id, currGameTime);
-		
 		// Select target from whom to take timer and pressed keys
 		mode = pev(id, pev_iuser1);
 		targetId = mode == OBS_CHASE_LOCKED || mode == OBS_CHASE_FREE || mode == OBS_IN_EYE || mode == OBS_MAP_CHASE ? pev(id, pev_iuser2) : id;
@@ -4055,10 +4145,13 @@ UpdateHud(Float:currGameTime)
 			if (totalReqs)
 				formatex(reqsText, charsmax(reqsText), " | Reqs: %d/%d", completedReqs, totalReqs);
 
-			new timerText[64];
+			new runModeText[16];
+			if (g_RunMode[targetId] != MODE_NORMAL)
+				formatex(runModeText, charsmax(runModeText), " %s", g_RunModeString[g_RunMode[targetId]]);
+
+			new timerText[80];
 			formatex(timerText, charsmax(timerText), "%s%s run | Time: %02d:%02d | CPs: %d | TPs: %d%s%s",
-					g_RunType[targetId], g_IsNoResetMode[targetId] ? " NR" : "", min, sec,
-					g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP],
+					g_RunType[targetId], runModeText, min, sec, g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP],
 					reqsText, get_bit(g_baIsPaused, targetId) ? " | *Paused*" : "");
 
 			switch (g_ShowTimer[id])
@@ -4093,122 +4186,73 @@ UpdateHud(Float:currGameTime)
 	}
 }
 
-GetRaceCandidates(raceCandidatesText[], players[], playersNum)
+GetRaceCandidates(raceCandidatesText[], len, caller, players[], playersNum)
 {
 	new playerName[33];
 	for (new i = 0; i < playersNum; i++)
 	{
 		new id = players[i];
 
-		if (!g_IsKzVoteRunning[id] ||g_IsKzVoteIgnoring[id] || !g_IsKzVoteVisible[id])
-			continue;
+		if (g_KzVoteCaller[id] != caller)
+			continue; // assuming a player can only call a custom vote at a time, so this works as an identifier
 
-		if (equal(g_KzVoteSetting[id], "race"))
+		if (!g_IsKzVoteRunning[id] || g_IsKzVoteIgnoring[id] || !g_IsKzVoteVisible[id])
 			continue;
 
 		GetColorlessName(id, playerName, charsmax(playerName));
-		format(raceCandidatesText, charsmax(raceCandidatesText), "%s%s: %s\n", raceCandidatesText, playerName, g_KzVoteValue[id] == KZVOTE_YES ? "Yes" : "No");
+		format(raceCandidatesText, len, "%s%s: %s\n", raceCandidatesText, playerName, g_KzVoteValue[id] == KZVOTE_YES ? "Yes" : "No");
 	}
 }
 
-HudShowNoReset(id, currGameTime)
+HudShowRun(id, Float:currGameTime)
 {
-	if (g_NoResetStartTime[id])
+	//server_print("mode: %d, start: %.3f, next: %.3f, curr: %.3f", g_RunMode[id], g_RunStartTime[id], g_RunNextCountdown[id], currGameTime);
+	if (g_RunStartTime[id])
 	{
-		if (g_NoResetStartTime[id] < currGameTime)
+		if (g_RunStartTime[id] < currGameTime)
 		{
-			// Start the no-reset run
+			// Start the no-reset run or race
 			StopCountdown(id);
-			g_NoResetStartTime[id]  = 0.0;
-			g_IsNoResetMode[id] = true;
-
-			new playerName[33];
-			GetColorlessName(id, playerName, charsmax(playerName));
-			console_print(0, "[%.3f] Starting No-Reset run for %s", currGameTime, playerName);
+			g_RunMode[id] = g_RunModeStarting[id];
+			g_RunModeStarting[id] = MODE_NORMAL;
+			g_RunStartTime[id] = 0.0;
 
 			strip_user_weapons(id);
 			ExecuteHamB(Ham_Spawn, id);
-
 			amxclient_cmd(id, "fullupdate");
 
 			StartClimb(id, true);
 		}
-		else if (g_NoResetNextCountdown[id] && g_NoResetNextCountdown[id] < currGameTime)
+		else if (g_RunNextCountdown[id] && g_RunNextCountdown[id] < currGameTime)
 		{
-			if (g_NoResetNextCountdown[id])
-				g_NoResetNextCountdown[id] += 1.0;
+			RunCountdown(id, currGameTime, g_RunStartTime[id], g_RunCountdown[id], true);
 
-			// Countdown for your personal agstart, for No-Reset runs
-			RunCountdown(id, currGameTime, g_NoResetStartTime[id], g_NoResetCountdown[id], true);
-		}
-	}
-}
+			// Also show countdown to the ones spectating him
+			new players[MAX_PLAYERS], playersNum;
+			get_players_ex(players, playersNum, GetPlayers_ExcludeBots);
+			for (new i = 0; i < playersNum; i++)
+			{
+				new id2 = players[i];
 
-// TODO: DRY, refactor, it's very similar to No-Reset
-HudShowRace(id, currGameTime)
-{
-	if (g_RaceStartTime[id])
-	{
-		if (g_RaceStartTime[id] < currGameTime)
-		{
-			StopCountdown(id);
-			g_RaceStartTime[id] = 0.0;
-			g_IsInRace[id] = true;
-
-			strip_user_weapons(id);
-			ExecuteHamB(Ham_Spawn, id);
-
-			amxclient_cmd(id, "fullupdate");
-
-			StartClimb(id, true);
-		}
-		else if (g_RaceNextCountdown[id] && g_RaceNextCountdown[id] < currGameTime)
-		{
-			//new Float:runStartTime  = g_KzVoteStartTime[id] + get_pcvar_float(pcvar_kz_vote_wait_time);
-			//new Float:countdownTime = get_pcvar_float(pcvar_kz_race_countdown);
-
-			// Countdown for your personal agstart, for No-Reset runs
-			RunCountdown(id, currGameTime, g_RaceNextCountdown[id], AG_COUNTDOWN, false);
-		}
-	}
-
-	if (g_KzVoteStartTime[id] + get_pcvar_float(pcvar_kz_vote_hold_time) < currGameTime)
-	{
-		if (equal(g_KzVoteSetting[id], "race"))
-		{
-			new Float:runStartTime  = g_KzVoteStartTime[id] + get_pcvar_float(pcvar_kz_vote_wait_time);
-			new Float:countdownTime = get_pcvar_float(pcvar_kz_race_countdown);
-			RunCountdown(id, currGameTime, runStartTime, countdownTime, false);
-		}
-	}
-	else
-	{
-		// Vote finished
-		if (equal(g_KzVoteSetting[id], "race"))
-		{
-			g_IsKzVoteRunning[id] = false;
-			g_KzVoteValue[id] = KZVOTE_UNKNOWN;
-
-			// TODO: DRY
-			StopCountdown(id);
-
-			strip_user_weapons(id);
-			ExecuteHamB(Ham_Spawn, id);
-
-			amxclient_cmd(id, "fullupdate");
-
-			StartClimb(id, true);
+				if (pev(id2, pev_iuser1) == OBS_IN_EYE && pev(id2, pev_iuser2) == id)
+				{
+					RunCountdown(id2, currGameTime, g_RunStartTime[id], g_RunCountdown[id], true);
+				}
+			}
 		}
 	}
 }
 
 RunCountdown(id, Float:currGameTime, Float:runStartTime, Float:totalCountdownTime, bool:isNoReset)
 {
+	//server_print("noreset: %d, runStartTime: %.3f, totalCountdownTime: %.3f, currGameTime: %.3f", isNoReset, runStartTime, totalCountdownTime, currGameTime, isNoReset);
 	new countdownNumber       = floatround(runStartTime - currGameTime, floatround_tozero);
 	new conditionsCheckSecond = floatround(totalCountdownTime, floatround_tozero) - MATCH_START_CHECK_SECOND;
 
 	if (conditionsCheckSecond < 0)
 		conditionsCheckSecond = 0;
+
+	g_RunNextCountdown[id] += 1.0;
 
 	//client_print(id, print_chat, "counting down... %d", countdownNumber);
 
@@ -4232,7 +4276,6 @@ RunCountdown(id, Float:currGameTime, Float:runStartTime, Float:totalCountdownTim
 
 	if (countdownNumber == conditionsCheckSecond)
 	{
-		//CheckMatchStartConditions(TASKID_MATCH_START_CHECK);
 		if (CanTeleport(id, CP_TYPE_START, false) || CanTeleport(id, CP_TYPE_DEFAULT_START, false))
 		{
 			if (g_TpOnCountdown[id])
@@ -4254,8 +4297,9 @@ RunCountdown(id, Float:currGameTime, Float:runStartTime, Float:totalCountdownTim
 
 			if (isNoReset)
 			{
-				g_NoResetStartTime[id] = 0.0;
-				g_NoResetNextCountdown[id] = 0.0;
+				g_RunModeStarting[id] = MODE_NORMAL;
+				g_RunStartTime[id] = 0.0;
+				g_RunNextCountdown[id] = 0.0;
 			}
 		}
 	}
@@ -4264,7 +4308,7 @@ RunCountdown(id, Float:currGameTime, Float:runStartTime, Float:totalCountdownTim
 	{
 		if (isNoReset)
 		{
-			g_NoResetNextCountdown[id] = 0.0;
+			g_RunNextCountdown[id] = 0.0;
 		}
 		// TODO: reset the nextCountdown for races, or refactor and actually use a common variable, as no 2 countdowns can be running at a time?
 	}
@@ -4609,7 +4653,7 @@ public Fw_FmWeaponRespawn(weaponId, worldspawnId)
 
 public Fw_FmClientKillPre(id)
 {
-	if (get_pcvar_num(pcvar_kz_nokill) || g_NoResetStartTime[id] || g_IsNoResetMode[id] || g_RaceStartTime[id] || g_IsInRace[id])
+	if (get_pcvar_num(pcvar_kz_nokill) || g_RunMode[id] != MODE_NORMAL || g_RunModeStarting[id] != MODE_NORMAL)
 	{
 		ShowMessage(id,"Command \"kill\" is disabled");
 		return FMRES_SUPERCEDE;
@@ -4643,7 +4687,7 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 
 				// Not doing the call instantly, because it crashes the server with this error message:
 				// "New message started when msg '98' has not been sent yet"
-				set_task(0.01, "CheckMatchStartConditions", TASKID_MATCH_START_CHECK);
+				set_task(0.000001, "CheckAgstartConditions", TASKID_MATCH_START_CHECK);
 			}
 		}
 		return;
@@ -4662,7 +4706,9 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 			StartTimer(i);
 
 			if (get_pcvar_num(pcvar_kz_noreset_agstart))
-				g_IsNoResetMode[i] = true;
+				g_RunMode[i] = MODE_NORESET; // TODO: maybe it's better to keep it as MODE_AGSTART and take into account the cvar elsewhere
+			else
+				g_RunMode[i] = MODE_AGSTART;
 
 			g_RecordRun[i] = 1;
 			g_RunFrames[i] = ArrayCreate(REPLAY);
@@ -4685,8 +4731,6 @@ public Fw_MsgVote(id)
 	{
 		g_AgVoteRunning = false;
 		g_AgInterruptingVoteRunning = false;
-
-		//server_print("Fw_MsgVote :: %s vote not running anymore (status: %d)", setting, status);
 	}
 
 	if (!g_AgVoteRunning)
@@ -4695,7 +4739,6 @@ public Fw_MsgVote(id)
 	if (containi(setting, "agstart") != -1 || containi(setting, "map") != -1 || containi(setting, "changelevel") != -1)
 	{
 		g_AgInterruptingVoteRunning = true;
-		//server_print("interrupting vote going on");
 	}
 	else if (containi(setting, "mp_timelimit") != -1)
 	{
@@ -4704,12 +4747,9 @@ public Fw_MsgVote(id)
 		new Float:timeleft  = get_cvar_float("mp_timeleft") / 60.0; // mp_timeleft comes in seconds
 		new Float:timelimit = get_cvar_float("mp_timelimit"); // minutes
 
-		//server_print("Fw_MsgVote :: timeleft: %.2f, timelimit: %.2f, proposed timelimit: %.2f", timeleft, timelimit, proposedTimelimit);
-
 		if (proposedTimelimit && (proposedTimelimit < (timelimit - timeleft + MIN_TIMELEFT_ALLOWED_NORESET)))
 		{
 			g_AgInterruptingVoteRunning = true;
-			//server_print("interrupting vote going on");
 		}
 	}
 	else
@@ -4722,7 +4762,6 @@ public Fw_MsgVote(id)
 			if (containi(setting, gamemode) != -1)
 			{
 				g_AgInterruptingVoteRunning = true;
-				//server_print("interrupting vote going on");
 			}
 		}
 	}
@@ -4735,7 +4774,7 @@ public Fw_MsgSettings(msg_id, msg_dest, msg_entity)
 	static arg1;
 	arg1 = get_msg_arg_int(1);
 	if (arg1 == 0)
-		g_bMatchRunning = false;
+		StopMatch();
 }
 
 public Fw_FmGetGameDescriptionPre()
@@ -5413,32 +5452,32 @@ public CmdClearStartHandler(id, level, cid)
 
 CmdCancelNoReset(id)
 {
-	if (g_IsNoResetMode[id])
+	if (g_RunMode[id] == MODE_NORESET)
 	{
 		ShowMessage(id, "You can only cancel a No-Reset during countdown");
 		return PLUGIN_HANDLED;
 	}
 	
-	if (g_NoResetStartTime[id])
+	if (g_RunModeStarting[id] != MODE_NORESET)
 	{
-		client_print(id, print_chat, "[%s] No-Reset run cancelled!", PLUGIN_TAG);
-
-		ResetPlayer(id);
-
-		g_NoResetStartTime[id] = 0.0;
-		g_NoResetNextCountdown[id] = 0.0;
-
+		ShowMessage(id, "This command only works during No-Reset run countdown");
 		return PLUGIN_HANDLED;
 	}
 
-	ShowMessage(id, "This command only works during No-Reset run countdown");
+	client_print(id, print_chat, "[%s] No-Reset run cancelled!", PLUGIN_TAG);
+
+	ResetPlayer(id);
+
+	g_RunModeStarting[id] = MODE_NORMAL;
+	g_RunStartTime[id] = 0.0;
+	g_RunNextCountdown[id] = 0.0;
 
 	return PLUGIN_HANDLED;
 }
 
 CmdStartNoReset(id)
 {
-	if (g_bMatchRunning || g_IsNoResetMode[id] || g_IsInRace[id])
+	if (g_RunMode[id] != MODE_NORMAL)
 	{
 		ShowMessage(id, "A match is already running. Please, try again later");
 		return PLUGIN_HANDLED;
@@ -5450,7 +5489,7 @@ CmdStartNoReset(id)
 		return PLUGIN_HANDLED;
 	}
 
-	if (g_AgInterruptingVoteRunning)
+	if (g_AgInterruptingVoteRunning || equal(g_KzVoteSetting[id], "race"))
 	{
 		ShowMessage(id, "Cannot start. There's a vote running that can potentially interrupt your run");
 		return PLUGIN_HANDLED;
@@ -5458,9 +5497,24 @@ CmdStartNoReset(id)
 
 	FreezePlayer(id);
 
-	g_IsNoResetMode[id] = false; // will be set to true later right after countdown
-	g_NoResetStartTime[id] = get_gametime() + g_NoResetCountdown[id];
-	g_NoResetNextCountdown[id] = get_gametime();
+	g_RunMode[id] = MODE_NORMAL; // will be set to MODE_NORESET later, right after countdown
+	g_RunModeStarting[id] = MODE_NORESET;
+	g_RunStartTime[id] = get_gametime() + g_RunCountdown[id];
+	g_RunNextCountdown[id] = get_gametime();
+
+	new players[MAX_PLAYERS], playersNum;
+	get_players_ex(players, playersNum, GetPlayers_ExcludeBots);
+	for (new i = 0; i < playersNum; i++)
+	{
+		new id2 = players[i];
+
+		if (pev(id2, pev_iuser1) == OBS_IN_EYE && pev(id2, pev_iuser2) == id)
+		{
+			new targetPlayerName[33];
+			GetColorlessName(id, targetPlayerName, charsmax(targetPlayerName));
+			client_print(id2, print_chat, "[%s] %s is starting a No-Reset run in %.1f seconds!", PLUGIN_TAG, targetPlayerName, g_RunCountdown[id]);
+		}
+	}
 
 	return PLUGIN_HANDLED;
 }
@@ -5475,9 +5529,19 @@ StartRace(id)
 
 	FreezePlayer(id);
 
-	g_IsInRace[id] = false; // will be set to true later right after countdown
-	g_RaceStartTime[id] = get_gametime() + AG_COUNTDOWN;
-	g_RaceNextCountdown[id] = get_gametime();
+	g_RunMode[id] = MODE_NORMAL;
+	g_RunModeStarting[id] = MODE_RACE;
+	g_RunStartTime[id] = get_gametime() + get_pcvar_float(pcvar_kz_race_countdown);
+	g_RunNextCountdown[id] = get_gametime();
+}
+
+EndKzVote(id)
+{
+	g_IsKzVoteRunning[id]  = false;
+	g_KzVoteSetting[id][0] = EOS;
+	g_KzVoteValue[id]      = KZVOTE_UNKNOWN;
+	g_KzVoteStartTime[id]  = 0.0;
+	g_KzVoteCaller[id]     = 0;
 }
 
 CmdVote(id, KZVOTE_VALUE:value)
@@ -5490,14 +5554,6 @@ CmdVote(id, KZVOTE_VALUE:value)
 
 CmdVoteRace(id)
 {
-	/*
-	if (read_argc() <= 2)
-	{
-		ShowMessage(id, "Please, specify players to race against, by (partial) name or id");
-		return PLUGIN_HANDLED;
-	}
-	*/
-
 	new Float:voteWaitTime = get_pcvar_float(pcvar_kz_vote_wait_time);
 	if (g_KzVoteStartTime[id] && get_gametime() < (g_KzVoteStartTime[id] + get_pcvar_float(pcvar_kz_vote_hold_time) + voteWaitTime))
 	{
@@ -5507,44 +5563,125 @@ CmdVoteRace(id)
 
 	new findFlags = FindPlayer_CaseInsensitive | FindPlayer_ExcludeBots | FindPlayer_MatchNameSubstring | FindPlayer_MatchUserId | FindPlayer_MatchAuthId;
 	new Array:targets = ArrayCreate(1, 8);
-	new buffer[33];
+	new fullCommand[256], buffer[33];
+	read_args(fullCommand, charsmax(fullCommand));
+	remove_quotes(fullCommand);
+	trim(fullCommand);
 
-	new i = 1;
-	while (read_argv(i, buffer, charsmax(buffer)))
-//DO STRTOK BY SPACE
+	new targetId;
+	new isSplit = strtok2(fullCommand, buffer, charsmax(buffer), fullCommand, charsmax(fullCommand), ' ', 1);
+	//server_print("[first] fullCommand: %s, buffer: %s, isSplit: %d", fullCommand, buffer, isSplit);
+
+	new playerName[33];
+	if (fullCommand[0])
 	{
-		new targetId = find_player_ex(findFlags, buffer);
-		server_print("buffer: %s, flags: %d, targetId: %d", buffer, findFlags, targetId);
+		// Players have been specified in the say command, so find them
 
-		if (g_IsKzVoteIgnoring[targetId])
-			continue;
+		// This is repeated to ignore the first part, which would be "/race"
+		isSplit = strtok2(fullCommand, buffer, charsmax(buffer), fullCommand, charsmax(fullCommand), ' ', 1);
+		while (isSplit > -1)
+		{
+			//server_print("[loop, specific] fullCommand: %s, buffer: %s, isSplit: %d", fullCommand, buffer, isSplit);
 
-		ArrayPushCell(targets, targetId);
-		i++;
+			targetId = find_player_ex(findFlags, buffer);
+			buffer[0] = EOS; // clear the string just in case
+			isSplit = strtok2(fullCommand, buffer, charsmax(buffer), fullCommand, charsmax(fullCommand), ' ', 1);
+
+			if (!targetId)
+			{
+				console_print(id, "[%s] Couldn't find player with name or id '%s'", PLUGIN_TAG, buffer);
+				continue;
+			}
+
+			if (g_IsKzVoteIgnoring[targetId])
+				continue;
+
+			if (ArrayFindValue(targets, targetId) != -1)
+				continue;
+
+			GetColorlessName(targetId, playerName, charsmax(playerName));
+			//server_print("[loop, specific] adding %s to race vote", playerName);
+			ArrayPushCell(targets, targetId);
+		}
+		//server_print("[last, specific] fullCommand: %s, buffer: %s, isSplit: %d", fullCommand, buffer, isSplit);
+		targetId = find_player_ex(findFlags, buffer);
+		if (targetId && ArrayFindValue(targets, targetId) == -1)
+		{
+			GetColorlessName(targetId, playerName, charsmax(playerName));
+			//server_print("[last, specific] adding %s to race vote", playerName);
+			ArrayPushCell(targets, targetId);
+		}
+	}
+	else
+	{
+		// No player has been specified, so assume the race is for all
+		new players[MAX_PLAYERS], playersNum;
+		get_players_ex(players, playersNum, GetPlayers_ExcludeBots);
+		for (new i = 0; i < playersNum; i++)
+		{
+			new targetId = players[i];
+
+			if (g_IsKzVoteIgnoring[targetId])
+				continue;
+
+			if (ArrayFindValue(targets, targetId) != -1)
+				continue;
+
+			GetColorlessName(targetId, playerName, charsmax(playerName));
+			//server_print("[all] adding %s to race vote", playerName);
+			ArrayPushCell(targets, targetId);
+		}
 	}
 
 	if (ArrayFindValue(targets, id) == -1)
-		ArrayPushCell(targets, id); // the vote caller will also be included into the race
+	{
+		GetColorlessName(id, playerName, charsmax(playerName));
+		//server_print("adding caller %s to the race vote", playerName);
+		ArrayPushCell(targets, id); // the vote caller will also be included into the race; if they don't want, just say /no
+	}
 
-/*
 	if (ArraySize(targets) == 1 && id == ArrayGetCell(targets, 0))
 	{
 		ShowMessage(id, "You can only make races for 2 or more players");
 		return PLUGIN_HANDLED;
 	}
-*/
-	for (i = 0; i < ArraySize(targets); i++)
+
+	new raceId = random_num(0, MAX_RACE_ID);
+
+	for (new i = 0; i < ArraySize(targets); i++)
 	{
 		new targetId = ArrayGetCell(targets, i);
 
+		new targetPlayerName[33];
+		GetColorlessName(targetId, targetPlayerName, charsmax(targetPlayerName));
+
+		if (id != targetId)
+		{
+			new playerName[33], playersText[25];
+			GetColorlessName(id, playerName, charsmax(playerName));
+
+			if (ArraySize(targets) > 3)
+				formatex(playersText, charsmax(playersText), " and another %d players", ArraySize(targets));
+			else if (ArraySize(targets) > 2)
+				formatex(playersText, charsmax(playersText), " and another player");
+
+			client_print(targetId, print_chat, "[%s] %s wants to race with you%s!", PLUGIN_TAG, playerName, playersText);
+		}
+
+		//server_print("showing vote to %s", targetPlayerName);
+
+		g_RaceId[targetId]          = raceId;
 		g_IsKzVoteRunning[targetId] = true;
 		g_KzVoteSetting[targetId]   = "race";
 		g_KzVoteValue[targetId]     = KZVOTE_NO;
 		g_KzVoteStartTime[targetId] = get_gametime();
 		g_KzVoteCaller[targetId]    = id;
+	}
 
-		if (id == targetId)
-			g_KzVoteValue[targetId] = KZVOTE_YES; // we assume that the vote starter wants to participate in the race
+	if (!pev(id, pev_iuser1))
+	{
+		// We assume that the vote starter wants to participate in the race if they're not in spec mode
+		g_KzVoteValue[id] = KZVOTE_YES;
 	}
 
 	return PLUGIN_HANDLED;
@@ -5553,6 +5690,7 @@ CmdVoteRace(id)
 CmdToggleVoteVisibility(id)
 {
 	g_IsKzVoteVisible[id] = !g_IsKzVoteVisible[id];
+	ShowMessage(id, "Votes are now %s", g_IsKzVoteVisible[id] ? "visible" : "invisible");
 
 	return PLUGIN_HANDLED;
 }
@@ -5560,6 +5698,43 @@ CmdToggleVoteVisibility(id)
 CmdToggleVoteIgnore(id)
 {
 	g_IsKzVoteIgnoring[id] = !g_IsKzVoteIgnoring[id];
+	ShowMessage(id, "Votes are %s", g_IsKzVoteIgnoring[id] ? "now ignored" : "not ignored anymore");
+
+	return PLUGIN_HANDLED;
+}
+
+CmdAlignVote(id)
+{
+	new fullCommand[256], buffer[33];
+	read_args(fullCommand, charsmax(fullCommand));
+	remove_quotes(fullCommand);
+	trim(fullCommand);
+
+	strtok2(fullCommand, buffer, charsmax(buffer), fullCommand, charsmax(fullCommand), ' ', 1); // remove "/alignvote"
+	strtok2(fullCommand, buffer, charsmax(buffer), fullCommand, charsmax(fullCommand), ' ', 1); // and the alignmnent position (the string) is left in buffer
+
+	if (buffer[0])
+	{
+		// Change to specified position, e.g.: "center"
+		for (new i = 0; i < KZ_VOTE_POSITION; i++)
+		{
+			if (containi(buffer, g_KzVotePositionString[i]) != -1)
+			{
+				g_KzVoteAlignment[id] = i;
+				break;
+			}
+		}
+	}
+	else
+	{
+		// No position specified, just switch to next position (left -> center -> right -> left...)
+		g_KzVoteAlignment[id]++;
+
+		if (g_KzVoteAlignment[id] >= KZ_VOTE_POSITION)
+			g_KzVoteAlignment[id] = POSITION_LEFT;
+	}
+
+	ShowMessage(id, "Votes are now aligned to the %s", g_KzVotePositionString[g_KzVoteAlignment[id]]);
 
 	return PLUGIN_HANDLED;
 }
@@ -5578,17 +5753,17 @@ CmdSetCountdown(id)
 
 	if (countdown < MIN_COUNTDOWN)
 	{
-		g_NoResetCountdown[id] = MIN_COUNTDOWN;
+		g_RunCountdown[id] = MIN_COUNTDOWN;
 		ShowMessage(id, "Countdown set to %.2fs (min. allowed)", MIN_COUNTDOWN);
 	}
 	else if (countdown > MAX_COUNTDOWN)
 	{
-		g_NoResetCountdown[id] = MAX_COUNTDOWN;
+		g_RunCountdown[id] = MAX_COUNTDOWN;
 		ShowMessage(id, "Countdown set to %.2fs (max. allowed)", MAX_COUNTDOWN);
 	}
 	else
 	{
-		g_NoResetCountdown[id] = countdown;
+		g_RunCountdown[id] = countdown;
 		ShowMessage(id, "Countdown set to %.2fs", countdown);
 	}
 
@@ -5597,7 +5772,7 @@ CmdSetCountdown(id)
 
 public CmdReady(id)
 {
-	if (g_bMatchRunning || g_IsNoResetMode[id] || g_IsInRace[id])
+	if (g_RunMode[id] != MODE_NORMAL)
 	{
 		client_print(id, print_chat, "[%s] Cannot /ready now, a match is already running!", PLUGIN_TAG);
 		return PLUGIN_HANDLED;
@@ -5672,7 +5847,7 @@ public CmdReady(id)
  *	the run, because otherwise they might start in a spawn point that gives them
  *	advantage, specially if it's a deathmatch map
  */
-public CheckMatchStartConditions(taskId)
+public CheckAgstartConditions(taskId)
 {
 	g_DisableSpec = false;
 
@@ -5684,6 +5859,11 @@ public CheckMatchStartConditions(taskId)
 
 		if (pev(id, pev_iuser1)) // ignore specs
 			continue;
+
+		if (get_pcvar_num(pcvar_kz_noreset_agstart))
+			g_RunModeStarting[id] = MODE_NORESET;
+		else
+			g_RunModeStarting[id] = MODE_AGSTART;
 
 		if (CanTeleport(id, CP_TYPE_START, false) || CanTeleport(id, CP_TYPE_DEFAULT_START, false))
 		{
@@ -5710,8 +5890,9 @@ public CheckMatchStartConditions(taskId)
 		server_cmd("agforcespectator #%d", get_user_userid(id));
 
 		g_IsBannedFromMatch[id] = true;
-		g_NoResetStartTime[id] = 0.0;
-		g_NoResetNextCountdown[id] = 0.0;
+		g_RunModeStarting[id] = MODE_NORMAL;
+		g_RunStartTime[id] = 0.0;
+		g_RunNextCountdown[id] = 0.0;
 
 		switchedPlayers++;
 	}
@@ -6727,7 +6908,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 					PLUGIN_TAG, g_TopType[topType], minutes, seconds);
 			}
 
-			if (storeInMySql && g_IsNoResetMode[id] && topType == PURE)
+			if (storeInMySql && g_RunMode[id] == MODE_NORESET && topType == PURE)
 			{
 				// Runs that are pure and in no-reset mode are saved even if failed,
 				// so we can later make the leaderboard for No-Reset averages
@@ -6740,7 +6921,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 				failedStats[STATS_TIMESTAMP] = get_systime();
 
 				new queryData[QUERY];
-				FillQueryData(queryData, topType, g_IsNoResetMode[id], failedStats);
+				FillQueryData(queryData, topType, g_RunMode[id] == MODE_NORESET, failedStats);
 
 				SaveRecordDB(queryData);
 			}
@@ -6794,7 +6975,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	{
 		// Every No-Reset pure run is saved in DB, so it's been already saved before, right before where failed runs are discarded
 		new queryData[QUERY];
-		FillQueryData(queryData, topType, g_IsNoResetMode[id], stats);
+		FillQueryData(queryData, topType, g_RunMode[id] == MODE_NORESET, stats);
 
 		SaveRecordDB(queryData);
 	}
@@ -6885,9 +7066,15 @@ ShowTopClimbers(id, RUN_TYPE:topType)
 		}
 
 		if (topType == NOOB)
-			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s  %3d %3d        %s   %s\n", i + 1, stats[STATS_NAME], time, stats[STATS_CP], stats[STATS_TP], date, hasDemo ? "yes" : "no");
+		{
+			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s  %3d %3d        %s   %s\n",
+								i + 1, stats[STATS_NAME], time, stats[STATS_CP], stats[STATS_TP], date, hasDemo ? "yes" : "no");
+		}
 		else
-			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s         %s   %s\n", i + 1, stats[STATS_NAME], time, date, hasDemo ? "yes" : "no");
+		{
+			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s         %s   %s\n",
+								i + 1, stats[STATS_NAME], time, date, hasDemo ? "yes" : "no");
+		}
 	}
 	len += formatex(buffer[len], charsmax(buffer) - len, "\n%s %s", PLUGIN, VERSION);
 
