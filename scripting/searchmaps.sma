@@ -171,14 +171,14 @@
 ************************************************************************************/
 
 new totalmaps
-new T_LMaps[MAX_MAPS][32]
+new T_LMaps[MAX_MAPS][33]
 
 new g_RealMapsNum
-new g_RealMaps[MAX_REALMAPS][32]
+new g_RealMaps[MAX_REALMAPS][33]
 
 #if LISTCYCLE
 new totalmapsc
-new T_LCycle[MAX_CYCLE_MAPS][32]
+new T_LCycle[MAX_CYCLE_MAPS][33]
 #endif
 
 new pcvar_searchmaps_sort
@@ -318,12 +318,12 @@ public say_listmaps(id) {
 }
 
 search_engine(id,argx[]){
-	new LMaps[20][32]
+	new LMaps[20][33]
 	new b
 	for(new a = 0; a < totalmaps; a++) {
 		if (containi(T_LMaps[a],argx) != -1) {
 			if(b < 20){
-				copy(LMaps[b], 32, T_LMaps[a])
+				copy(LMaps[b], 33, T_LMaps[a])
 				b++
 			}
 		}
@@ -349,7 +349,7 @@ listmaps_engine(id,arg1[],arg2[],cmd[],MapList[][],TMaps){
 		console_print(id,"^n------------------- %L -------------------", id, "CONS_MAPLISTING")
 
 	new start=0, end=0, tmcount=0
-	new tempmap[4][32]
+	new tempmap[4][33]
 	if (!isdigit(arg1[0]) && !equal("", arg1)) {
 		new n=1
 		start = arg2 ? str_to_num(arg2) : 1
@@ -442,7 +442,7 @@ listmaps_motd_engine(id,arg1[],arg2[],cmd[],MapList[][],TMaps){
 	s += format( buffer[s],len-s,"<div align=^"center^">%L</div>^n^n^n", id, "USAGE_LISTMAPS")
 
 	new start=0, end=0, tmcount=0
-	new tempmap[5][32]
+	new tempmap[5][33]
 	if (!isdigit(arg1[0]) && !equal("", arg1)) {
 		new n=1,x
 		start = arg2 ? str_to_num(arg2) : 1
@@ -532,7 +532,7 @@ listmaps_motd_engine(id,arg1[],arg2[],cmd[],MapList[][],TMaps){
 public get_listing() {
 
 	#if LOADFILE
-	new linestr[32], filename[128], stextsize, numword
+	new linestr[33], filename[128], stextsize, numword
 	new allmaps[128],mapchoice[128],realmaps[128],configsdir[64]
 	copy(filename,127,"null")
 	get_configsdir(configsdir, 63)
@@ -554,7 +554,7 @@ public get_listing() {
 	}
 
 	if (!equal(filename,"null")) {
-		while((numword = read_file(filename,numword,linestr,32,stextsize)) != 0) {
+		while((numword = read_file(filename,numword,linestr,33,stextsize)) != 0) {
 			if(numword >= MAX_MAPS){
 				log_amx("MAX_MAPS has been exceeded, not all maps are able to load for searching")
 				break
@@ -563,7 +563,7 @@ public get_listing() {
 			strtolower(linestr)
 
 			if (!equali(linestr, "")) {
-				copy(T_LMaps[totalmaps], 32, linestr)
+				copy(T_LMaps[totalmaps], 33, linestr)
 				totalmaps++
 			}
 		}
@@ -575,7 +575,7 @@ public get_listing() {
 	numword = 0
 
 	if (!equal(realmaps,"null")) {
-		while((numword = read_file(realmaps,numword,linestr,32,stextsize)) != 0) {
+		while((numword = read_file(realmaps,numword,linestr,33,stextsize)) != 0) {
 			if(numword >= MAX_REALMAPS){
 				log_amx("MAX_REALMAPS has been exceeded, not all maps are able to load for searching")
 				break
@@ -584,7 +584,7 @@ public get_listing() {
 			strtolower(linestr)
 
 			if (!equali(linestr, "")) {
-				copy(g_RealMaps[g_RealMapsNum], 32, linestr)
+				copy(g_RealMaps[g_RealMapsNum], 33, linestr)
 				g_RealMapsNum++
 			}
 		}
@@ -611,18 +611,18 @@ public get_listing() {
 	#endif
 
 	#if LISTCYCLE
-	new linestrc[32], filenamec[16], stextsizec, numwordc
+	new linestrc[33], filenamec[16], stextsizec, numwordc
 
 	if (file_exists("mapcycle.txt")) {
 		copy(filenamec,15,"mapcycle.txt")
-		while(read_file(filenamec,numwordc,linestrc,32,stextsizec)) {
+		while(read_file(filenamec,numwordc,linestrc,33,stextsizec)) {
 			strtolower(linestrc)
 			if(numwordc >= MAX_CYCLE_MAPS){
 				log_amx("MAX_CYCLE_MAPS has been exceeded, not all maps are able to load for listcycle searching")
 				break
 			}
 			if (!equali(linestrc, "")) {
-				copy(T_LCycle[totalmapsc], 32, linestrc)
+				copy(T_LCycle[totalmapsc], 33, linestrc)
 				totalmapsc++
 			}
 			numwordc++
@@ -640,11 +640,11 @@ public get_listing() {
 sort_maps() {
 	new x,y,z,d
 	new bool:swap
-	new temp[32]
+	new temp[33]
 	for ( x = 0; x < totalmaps; x++ ) {
 		for ( y = x + 1; y < totalmaps; y++ ) {
 			swap = false
-			for (z = 0; z < 32; z++) {
+			for (z = 0; z < 33; z++) {
 				if ( T_LMaps[x][z] != T_LMaps[y][z]) {
 					if ( T_LMaps[x][z] > T_LMaps[y][z] ) swap = true
 					break
@@ -670,8 +670,8 @@ sort_maps() {
 vote_random_map(id)
 {
 	if (T_LMaps[0][0]) {
-		new rand = random_num(0, sizeof(T_LMaps))
-		new mapName[32]
+		new rand = random_num(0, totalmaps)
+		new mapName[33]
 		formatex(mapName, charsmax(mapName), "%s", T_LMaps[rand])
 		console_print(id, "Map to vote: %s", mapName)
 		client_cmd(id, "callvote agmap %s", mapName)
@@ -684,8 +684,8 @@ vote_random_map(id)
 vote_random_realmap(id)
 {
 	if (g_RealMaps[0][0]) {
-		new rand = random_num(0, sizeof(g_RealMaps))
-		new mapName[32]
+		new rand = random_num(0, g_RealMapsNum)
+		new mapName[33]
 		formatex(mapName, charsmax(mapName), "%s", g_RealMaps[rand])
 		console_print(id, "Map to vote: %s", mapName)
 		client_cmd(id, "callvote agmap %s", mapName)
