@@ -4076,6 +4076,9 @@ CheckEndReqs(ent, id)
 			// but only if it they have met all the previous requirements
 			//console_print(id, "updating reqs, current = %d", g_PlayerEndReqs[id]);
 			g_PlayerEndReqs[id] |= reqBits;
+
+			new Float:reqNum = floatround(floatlog(float(reqBits), 2.0)) + 1;
+			ShowMessage(id, "Requirement #%d completed", reqNum);
 		}
 
 		//console_print(id, "req %s has been met; your reqs:: %d", name, g_PlayerEndReqs[id]);
