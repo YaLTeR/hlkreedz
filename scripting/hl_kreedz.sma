@@ -1752,7 +1752,7 @@ LoadPlayerSettings(id)
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_speed",     g_ShowSpeed[id]);
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",  g_TimeDecimals[id]);
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list", g_ShowSpecList[id]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, ":_r", g_HudRGB[id][0]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "hud_color_r", g_HudRGB[id][0]);
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "hud_color_g", g_HudRGB[id][1]);
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "hud_color_b", g_HudRGB[id][2]);
 
