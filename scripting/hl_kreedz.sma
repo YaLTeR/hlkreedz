@@ -22,6 +22,7 @@
 #include <hl_kreedz_util>
 #include <amx_settings_api>
 #include <mysqlt>
+#include <regex>
 
 // Compilation options
 //#define _DEBUG		// Enable debug output at server console.
@@ -2187,9 +2188,20 @@ CmdReplayNoob(id)
 CmdReplay(id, RUN_TYPE:runType)
 {
 	static authid[32], replayFile[256], idNumbers[24], stats[STATS], time[32];
-	new minutes, Float:seconds, replayRank = GetNumberArg();
+	new args[32], cmd[15], replayRank, replayArg[33], Regex:pattern;
+	new minutes, Float:seconds;
 	new maxReplays = get_pcvar_num(pcvar_kz_max_concurrent_replays);
 	new Float:setupTime = get_pcvar_float(pcvar_kz_replay_setup_time);
+
+	read_args(args, charsmax(args));
+	remove_quotes(args);
+	trim(args);
+	parse(args, cmd, charsmax(cmd), replayArg, charsmax(replayArg));
+
+	if (is_str_num(replayArg))
+		replayRank = str_to_num(replayArg);
+	else
+		pattern = regex_compile_ex(fmt(".*%s.*", replayArg), PCRE_CASELESS);
 
 	LoadRecords(runType);
 	new Array:arr = g_ArrayStats[runType];
@@ -2197,13 +2209,15 @@ CmdReplay(id, RUN_TYPE:runType)
 	for (new i = 0; i < ArraySize(arr); i++)
 	{
 		ArrayGetArray(arr, i, stats);
-		if (i == replayRank - 1)
+		if ((replayRank && i == replayRank - 1) || (pattern == 1 && regex_match_c(stats[STATS_NAME], pattern) == 1))
 		{
 			stats[STATS_NAME][17] = EOS;
 			formatex(authid, charsmax(authid), "%s", stats[STATS_ID]);
 			break; // the desired record info is now stored in stats, so exit loop
 		}
 	}
+	if (!replayRank)
+		regex_free(pattern);
 
 	new replayingMsg[96], replayFailedMsg[96], szTopType[32];
 	ConvertSteamID32ToNumbers(authid, idNumbers);
