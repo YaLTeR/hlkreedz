@@ -3769,8 +3769,14 @@ CancelRaces(runId)
 		if (g_RaceId[id] == runId)
 		{
 			g_RaceId[id] = 0;
-			g_RunMode[id] = MODE_NORMAL;
-			g_RunModeStarting[id] = MODE_NORMAL;
+
+			if (g_RunMode[id] == MODE_RACE)
+			{
+				// Apparently there is some case where races or agstarts might be conflicting with no-reset
+				// runs of unrelated players... some state might be left dangling somewhere
+				g_RunMode[id] = MODE_NORMAL;
+				g_RunModeStarting[id] = MODE_NORMAL;
+			}
 		}
 	}
 }
@@ -3784,6 +3790,9 @@ StopMatch()
 	for (new i = 0; i < playersNum; i++)
 	{
 		new id = players[i];
+
+		if (g_RunMode[id] != MODE_AGSTART)
+			continue;
 
 		g_RunMode[id] = MODE_NORMAL;
 		g_RunModeStarting[id] = MODE_NORMAL;
@@ -4710,6 +4719,8 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 			else
 				g_RunMode[i] = MODE_AGSTART;
 
+			g_RaceId[i] = 0; // reset this in case they were starting a race and suddenly an agstart started
+
 			g_RecordRun[i] = 1;
 			g_RunFrames[i] = ArrayCreate(REPLAY);
 			RecordRunFrame(i);
@@ -5497,6 +5508,7 @@ CmdStartNoReset(id)
 
 	FreezePlayer(id);
 
+	g_RaceId[id] = 0;
 	g_RunMode[id] = MODE_NORMAL; // will be set to MODE_NORESET later, right after countdown
 	g_RunModeStarting[id] = MODE_NORESET;
 	g_RunStartTime[id] = get_gametime() + g_RunCountdown[id];
@@ -5646,7 +5658,7 @@ CmdVoteRace(id)
 		return PLUGIN_HANDLED;
 	}
 
-	new raceId = random_num(0, MAX_RACE_ID);
+	new raceId = random_num(1, MAX_RACE_ID);
 
 	for (new i = 0; i < ArraySize(targets); i++)
 	{
