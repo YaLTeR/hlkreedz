@@ -374,7 +374,7 @@ new g_MapWeapons[256][WEAPON]; // weapons that are in the map, with their origin
 new g_HudRGB[MAX_PLAYERS + 1][3];
 new colorRed[COLOR], colorGreen[COLOR], colorBlue[COLOR], 
 	colorCyan[COLOR], colorMagenta[COLOR], colorYellow[COLOR], 
-	colorGray[COLOR], colorWhite[COLOR];
+	colorDefault[COLOR], colorGray[COLOR], colorWhite[COLOR];
 
 new Trie:g_ColorsList;
 
@@ -966,14 +966,15 @@ public InitTopsAndDB()
 
 InitHudColors()
 {
-	CreateColor(colorRed, "red",		255, 0, 0);
-	CreateColor(colorGreen, "green",	0, 255, 0);
-	CreateColor(colorBlue, "blue",		0, 0, 255);
-	CreateColor(colorCyan, "cyan",		0, 255, 255);
-	CreateColor(colorMagenta,"magenta", 255, 0, 255);
-	CreateColor(colorYellow, "yellow",	255, 255, 0);
-	CreateColor(colorGray, "gray",		128, 128, 128);
-	CreateColor(colorWhite, "white",	255, 255, 255);
+	CreateColor(colorRed, "red",			255, 0, 0);
+	CreateColor(colorGreen, "green",		0, 255, 0);
+	CreateColor(colorBlue, "blue",			0, 0, 255);
+	CreateColor(colorCyan, "cyan",			0, 255, 255);
+	CreateColor(colorMagenta,"magenta", 	255, 0, 255);
+	CreateColor(colorYellow, "yellow",		255, 255, 0);
+	CreateColor(colorDefault, "default",	255, 160, 0);
+	CreateColor(colorGray, "gray",			128, 128, 128);
+	CreateColor(colorWhite, "white",		255, 255, 255);
 	
 	g_ColorsList = TrieCreate();
 
@@ -983,6 +984,7 @@ InitHudColors()
 	TrieSetArray(g_ColorsList, "cyan", colorCyan, sizeof(colorCyan));
 	TrieSetArray(g_ColorsList, "magenta", colorMagenta, sizeof(colorMagenta));
 	TrieSetArray(g_ColorsList, "yellow", colorYellow, sizeof(colorYellow));
+	TrieSetArray(g_ColorsList, "default", colorDefault, sizeof(colorDefault));
 	TrieSetArray(g_ColorsList, "gray", colorGray, sizeof(colorGray));
 	TrieSetArray(g_ColorsList, "white", colorWhite, sizeof(colorWhite));
 }
@@ -2061,6 +2063,11 @@ public CmdHudColor(id)
 		numG = wordColor[COLOR_GREEN];
 		numB = wordColor[COLOR_BLUE];
 	}
+	else if (!color2[0] || !color3[0])
+	{
+		ShowMessage(id, "Invalid color. Usage examples: /hudcolor red ; /hudcolor 255 0 0");
+		return;
+	}
 	else
 	{
 		numR = str_to_num(color1);
@@ -2081,6 +2088,7 @@ public CmdHudColor(id)
 			numR = 255;
 			numG = 160;
 			numB = 0;
+			ShowMessage(id, "That color is barely visible! Setting default color");
 		}
 	}
 
