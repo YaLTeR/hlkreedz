@@ -85,6 +85,10 @@
 *
 *  Changelog:
 *
+*  v1.7.1 - naz - 03/05/2020
+*   - Added realmaps say command to find maps recommended by ESKIYAAAAAA,
+*		and realmap to vote one of those maps in AG.
+*
 *  v1.7 - naz - 14/06/2018
 *   - Added rockthevote say command to make the player start a vote for
 *		a random map. This vote is specific to Adrenaline Gamer mod, so it
@@ -134,6 +138,7 @@
 #include <amxmisc>
 
 #define MAX_MAPS 6144	// Max number of maps the plugin will handle
+#define MAX_REALMAPS 256
 #define MAPAMOUNT 36	// Number of maps per page (3 on a line)
 
 // Number of maps per MOTD page (4 on a line)
@@ -166,21 +171,28 @@
 ************************************************************************************/
 
 new totalmaps
-new T_LMaps[MAX_MAPS][32]
+new T_LMaps[MAX_MAPS][33]
+
+new g_RealMapsNum
+new g_RealMaps[MAX_REALMAPS][33]
 
 #if LISTCYCLE
 new totalmapsc
-new T_LCycle[MAX_CYCLE_MAPS][32]
+new T_LCycle[MAX_CYCLE_MAPS][33]
 #endif
 
 new pcvar_searchmaps_sort
 
 public plugin_init() {
-	register_plugin("Enhanced Map Searching","1.6","EJL/JTP10181")
+	register_plugin("Enhanced Map Searching","1.7.1","EJL/JTP10181 & naz")
 	register_dictionary("searchmaps.txt")
 	register_clcmd("say","HandleSay")
 	register_clcmd("mapsearch","admin_mapsearch",0,"<search> - Lists available maps in HUD with search target in their name")
 	register_concmd("listmaps","admin_listmaps",0,"[search] [start] - Lists/Searches available maps in console")
+	register_concmd("eskiyamaps","admin_listmaps",0,"[search] [start] - Lists/Searches in console ESKIYAAAAAA's recommended climb/bhop maps")
+	register_concmd("realmaps","admin_listmaps",0,"[search] [start] - Lists/Searches in console ESKIYAAAAAA's recommended climb/bhop maps")
+	register_concmd("listeskiyamaps","admin_listmaps",0,"[search] [start] - Lists/Searches in console ESKIYAAAAAA's recommended climb/bhop maps")
+	register_concmd("listrealmaps","admin_listmaps",0,"[search] [start] - Lists/Searches in console ESKIYAAAAAA's recommended climb/bhop maps")
 	register_clcmd("listmapsm","admin_listmaps",0,"[search] [start] - Lists/Searches available maps in MOTD popup")
 	#if LISTCYCLE
 	register_concmd("listcycle","admin_listmaps",0,"[search] [start] - Lists/Searches current mapcycle in console")
@@ -203,6 +215,10 @@ public HandleSay(id) {
 		equali(Speech,"/rtv",4) || equali(Speech,"/rockthevote",12) ||
 		equali(Speech,"!rtv",4) || equali(Speech,"!rockthevote",12)) {
 		vote_random_map(id)
+	} else if (equali(Speech,"realmap") || equali(Speech,"eskiyamap") ||
+		equali(Speech,"/realmap") || equali(Speech,"/eskiyamap") ||
+		equali(Speech,"!realmap") || equali(Speech,"!eskiyamap")) {
+		vote_random_realmap(id);
 	} else if(equal(Speech,"mapsearch",9)){
 		search_engine(id,Speech[10])
 	}
@@ -229,6 +245,13 @@ public HandleSay(id) {
 		new cmd[32],arg1[32],arg2[32]
 		parse(Speech,cmd,31,arg1,31,arg2,31)
 		listmaps_engine(id,arg1,arg2,cmd,T_LMaps,totalmaps)
+	}
+	else if(equali(Speech,"realmaps",8) || equali(Speech,"eskiyamaps",10)
+			|| equali(Speech,"listrealmaps",12) || equali(Speech,"listeskiyamaps",14)){
+		client_print(id, print_chat, "%L", id, "DISP_IN_CONS")
+		new cmd[32],arg1[32],arg2[32]
+		parse(Speech,cmd,31,arg1,31,arg2,31)
+		listmaps_engine(id,arg1,arg2,cmd,g_RealMaps,g_RealMapsNum)
 	}
 #if LISTCYCLE
 	else if(equal(Speech,"listcyclem",10)){
@@ -268,6 +291,10 @@ public admin_listmaps(id) {
 	if (equali(cmd,"listmaps")) {
 		listmaps_engine(id,argx,argy,cmd,T_LMaps,totalmaps)
 	}
+	else if (equali(cmd,"realmaps") || equali(cmd,"eskiyamaps")
+			|| equali(cmd,"listrealmaps") || equali(cmd,"listeskiyamaps")) {
+		listmaps_engine(id,argx,argy,cmd,g_RealMaps,g_RealMapsNum)
+	}
 	else if (equali(cmd,"listmapsm")) {
 		console_print(id, "%L", id, "DISP_IN_MOTD")
 		listmaps_motd_engine(id,argx,argy,cmd,T_LMaps,totalmaps)
@@ -291,12 +318,12 @@ public say_listmaps(id) {
 }
 
 search_engine(id,argx[]){
-	new LMaps[20][32]
+	new LMaps[20][33]
 	new b
 	for(new a = 0; a < totalmaps; a++) {
 		if (containi(T_LMaps[a],argx) != -1) {
 			if(b < 20){
-				copy(LMaps[b], 32, T_LMaps[a])
+				copy(LMaps[b], 33, T_LMaps[a])
 				b++
 			}
 		}
@@ -322,7 +349,7 @@ listmaps_engine(id,arg1[],arg2[],cmd[],MapList[][],TMaps){
 		console_print(id,"^n------------------- %L -------------------", id, "CONS_MAPLISTING")
 
 	new start=0, end=0, tmcount=0
-	new tempmap[4][32]
+	new tempmap[4][33]
 	if (!isdigit(arg1[0]) && !equal("", arg1)) {
 		new n=1
 		start = arg2 ? str_to_num(arg2) : 1
@@ -415,7 +442,7 @@ listmaps_motd_engine(id,arg1[],arg2[],cmd[],MapList[][],TMaps){
 	s += format( buffer[s],len-s,"<div align=^"center^">%L</div>^n^n^n", id, "USAGE_LISTMAPS")
 
 	new start=0, end=0, tmcount=0
-	new tempmap[5][32]
+	new tempmap[5][33]
 	if (!isdigit(arg1[0]) && !equal("", arg1)) {
 		new n=1,x
 		start = arg2 ? str_to_num(arg2) : 1
@@ -505,12 +532,13 @@ listmaps_motd_engine(id,arg1[],arg2[],cmd[],MapList[][],TMaps){
 public get_listing() {
 
 	#if LOADFILE
-	new linestr[32], filename[128], stextsize, numword
-	new allmaps[128],mapchoice[128],configsdir[64]
+	new linestr[33], filename[128], stextsize, numword
+	new allmaps[128],mapchoice[128],realmaps[128],configsdir[64]
 	copy(filename,127,"null")
 	get_configsdir(configsdir, 63)
 	format(allmaps,127,"%s/allmaps.txt",configsdir)
 	format(mapchoice,127,"%s/mapchoice.ini",configsdir)
+	format(realmaps,127,"%s/realmaps.txt",configsdir)
 
 	if (file_exists(allmaps)) {
 		copy(filename,127,allmaps)
@@ -526,7 +554,7 @@ public get_listing() {
 	}
 
 	if (!equal(filename,"null")) {
-		while((numword = read_file(filename,numword,linestr,32,stextsize)) != 0) {
+		while((numword = read_file(filename,numword,linestr,33,stextsize)) != 0) {
 			if(numword >= MAX_MAPS){
 				log_amx("MAX_MAPS has been exceeded, not all maps are able to load for searching")
 				break
@@ -535,11 +563,32 @@ public get_listing() {
 			strtolower(linestr)
 
 			if (!equali(linestr, "")) {
-				copy(T_LMaps[totalmaps], 32, linestr)
+				copy(T_LMaps[totalmaps], 33, linestr)
 				totalmaps++
 			}
 		}
 		log_amx("Loaded %d maps for listmaps searching from %s",totalmaps,filename)
+	}
+
+	linestr[0] = EOS
+	stextsize = 0
+	numword = 0
+
+	if (!equal(realmaps,"null")) {
+		while((numword = read_file(realmaps,numword,linestr,33,stextsize)) != 0) {
+			if(numword >= MAX_REALMAPS){
+				log_amx("MAX_REALMAPS has been exceeded, not all maps are able to load for searching")
+				break
+			}
+			replace(linestr, charsmax(linestr), ".bsp", "")
+			strtolower(linestr)
+
+			if (!equali(linestr, "")) {
+				copy(g_RealMaps[g_RealMapsNum], 33, linestr)
+				g_RealMapsNum++
+			}
+		}
+		log_amx("Loaded %d maps for realmaps searching from %s",g_RealMapsNum,realmaps)
 	}
 
 	#else
@@ -562,18 +611,18 @@ public get_listing() {
 	#endif
 
 	#if LISTCYCLE
-	new linestrc[32], filenamec[16], stextsizec, numwordc
+	new linestrc[33], filenamec[16], stextsizec, numwordc
 
 	if (file_exists("mapcycle.txt")) {
 		copy(filenamec,15,"mapcycle.txt")
-		while(read_file(filenamec,numwordc,linestrc,32,stextsizec)) {
+		while(read_file(filenamec,numwordc,linestrc,33,stextsizec)) {
 			strtolower(linestrc)
 			if(numwordc >= MAX_CYCLE_MAPS){
 				log_amx("MAX_CYCLE_MAPS has been exceeded, not all maps are able to load for listcycle searching")
 				break
 			}
 			if (!equali(linestrc, "")) {
-				copy(T_LCycle[totalmapsc], 32, linestrc)
+				copy(T_LCycle[totalmapsc], 33, linestrc)
 				totalmapsc++
 			}
 			numwordc++
@@ -591,11 +640,11 @@ public get_listing() {
 sort_maps() {
 	new x,y,z,d
 	new bool:swap
-	new temp[32]
+	new temp[33]
 	for ( x = 0; x < totalmaps; x++ ) {
 		for ( y = x + 1; y < totalmaps; y++ ) {
 			swap = false
-			for (z = 0; z < 32; z++) {
+			for (z = 0; z < 33; z++) {
 				if ( T_LMaps[x][z] != T_LMaps[y][z]) {
 					if ( T_LMaps[x][z] > T_LMaps[y][z] ) swap = true
 					break
@@ -621,13 +670,26 @@ sort_maps() {
 vote_random_map(id)
 {
 	if (T_LMaps[0][0]) {
-		new rand = random_num(0, sizeof(T_LMaps))
-		new mapName[32]
+		new rand = random_num(0, totalmaps)
+		new mapName[33]
 		formatex(mapName, charsmax(mapName), "%s", T_LMaps[rand])
 		console_print(id, "Map to vote: %s", mapName)
 		client_cmd(id, "callvote agmap %s", mapName)
 	} else {
 		client_print(id, print_chat, "Sorry, an error happened when trying to get the map.")
 	}
-	return PLUGIN_HANDLED
+}
+
+// Maps recommended by ESKIYAAAAAA to improve skills
+vote_random_realmap(id)
+{
+	if (g_RealMaps[0][0]) {
+		new rand = random_num(0, g_RealMapsNum)
+		new mapName[33]
+		formatex(mapName, charsmax(mapName), "%s", g_RealMaps[rand])
+		console_print(id, "Map to vote: %s", mapName)
+		client_cmd(id, "callvote agmap %s", mapName)
+	} else {
+		client_print(id, print_chat, "Sorry, an error happened when trying to get the map.")
+	}
 }

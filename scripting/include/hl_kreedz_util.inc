@@ -65,6 +65,14 @@ enum _:NORESET
 	NORESET_LATEST_RUN
 }
 
+enum _:COLOR
+{
+	COLOR_RED, 
+	COLOR_GREEN,
+	COLOR_BLUE,
+	COLOR_NAME[32]
+}
+
 enum KZ_VOTE_POSITION
 {
 	POSITION_LEFT,
@@ -247,27 +255,27 @@ GetColorlessName(id, name[], len)
 // Get the normal of the plane that is in the given direction from the player
 GetNormalPlaneRelativeToPlayer(id, Float:start[3], Float:direction[3], Float:origin[3], Float:normal[3])
 {
-    static Float:dest[3];
-    // Make a vector that points to the given direction, and add it to the player position
-    xs_vec_add(start, direction, dest);
+	static Float:dest[3];
+	// Make a vector that points to the given direction, and add it to the player position
+	xs_vec_add(start, direction, dest);
 
-    // Declare a handle for the traceline function and a variable to hold the distance
-    // between the player and the brush at the sides of them
-    static tr, Float:dist;
-    tr = create_tr2();
-    engfunc(EngFunc_TraceLine, start, dest, IGNORE_MONSTERS, id, tr);
-    // Put the endpoint, where we hit a brush, into the variable origin
-    get_tr2(tr, TR_vecEndPos, origin);
-    // Get the distance between the player and the endpoint
-    dist = get_distance_f(start, origin);
+	// Declare a handle for the traceline function and a variable to hold the distance
+	// between the player and the brush at the sides of them
+	static tr, Float:dist;
+	tr = create_tr2();
+	engfunc(EngFunc_TraceLine, start, dest, IGNORE_MONSTERS, id, tr);
+	// Put the endpoint, where we hit a brush, into the variable origin
+	get_tr2(tr, TR_vecEndPos, origin);
+	// Get the distance between the player and the endpoint
+	dist = get_distance_f(start, origin);
 
-    origin[0] -= (origin[0] - start[0])/dist;
-    origin[1] -= (origin[1] - start[1])/dist;
-    origin[2] -= (origin[2] - start[2])/dist;
+	origin[0] -= (origin[0] - start[0])/dist;
+	origin[1] -= (origin[1] - start[1])/dist;
+	origin[2] -= (origin[2] - start[2])/dist;
 
-    // This returns the vector that is perpendicular to the surface in the given direction from the player
-    get_tr2(tr, TR_vecPlaneNormal, normal);
-    free_tr2(tr);
+	// This returns the vector that is perpendicular to the surface in the given direction from the player
+	get_tr2(tr, TR_vecPlaneNormal, normal);
+	free_tr2(tr);
 }
 
 // Get the normal of the nearest plane at a side of the player,
@@ -278,7 +286,7 @@ GetNormalPlaneAtSideOfPlayer(id, Float:start[3], Float:origin[3], Float:normal[3
 	GetNormalPlaneRelativeToPlayer(id, start, Float:{-9999.0, 0.0, 0.0}, lfOrigin, lfNormal); // get plane at left
 	GetNormalPlaneRelativeToPlayer(id, start, Float:{9999.0, 0.0, 0.0}, rtOrigin, rtNormal); // get plane at right
 
-    new Float:px = start[0], Float:lfox = lfOrigin[0], Float:rtox = rtOrigin[0];
+	new Float:px = start[0], Float:lfox = lfOrigin[0], Float:rtox = rtOrigin[0];
 
 	if (floatabs(px - lfox) <= floatabs(px - rtox)) // what if both planes are at the same distance
 	{
@@ -295,21 +303,21 @@ GetNormalPlaneAtSideOfPlayer(id, Float:start[3], Float:origin[3], Float:normal[3
 // e.g.: say "/decimals 4" // get the '4'
 GetNumberArg()
 {
-    new cmdArg[64], numberPart[64];
-    read_args(cmdArg, charsmax(cmdArg));
+	new cmdArg[64], numberPart[64];
+	read_args(cmdArg, charsmax(cmdArg));
 
-    new bool:prevWasDigit = false;
-    for (new i = 0; cmdArg[i]; i++)
-    {
-        if (isdigit(cmdArg[i]))
-        {
-            add(numberPart, charsmax(numberPart), cmdArg[i], 1);
-            prevWasDigit = true;
-        }
-        else if (prevWasDigit)
-            break; // e.g.: say "/top 42 some text and 123 numbers here" --> get out when parsing the '42'
-    }
-    return str_to_num(numberPart);
+	new bool:prevWasDigit = false;
+	for (new i = 0; cmdArg[i]; i++)
+	{
+		if (isdigit(cmdArg[i]))
+		{
+			add(numberPart, charsmax(numberPart), cmdArg[i], 1);
+			prevWasDigit = true;
+		}
+		else if (prevWasDigit)
+			break; // e.g.: say "/top 42 some text and 123 numbers here" --> get out when parsing the '42'
+	}
+	return str_to_num(numberPart);
 }
 
 // e.g.: say "/speedcap 499.5" // get the '499.5'
@@ -350,30 +358,30 @@ GetRangeArg(range[2])
 	if (isdigit(cmdArg[0]))
 	{
 		// ignoring slot# commands as they're used to choose from menus, and those show a default amount of records
-	    range[0] = 0;
-	    range[1] = 0;
-	    // dunno if it's necessary in Pawn to set these cells to 0 or they're by default
+		range[0] = 0;
+		range[1] = 0;
+		// dunno if it's necessary in Pawn to set these cells to 0 or they're by default
 	}
 	else
 	{	
 		new bool:prevWasDigit = false;
-	    for (new i = 0, j = 0; cmdArg[i] && j < 2; i++)
-	    {
-	        if (isdigit(cmdArg[i]))
-	        {
-	        	new aux[32];
-	            formatex(aux, charsmax(aux), "%s%s", numberPart[j], cmdArg[i]);
-	            numberPart[j] = aux;
-	            prevWasDigit = true;
-	        }
-	        else if (prevWasDigit)
-	        {
-	        	prevWasDigit = false;
-	        	j++; // e.g.: say "/top 15-30 some text and 123 numbers here" --> get out when parsing the '30', having also stored the previous number '15'
-	        }
-	    }
-	    range[0] = str_to_num(numberPart[0]);
-	    range[1] = str_to_num(numberPart[1]);
+		for (new i = 0, j = 0; cmdArg[i] && j < 2; i++)
+		{
+			if (isdigit(cmdArg[i]))
+			{
+				new aux[32];
+				formatex(aux, charsmax(aux), "%s%s", numberPart[j], cmdArg[i]);
+				numberPart[j] = aux;
+				prevWasDigit = true;
+			}
+			else if (prevWasDigit)
+			{
+				prevWasDigit = false;
+				j++; // e.g.: say "/top 15-30 some text and 123 numbers here" --> get out when parsing the '30', having also stored the previous number '15'
+			}
+		}
+		range[0] = str_to_num(numberPart[0]);
+		range[1] = str_to_num(numberPart[1]);
 	}
 }
 
@@ -510,7 +518,7 @@ stock arraycopy( any:into[], any:from[], len = sizeof into, bool:ignoretags = fa
 stock datacopy(any:into[], any:from[], positionsToCopy, intoStartPos = 0, fromStartPos = 0)
 {
 	new i;
-    while (i < positionsToCopy) {
+	while (i < positionsToCopy) {
         into[intoStartPos++] = from[fromStartPos++];
         i++;
     }
@@ -521,4 +529,12 @@ GetNumberOfBitsSet(iBitField)
 	iBitField = iBitField - ((iBitField >> 1) & 0x55555555);
 	iBitField = (iBitField & 0x33333333) + ((iBitField >> 2) & 0x33333333);
 	return (((iBitField + (iBitField >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24;
+}
+
+CreateColor(color[], name[], red, green, blue)
+{
+	color[COLOR_RED] = red;
+	color[COLOR_GREEN] = green;
+	color[COLOR_BLUE] = blue;
+	add(color[COLOR_NAME], COLOR_NAME, name);
 }
