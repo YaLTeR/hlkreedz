@@ -371,7 +371,13 @@ new g_HBFrameCounter[MAX_PLAYERS + 1]; // frame counter for healthbooster trigge
 
 new g_MapWeapons[256][WEAPON]; // weapons that are in the map, with their origin and angles
 
-new g_HudRGB[3];
+new g_HudRGB[MAX_PLAYERS + 1][3];
+new colorRed[COLOR], colorGreen[COLOR], colorBlue[COLOR], 
+	colorCyan[COLOR], colorMagenta[COLOR], colorYellow[COLOR], 
+	colorGray[COLOR], colorWhite[COLOR];
+
+new Trie:g_ColorsList;
+
 new g_SyncHudTimer;
 new g_SyncHudMessage;
 new g_SyncHudKeys;
@@ -872,14 +878,7 @@ public plugin_cfg()
 	LoadMapPool();
 	LoadCup();
 
-	// Set up hud color
-	new rgb[12], r[4], g[4], b[4];
-	get_pcvar_string(pcvar_kz_hud_rgb, rgb, charsmax(rgb));
-	parse(rgb, r, charsmax(r), g, charsmax(g), b, charsmax(b));
-
-	g_HudRGB[0] = str_to_num(r);
-	g_HudRGB[1] = str_to_num(g);
-	g_HudRGB[2] = str_to_num(b);
+	InitHudColors();
 
 	set_task(2.00, "InitTopsAndDB", TASKID_CONFIGURE_DB);
 }
@@ -892,6 +891,7 @@ public plugin_end()
 	ArrayDestroy(g_NoResetLeaderboard);
 	ArrayDestroy(g_AgAllowedGamemodes);
 	TrieDestroy(g_CupMapPool);
+	TrieDestroy(g_ColorsList);
 }
 
 // To be executed after cvars in amxx.cfg and other configs have been set,
@@ -964,6 +964,28 @@ public InitTopsAndDB()
 	LoadRecords(NOOB);
 }
 
+InitHudColors()
+{
+	CreateColor(colorRed, "red",		255, 0, 0);
+	CreateColor(colorGreen, "green",	0, 255, 0);
+	CreateColor(colorBlue, "blue",		0, 0, 255);
+	CreateColor(colorCyan, "cyan",		0, 255, 255);
+	CreateColor(colorMagenta,"magenta", 255, 0, 255);
+	CreateColor(colorYellow, "yellow",	255, 255, 0);
+	CreateColor(colorGray, "gray",		128, 128, 128);
+	CreateColor(colorWhite, "white",	255, 255, 255);
+	
+	g_ColorsList = TrieCreate();
+
+	TrieSetArray(g_ColorsList, "red", colorRed, sizeof(colorRed));
+	TrieSetArray(g_ColorsList, "green", colorGreen, sizeof(colorGreen));
+	TrieSetArray(g_ColorsList, "blue", colorBlue, sizeof(colorBlue));
+	TrieSetArray(g_ColorsList, "cyan", colorCyan, sizeof(colorCyan));
+	TrieSetArray(g_ColorsList, "magenta", colorMagenta, sizeof(colorMagenta));
+	TrieSetArray(g_ColorsList, "yellow", colorYellow, sizeof(colorYellow));
+	TrieSetArray(g_ColorsList, "gray", colorGray, sizeof(colorGray));
+	TrieSetArray(g_ColorsList, "white", colorWhite, sizeof(colorWhite));
+}
 
 //*******************************************************
 //*                                                     *
@@ -1600,6 +1622,19 @@ public client_putinserver(id)
 	g_NoResetCountdown[id] = DEFAULT_COUNTDOWN;
 	g_NoResetNextCountdown[id] = 0.0;
 
+	// Set up hud color
+	new rgb[12], r[4], g[4], b[4];
+	get_pcvar_string(pcvar_kz_hud_rgb, rgb, charsmax(rgb));
+	parse(rgb, r, charsmax(r), g, charsmax(g), b, charsmax(b));
+
+	g_HudRGB[id][0] = str_to_num(r);
+	g_HudRGB[id][1] = str_to_num(g);
+	g_HudRGB[id][2] = str_to_num(b);
+
+	/*console_print(0, "HudRGB red: %d", g_HudRGB[id][0])
+	console_print(0, "HudRGB green: %d", g_HudRGB[id][1])
+	console_print(0, "HudRGB blue: %d", g_HudRGB[id][2])*/
+
 	//query_client_cvar(id, "kz_nightvision", "ClCmdNightvision"); // TODO save user variables in a file and retrieve them when they connect to server
 
 	//console_print(0, "[%.3f] Setting map default start for %d", get_gametime(), id);
@@ -1717,6 +1752,9 @@ LoadPlayerSettings(id)
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_speed",     g_ShowSpeed[id]);
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",  g_TimeDecimals[id]);
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list", g_ShowSpecList[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, ":_r", g_HudRGB[id][0]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "hud_color_g", g_HudRGB[id][1]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "hud_color_b", g_HudRGB[id][2]);
 
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_liquids",   hasLiquidsInvis);
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_players",   hasPlayersInvis);
@@ -1757,6 +1795,9 @@ SavePlayerSettings(id)
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_speed",     g_ShowSpeed[id]);
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",  g_TimeDecimals[id]);
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list", g_ShowSpecList[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "hud_color_r", g_HudRGB[id][0]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "hud_color_g", g_HudRGB[id][1]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "hud_color_b", g_HudRGB[id][2]);
 
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_liquids",   get_bit(g_bit_waterinvis, id));
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_players",   get_bit(g_bit_invis, id));
@@ -2000,6 +2041,54 @@ CmdTimer(id)
 		ShowMessage(id, "Timer display: off");
 	}
 }
+
+public CmdHudColor(id)
+{	
+	new args[32]; 
+	read_args(args, charsmax(args));
+	remove_quotes(args);
+	trim(args);
+
+	new cmd[12], color1[8], color2[4], color3[4];
+	new numR, numG, numB;
+
+	parse(args, cmd, charsmax(cmd), color1, charsmax(color1), color2, charsmax(color2), color3, charsmax(color3));
+	
+	new wordColor[COLOR];
+	if (TrieGetArray(g_ColorsList, color1, wordColor, sizeof(wordColor))) // color1 is the first argument containing color word
+	{
+		numR = wordColor[COLOR_RED];
+		numG = wordColor[COLOR_GREEN];
+		numB = wordColor[COLOR_BLUE];
+	}
+	else
+	{
+		numR = str_to_num(color1);
+		numG = str_to_num(color2);
+		numB = str_to_num(color3);
+		
+		if (numR > 255 || numR < 0)
+			numR = 255;
+		
+		if (numG > 255 || numG < 0)
+			numG = 255;
+		
+		if (numB > 255 || numB < 0)
+			numB = 255;
+		
+		if (numR < 20 && numG < 20 && numB < 20) // (0,0,0) is invisible, prevent that.
+		{	
+			numR = 255;
+			numG = 160;
+			numB = 0;
+		}
+	}
+
+	g_HudRGB[id][0] = numR;
+	g_HudRGB[id][1] = numG;
+	g_HudRGB[id][2] = numB;
+}
+
 /*
 CmdReplaySmoothen(id)
 {
@@ -2662,6 +2751,8 @@ CmdHelp(id)
 		/nv <0-2> - nightvision mode, 0=off, 1=flashlight, 2=global\n\
 		/slopefix - toggle slopebug/surfbug fix, if you get stuck in little slopes disable it\n\
 		/speedcap <#> - set your horizontal speed limit\n\
+		/hudcolor <#> <#> <#> - set custom HUD color (R, G, B)\n\
+		/hudcolor <red|green|blue|cyan|magenta|yellow|gray|white>\n\
 		/kzhelp - this motd\n");
 
 	formatex(motd[len], charsmax(motd) - len,
@@ -2819,6 +2910,9 @@ public CmdSayHandler(id, level, cid)
 
 	else if (containi(args[1], "countdown") == 0)
 		CmdSetCountdown(id);
+
+	else if (containi(args[1], "hudcolor") == 0 || containi(args[1], "hudcolour") == 0)
+		CmdHudColor(id);
 /*
 	else if (containi(args[1], "pov") == 0)
 	{
@@ -3834,6 +3928,7 @@ CheckEndReqs(ent, id)
 }
 
 
+
 //*******************************************************
 //*                                                     *
 //* Hud display                                         *
@@ -3932,7 +4027,7 @@ UpdateHud(Float:currGameTime)
 				{
 					if (sendTo[i] == true && g_ShowSpecList[i] == true)
 					{
-						set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], 0.75, 0.15, 0, 0.0, 999999.0, 0.0, 0.0, -1);
+						set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], 0.75, 0.15, 0, 0.0, 999999.0, 0.0, 0.0, -1);
 						ShowSyncHudMsg(id, g_SyncHudSpecList, specHud);
 					} else {
 						ClearSyncHud(id, g_SyncHudSpecList);
@@ -4003,7 +4098,7 @@ UpdateHud(Float:currGameTime)
 				}
 			case 2:
 				{
-					set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, 0.1, 0, 0.0, 999999.0, 0.0, 0.0, -1);
+					set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], -1.0, 0.1, 0, 0.0, 999999.0, 0.0, 0.0, -1);
 					ShowSyncHudMsg(id, g_SyncHudTimer, timerText);
 				}
 			}
@@ -4011,7 +4106,7 @@ UpdateHud(Float:currGameTime)
 
 		if (g_ShowSpeed[id])
 		{
-			set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, 0.7, 0, 0.0, 999999.0, 0.0, 0.0, -1);
+			set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], -1.0, 0.7, 0, 0.0, 999999.0, 0.0, 0.0, -1);
 			if (is_user_alive(id))
 				ShowSyncHudMsg(id, g_SyncHudSpeedometer, "%.2f", floatsqroot(g_Velocity[id][0] * g_Velocity[id][0] + g_Velocity[id][1] * g_Velocity[id][1]));
 			else
@@ -4048,7 +4143,7 @@ Countdown(id, Float:currGameTime)
 	}
 	else
 	{
-		set_dhudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], _, 0.35, 0, 0.0, 0.999 - HUD_UPDATE_TIME, 0.0, 0.0);
+		set_dhudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], _, 0.35, 0, 0.0, 0.999 - HUD_UPDATE_TIME, 0.0, 0.0);
 		show_dhudmessage(id, "%d", countdownNumber);
 
 		if (sizeof(g_CountdownSounds) > countdownNumber && countdownNumber >= 0)
@@ -4175,7 +4270,7 @@ HudShowPressedKeys(id, mode, tagret)
 		return;
 	g_LastSentButtons[id] = button;
 
-	set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, -1.0, 0, _, 999999.0, _, _, -1);
+	set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], -1.0, -1.0, 0, _, 999999.0, _, _, -1);
 	ShowSyncHudMsg(id, g_SyncHudKeys, "\n%s\n%s\n%s        %s\n%s\n%s\n%s",
 		(button & IN_USE) ? "USE" : "",
 		(button & IN_FORWARD) && !(button & IN_BACK) ? "W" : "",
@@ -4202,7 +4297,7 @@ ShowMessage(id, const message[], {Float,Sql,Result,_}:...)
 	case 1: client_print(id, print_chat, "[%s] %s.", PLUGIN_TAG, msg);
 	case 2:
 		{
-			set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, 0.89, 0, 0.0, 2.0, 0.0, 1.0, 4);
+			set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], -1.0, 0.89, 0, 0.0, 2.0, 0.0, 1.0, 4);
 			ShowSyncHudMsg(id, g_SyncHudMessage, msg);
 		}
 	}
@@ -4219,7 +4314,7 @@ ShowInHealthHud(id, const message[], {Float,Sql,Result,_}:...)
 
 	vformat(msg, charsmax(msg), message, 3);
 
-	set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], -1.0, 0.92, 0, _, 2.0, _, _, -1);
+	set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], -1.0, 0.92, 0, _, 2.0, _, _, -1);
 	ShowSyncHudMsg(id, g_SyncHudHealth, msg);
 }
 
@@ -5657,7 +5752,7 @@ public CmdMapsShowHandler(id)
 		server_print("getting idle map %s", map);
 	}
 
-	set_hudmessage(g_HudRGB[0], g_HudRGB[1], g_HudRGB[2], _, 0.2, 0, 0.0, 6.0, 0.0, 1.0, -1);
+	set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], _, 0.2, 0, 0.0, 6.0, 0.0, 1.0, -1);
 	ShowSyncHudMsg(id, g_SyncHudCupMaps, msg);
 
 	return PLUGIN_HANDLED;
