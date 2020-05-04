@@ -4318,7 +4318,7 @@ UpdateHud(Float:currGameTime)
 			else
 			{
 				new specmode = pev(id, pev_iuser1);
-				if (specmode == 2 || specmode == 4)
+				if (specmode == OBS_CHASE_FREE || specmode == OBS_IN_EYE)
 				{
 					new t = pev(id, pev_iuser2);
 					ShowSyncHudMsg(id, g_SyncHudSpeedometer, "%.2f", floatsqroot(g_Velocity[t][0] * g_Velocity[t][0] + g_Velocity[t][1] * g_Velocity[t][1]));
@@ -4339,7 +4339,7 @@ UpdateHud(Float:currGameTime)
 			else
 			{
 				new specmode = pev(id, pev_iuser1);
-				if (specmode == 2 || specmode == 4)
+				if (specmode == OBS_CHASE_FREE || specmode == OBS_IN_EYE)
 				{	
 					new t = pev(id, pev_iuser2);
 					distance = GetDistancePlayerAiming(t);
