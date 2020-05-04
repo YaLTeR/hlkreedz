@@ -346,6 +346,7 @@ new g_Nightvision[MAX_PLAYERS + 1];
 new bool:g_Slopefix[MAX_PLAYERS + 1];
 new Float:g_Speedcap[MAX_PLAYERS + 1];
 new g_ShowSpeed[MAX_PLAYERS + 1];
+new g_ShowDistance[MAX_PLAYERS + 1];
 new g_ShowSpecList[MAX_PLAYERS + 1];
 new bool:g_TpOnCountdown[MAX_PLAYERS + 1]; // Teleport to start position when agstart or NR countdown starts?
 
@@ -401,6 +402,7 @@ new g_SyncHudKeys;
 new g_SyncHudHealth;
 new g_SyncHudShowStartMsg;
 new g_SyncHudSpeedometer;
+new g_SyncHudDistance;
 new g_SyncHudSpecList;
 new g_SyncHudCupMaps;
 new g_SyncHudKzVote;
@@ -827,6 +829,7 @@ public plugin_init()
 	g_SyncHudKeys           = CreateHudSyncObj();
 	g_SyncHudHealth         = CreateHudSyncObj();
 	g_SyncHudShowStartMsg   = CreateHudSyncObj();
+	g_SyncHudDistance		= CreateHudSyncObj();
 	g_SyncHudSpeedometer    = CreateHudSyncObj();
 	g_SyncHudSpecList       = CreateHudSyncObj();
 	g_SyncHudCupMaps        = CreateHudSyncObj();
@@ -1655,6 +1658,7 @@ public client_putinserver(id)
 	g_Speedcap[id] = get_pcvar_float(pcvar_kz_speedcap);
 
 	g_ShowSpeed[id] = false;
+	g_ShowDistance[id] = false;
 	g_ShowSpecList[id] = true;
 	g_TpOnCountdown[id] = false;
 
@@ -1735,6 +1739,7 @@ public client_disconnect(id)
 	g_Nightvision[id] = get_pcvar_num(pcvar_kz_nightvision);
 	g_Speedcap[id] = get_pcvar_float(pcvar_kz_speedcap);
 	g_ShowSpeed[id] = false;
+	g_ShowDistance[id] = false;
 	g_ShowSpecList[id] = true;
 	g_Slopefix[id] = false;
 	g_TpOnCountdown[id] = false;
@@ -1816,6 +1821,7 @@ LoadPlayerSettings(id)
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_keys",       g_ShowKeys[id]);
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_start_msg",  g_ShowStartMsg[id]);
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_speed",      g_ShowSpeed[id]);
+	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_distance",   g_ShowDistance[id]);
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",   g_TimeDecimals[id]);
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list",  g_ShowSpecList[id]);
 	amx_load_setting_int(playerFileName, HUD_SETTINGS, "hud_color_r",     g_HudRGB[id][0]);
@@ -1863,6 +1869,7 @@ SavePlayerSettings(id)
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_keys",       g_ShowKeys[id]);
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_start_msg",  g_ShowStartMsg[id]);
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_speed",      g_ShowSpeed[id]);
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_distance",   g_ShowDistance[id]);	
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",   g_TimeDecimals[id]);
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list",  g_ShowSpecList[id]);
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "hud_color_r",     g_HudRGB[id][0]);
@@ -2814,6 +2821,8 @@ CmdHelp(id)
 		/pause - pause timer and freeze player\n\
 		/reset - reset timer and clear checkpoints\n\
 		/speed - toggle showing your horizontal speed\n");
+	//  /distance - toggle showing horizontal distance\n"); 
+	// 	No more space in motd for the moment.
 
 	if (is_plugin_loaded("Q::Jumpstats"))
 	{
@@ -2946,6 +2955,9 @@ public CmdSayHandler(id, level, cid)
 
 	else if (equali(args[1], "speed"))
 		CmdSpeed(id);
+
+	else if (equali(args[1], "distance") || equali(args[1], "measure") || equali(args[1], "ruler"))
+		CmdDistance(id);
 
 	else if (equali(args[1], "ready"))
 		CmdReady(id);
@@ -4192,6 +4204,7 @@ UpdateHud(Float:currGameTime)
 			ClearSyncHud(id, g_SyncHudKeys);
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
 			ClearSyncHud(id, g_SyncHudSpeedometer);
+			ClearSyncHud(id, g_SyncHudDistance);
 			ClearSyncHud(id, g_SyncHudSpecList);
 			ClearSyncHud(targetId, g_SyncHudSpecList);
 		}
@@ -4203,6 +4216,7 @@ UpdateHud(Float:currGameTime)
 			ClearSyncHud(id, g_SyncHudKeys);
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
 			ClearSyncHud(id, g_SyncHudSpeedometer);
+			ClearSyncHud(id, g_SyncHudDistance);
 			ClearSyncHud(id, g_SyncHudSpecList);
 			ClearSyncHud(targetId, g_SyncHudSpecList);
 		}
@@ -4308,6 +4322,29 @@ UpdateHud(Float:currGameTime)
 				{
 					new t = pev(id, pev_iuser2);
 					ShowSyncHudMsg(id, g_SyncHudSpeedometer, "%.2f", floatsqroot(g_Velocity[t][0] * g_Velocity[t][0] + g_Velocity[t][1] * g_Velocity[t][1]));
+				}
+			}
+		}
+
+		if (g_ShowDistance[id])
+		{
+			set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], -1.0, 0.72, 0, 0.0, 999999.0, 0.0, 0.0, -1);
+			new Float:distance;
+
+			if (is_user_alive(id))
+			{
+				distance = GetDistancePlayerAiming(id);
+				ShowSyncHudMsg(id, g_SyncHudDistance, "%.2f", distance);
+			}
+			else
+			{
+				new specmode = pev(id, pev_iuser1);
+				if (specmode == 2 || specmode == 4)
+				{	
+					new t = pev(id, pev_iuser2);
+					distance = GetDistancePlayerAiming(t);
+
+					ShowSyncHudMsg(id, g_SyncHudDistance, "%.2f", distance);
 				}
 			}
 		}
@@ -6555,6 +6592,15 @@ public CmdSpeed(id)
 	ClearSyncHud( id, g_SyncHudSpeedometer );
 	g_ShowSpeed[id] = !g_ShowSpeed[id];
 	client_print( id, print_chat, "Speed: %s", g_ShowSpeed[id] ? "ON" : "OFF" );
+
+	return PLUGIN_HANDLED;
+}
+
+public CmdDistance(id)
+{
+	ClearSyncHud( id, g_SyncHudDistance );
+	g_ShowDistance[id] = !g_ShowDistance[id];
+	client_print( id, print_chat, "Distance: %s", g_ShowDistance[id] ? "ON" : "OFF" );
 
 	return PLUGIN_HANDLED;
 }
