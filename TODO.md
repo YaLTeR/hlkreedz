@@ -30,7 +30,7 @@ HLKreedz TODO:
 - [ ] Implement commands to show tops of any other map.
 - [x] Implement a system to save/restore client preferences.
 - [ ] Implement achievements and ranks (ie. Diamond rank if you finish 5 classic maps in 1st-3rd position... Platinum, Gold, Silver, Bronze...).
-- [ ] Implement a small tool to measure distances ingame (by aiming position, etc.).
+- [x] Implement a small tool to measure distances ingame (by aiming position, etc.).
 - [x] Implement replay bot, so players can see how worldrecords or other records are done.
 - [ ] Implement custom replays, not replays of full runs, but thinking more of small strats or skips.
 - [ ] Add a menu for replays, so you can choose a record to replay or change replay settings.

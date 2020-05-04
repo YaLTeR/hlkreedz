@@ -385,6 +385,23 @@ GetRangeArg(range[2])
 	}
 }
 
+GetDistancePlayerAiming(id)
+{
+	new pOrigin[3], aimOrigin[3];
+	new Float:distance;
+
+	get_user_origin(id, aimOrigin, 3); // aim end position from client position
+	get_user_origin(id, pOrigin, 1); // position of eyes
+
+	new Float:pOriginX = float(pOrigin[0]); // convert to float
+	new Float:pOriginY = float(pOrigin[1]);
+	new Float:aimOriginX = float(aimOrigin[0]);
+	new Float:aimOriginY = float(aimOrigin[1]);			
+
+	distance = floatsqroot((pOriginX - aimOriginX) * (pOriginX - aimOriginX) + (pOriginY - aimOriginY) * (pOriginY - aimOriginY));
+	return distance;
+}
+
 // You have to pass the numbers of a SteamID in the format X_Y_Z (without STEAM_) and it stores in the result the full SteamID (like STEAM_X:Y:Z)
 ConvertNumbersToSteamID32(numbers[], result[])
 {
