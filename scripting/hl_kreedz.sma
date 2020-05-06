@@ -2492,14 +2492,14 @@ public npc_think(id)
 	if (g_ReplayFrames[owner] && g_ReplayFramesIdx[owner] < ArraySize(g_ReplayFrames[owner]))
 	{
 		static replayPrev[REPLAY], replay[REPLAY], replayNext[REPLAY], replay2Next[REPLAY];
-
+/*
 		if (g_Unfreeze[bot] > 3)
 		{
 			if (get_pcvar_num(pcvar_kz_spec_unfreeze))
 				UnfreezeSpecCam(bot);
 			g_Unfreeze[bot] = 0;
 		}
-
+*/
 		// Get previous frame
 		if (g_ReplayFramesIdx[owner] - 1 >= 0)
 			ArrayGetArray(g_ReplayFrames[owner], g_ReplayFramesIdx[owner] - 1, replayPrev);
@@ -2529,7 +2529,7 @@ public npc_think(id)
 				frameDuration = 0.002; // duration of a frame at 125 fps, 'cos the most usual thing is to use 250 fps, so at 0.004 there will already be another frame to replay
 		}
 
-		new Float:botPrevHSpeed = floatsqroot(floatpower(botVelocity[0], 2.0) + floatpower(botVelocity[1], 2.0));
+		//new Float:botPrevHSpeed = floatsqroot(floatpower(botVelocity[0], 2.0) + floatpower(botVelocity[1], 2.0));
 		new Float:botPrevPos[3];
 		xs_vec_copy(replayPrev[RP_ORIGIN], botPrevPos);
 
@@ -2561,7 +2561,7 @@ public npc_think(id)
 		xs_vec_copy(replay[RP_ORIGIN], botCurrPos);
 
 		new Float:demoTime = replay[RP_TIME] - g_ReplayStartGameTime[owner];
-
+/*
 		if ((botPrevHSpeed > 0.0 && botCurrHSpeed == 0.0 && get_distance_f(botCurrPos, botPrevPos) > 50.0)
 			|| get_distance_f(botCurrPos, botPrevPos) > 100.0) // Has teleported?
 		{
@@ -2569,7 +2569,7 @@ public npc_think(id)
 		}
 		else if (g_Unfreeze[bot])
 			g_Unfreeze[bot]++;
-
+*/
 		botCurrHSpeed = floatsqroot(floatpower(botVelocity[0], 2.0) + floatpower(botVelocity[1], 2.0));
 
 		if (g_ConsolePrintNextFrames[owner] > 0)
@@ -2806,7 +2806,7 @@ CmdRespawn(id)
 
 CmdHelp(id)
 {
-	new motd[1536], title[32], len;
+	new motd[MAX_MOTD_LENGTH], title[32], len;
 
 	len = formatex(motd[len], charsmax(motd) - len,
 		"Say commands:\n\
@@ -3912,6 +3912,9 @@ StopMatch()
 {
 	g_bMatchRunning = false;
 
+	g_CupReady1 = false;
+	g_CupReady2 = false;
+
 	new players[MAX_PLAYERS], playersNum;
 	get_players_ex(players, playersNum, GetPlayers_ExcludeBots);
 	for (new i = 0; i < playersNum; i++)
@@ -4998,6 +5001,10 @@ public Fw_FmPlayerPreThinkPost(id)
 		g_HBFrameCounter[id] -= 1;
 		CheckHealthBoost(id);
 	}
+
+	new Float:prevPos[3];
+	xs_vec_copy(g_Origin[id], prevPos);
+
 	pev(id, pev_origin, g_Origin[id]);
 	pev(id, pev_angles, g_Angles[id]);
 	pev(id, pev_view_ofs, g_ViewOfs[id]);
@@ -5009,6 +5016,24 @@ public Fw_FmPlayerPreThinkPost(id)
 
 	// Store pressed keys here, cos HUD updating is called not so frequently
 	HudStorePressedKeys(id);
+
+	if (g_Unfreeze[id] > 3)
+	{
+		if (get_pcvar_num(pcvar_kz_spec_unfreeze))
+			UnfreezeSpecCam(id);
+		g_Unfreeze[id] = 0;
+	}
+
+	new Float:prevHSpeed = floatsqroot(floatpower(g_Velocity[id][0], 2.0) + floatpower(g_Velocity[id][1], 2.0));
+	new Float:currHSpeed = floatsqroot(floatpower(g_Velocity[id][0], 2.0) + floatpower(g_Velocity[id][1], 2.0));
+
+	if ((prevHSpeed > 0.0 && currHSpeed == 0.0 && get_distance_f(g_Origin[id], prevPos) > 50.0)
+		|| get_distance_f(g_Origin[id], prevPos) > 100.0) // Has teleported?
+	{
+		g_Unfreeze[id]++;
+	}
+	else if (g_Unfreeze[id])
+		g_Unfreeze[id]++;
 
 	if (IsHltv(id) || !get_pcvar_num(pcvar_kz_semiclip) || pev(id, pev_iuser1))
 		return;
@@ -7179,7 +7204,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 
 ShowTopClimbers(id, RUN_TYPE:topType)
 {
-	new buffer[1536], len;
+	new buffer[MAX_MOTD_LENGTH], len;
 	new stats[STATS], date[32], time[32], minutes, Float:seconds;
 	LoadRecords(topType);
 	new Array:arr = g_ArrayStats[topType];
@@ -7277,7 +7302,7 @@ ComparePro2PureTime(runnerId[], Float:runnerTime)
 
 ShowTopNoReset(id)
 {
-	new buffer[1536], len;
+	new buffer[MAX_MOTD_LENGTH], len;
 	new stats[NORESET], date[32], time[32], minutes, Float:seconds;
 	LoadNoResetRecords();
 
