@@ -1721,6 +1721,8 @@ public client_disconnect(id)
 {
 	SavePlayerSettings(id);
 
+	client_cmd(id, "r_drawviewmodel 1");
+
 	clr_bit(g_bit_is_connected, id);
 	clr_bit(g_bit_is_hltv, id);
 	clr_bit(g_bit_is_bot, id);
