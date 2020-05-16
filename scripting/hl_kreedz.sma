@@ -263,7 +263,7 @@ new const g_BoostWeapons[][] = {
 	"weapon_egon",
 	"weapon_gauss",
 	"weapon_handgrenade",
-	"weapon_hornetgun", // no boost, but it could be used to block a moving entity (door, lift, etc.) 
+	"weapon_hornetgun", // no boost, but it could be used to block a moving entity (door, lift, etc.)
 	"weapon_rpg",
 	"weapon_satchel",
 	"weapon_snark",
@@ -390,8 +390,8 @@ new g_HBFrameCounter[MAX_PLAYERS + 1]; // frame counter for healthbooster trigge
 new g_MapWeapons[256][WEAPON]; // weapons that are in the map, with their origin and angles
 
 new g_HudRGB[MAX_PLAYERS + 1][3];
-new colorRed[COLOR], colorGreen[COLOR], colorBlue[COLOR], 
-	colorCyan[COLOR], colorMagenta[COLOR], colorYellow[COLOR], 
+new colorRed[COLOR], colorGreen[COLOR], colorBlue[COLOR],
+	colorCyan[COLOR], colorMagenta[COLOR], colorYellow[COLOR],
 	colorDefault[COLOR], colorGray[COLOR], colorWhite[COLOR];
 
 new Trie:g_ColorsList;
@@ -654,7 +654,7 @@ public plugin_init()
 	pcvar_kz_race_countdown    = register_cvar("kz_race_countdown", "5");
 	pcvar_kz_vote_hold_time    = register_cvar("kz_vote_hold_time", "10");
 	pcvar_kz_vote_wait_time    = register_cvar("kz_vote_wait_time", "10");
-	
+
 
 	register_dictionary("telemenu.txt");
 	register_dictionary("common.txt");
@@ -687,6 +687,7 @@ public plugin_init()
 	register_clcmd("say",		"CmdSayHandler");
 	register_clcmd("say_team",	"CmdSayHandler");
 	register_clcmd("spectate",	"CmdSpectateHandler");
+	register_clcmd("drop",		"CmdDropHandler");
 
 	if (g_IsAgServer)
 	{
@@ -1018,7 +1019,7 @@ InitHudColors()
 	CreateColor(colorDefault, "default",	255, 160, 0);
 	CreateColor(colorGray, "gray",			128, 128, 128);
 	CreateColor(colorWhite, "white",		255, 255, 255);
-	
+
 	g_ColorsList = TrieCreate();
 
 	TrieSetArray(g_ColorsList, "red", colorRed, sizeof(colorRed));
@@ -1175,7 +1176,7 @@ DisplayKzMenu(id, mode)
 			len = formatex(menuBody[len], charsmax(menuBody) - len, "%s\n\n", PLUGIN);
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. START CLIMB\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Checkpoints\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Practice checkpoints\n\n");	
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Practice checkpoints\n\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. HUD settings\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Top climbers\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Spectate players\n\n");
@@ -1228,7 +1229,7 @@ DisplayKzMenu(id, mode)
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Checkpoint\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Teleport\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Previous\n");
-		}		
+		}
 	case 4:
 		{
 			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4;
@@ -1470,7 +1471,7 @@ public ActionMapPickMenu(id, key)
 		GetColorlessName(id, playerName, charsmax(playerName));
 		if (!playerName[0])
 			formatex(playerName, charsmax(playerName), "The unnamed player");
-		
+
 		client_print(0, print_chat, "[%s] %s has picked %s.", PLUGIN_TAG, playerName, map);
 
 		new mapsToPick = availableMaps - 1; // minus the decider, that is autopicked
@@ -1513,7 +1514,7 @@ public ActionMapPickMenu(id, key)
 		if (availableMaps == 1)
 		{
 			GetLastCupMapAvailable(map, charsmax(map));
-			
+
 			// The decider is the last map that's left, no more menus, this is chosen automatically
 			TrieSetCell(g_CupMapPool, map, MAP_DECIDER);
 			client_print(0, print_chat, "[%s] %s will be the decider.", PLUGIN_TAG, map);
@@ -1869,7 +1870,7 @@ SavePlayerSettings(id)
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_keys",       g_ShowKeys[id]);
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_start_msg",  g_ShowStartMsg[id]);
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_speed",      g_ShowSpeed[id]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_distance",   g_ShowDistance[id]);	
+	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_distance",   g_ShowDistance[id]);
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",   g_TimeDecimals[id]);
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list",  g_ShowSpecList[id]);
 	amx_save_setting_int(playerFileName, HUD_SETTINGS, "hud_color_r",     g_HudRGB[id][0]);
@@ -1970,7 +1971,11 @@ public DisplayWelcomeMessage(id)
 		DisplayKzMenu(id, 0);
 }
 
-
+public CmdDropHandler(id)
+{
+	client_cmd(id, "r_drawviewmodel 0");
+	return PLUGIN_HANDLED;
+}
 
 
 //*******************************************************
@@ -2124,8 +2129,8 @@ CmdTimer(id)
 }
 
 public CmdHudColor(id)
-{	
-	new args[32]; 
+{
+	new args[32];
 	read_args(args, charsmax(args));
 	remove_quotes(args);
 	trim(args);
@@ -2134,7 +2139,7 @@ public CmdHudColor(id)
 	new numR, numG, numB;
 
 	parse(args, cmd, charsmax(cmd), color1, charsmax(color1), color2, charsmax(color2), color3, charsmax(color3));
-	
+
 	new wordColor[COLOR];
 	if (TrieGetArray(g_ColorsList, color1, wordColor, sizeof(wordColor))) // color1 is the first argument containing color word
 	{
@@ -2152,18 +2157,18 @@ public CmdHudColor(id)
 		numR = str_to_num(color1);
 		numG = str_to_num(color2);
 		numB = str_to_num(color3);
-		
+
 		if (numR > 255 || numR < 0)
 			numR = 255;
-		
+
 		if (numG > 255 || numG < 0)
 			numG = 255;
-		
+
 		if (numB > 255 || numB < 0)
 			numB = 255;
-		
+
 		if (numR < 20 && numG < 20 && numB < 20) // (0,0,0) is invisible, prevent that.
-		{	
+		{
 			numR = 255;
 			numG = 160;
 			numB = 0;
@@ -2599,7 +2604,7 @@ public UnfreezeSpecCam(bot)
 			// Iterate from 1 to g_MaxPlayers, if it doesn't exist or is not playing don't do anything
 			if (is_user_alive(spec))
 				continue;
-			
+
 			if (pev(spec, pev_iuser2) == bot)
 			{
 				// This spectator is watching the frozen bot (not really, what is frozen is the cam, the bot is moving)
@@ -2801,6 +2806,7 @@ CmdRespawn(id)
 	strip_user_weapons(id);
 	ExecuteHamB(Ham_Spawn, id);
 
+	client_cmd(id, "r_drawviewmodel 1");
 	ResumeTimer(id);
 }
 
@@ -2821,7 +2827,7 @@ CmdHelp(id)
 		/pause - pause timer and freeze player\n\
 		/reset - reset timer and clear checkpoints\n\
 		/speed - toggle showing your horizontal speed\n");
-	//  /distance - toggle showing horizontal distance\n"); 
+	//  /distance - toggle showing horizontal distance\n");
 	// 	No more space in motd for the moment.
 
 	if (is_plugin_loaded("Q::Jumpstats"))
@@ -3199,7 +3205,7 @@ bool:CanTeleport(id, cp, bool:showMessages = true)
 	if (cp == CP_TYPE_PRACTICE_OLD && !get_pcvar_num(pcvar_kz_stuck))
 	{
 		if (showMessages) ShowMessage(id, "Teleporting to previous checkpoints is disabled")
-		return false; 
+		return false;
 	}
 	if (!IsAlive(id) || pev(id, pev_iuser1))
 	{
@@ -3291,7 +3297,7 @@ Teleport(id, cp)
 		set_pev(id, pev_flags, pev(id, pev_flags) | FL_DUCKING);
 	else
 		set_pev(id, pev_flags, pev(id, pev_flags) & ~FL_DUCKING);
-	
+
 	if  (cp == CP_TYPE_PRACTICE || cp == CP_TYPE_PRACTICE_OLD)
 	{
 		set_pev(id, pev_origin, g_ControlPoints[id][cp][CP_ORIGIN]);
@@ -3307,8 +3313,8 @@ Teleport(id, cp)
 		g_CpCounters[id][COUNTER_PRACTICE_TP]++;
 		ShowMessage(id, "Go practice checkpoint #%d", g_CpCounters[id][COUNTER_PRACTICE_TP]);
 	}
-	else 
-	{ 
+	else
+	{
 		set_pev(id, pev_origin, g_ControlPoints[id][cp][CP_ORIGIN]);
 		set_pev(id, pev_angles, g_ControlPoints[id][cp][CP_ANGLES]);
 		set_pev(id, pev_v_angle, g_ControlPoints[id][cp][CP_ANGLES]);
@@ -3708,7 +3714,7 @@ FinishClimb(id)
 	{
 		if (kzDeniedSound)
 			client_cmd(id, "spk \"vox/access denied\"");
-		
+
 		return;
 	}
 
@@ -3794,7 +3800,7 @@ FinishTimer(id)
 		StopMatch();
 		server_cmd("agabort");
 		server_exec();
-		
+
 		if (IsCupMap() && IsCupPlayer(id) && g_CupReady1 && g_CupReady2)
 		{
 			// Do stuff for the cup
@@ -4148,7 +4154,7 @@ UpdateHud(Float:currGameTime)
 
 		//server_print("[vote] setting: %s, running: %d, ignoring: %d, visible: %d, start: %.3f, hold: %.3f curr: %.3f",
 		//	g_KzVoteSetting[id], g_IsKzVoteRunning[id], g_IsKzVoteIgnoring[id], g_IsKzVoteVisible[id], g_KzVoteStartTime[id], get_pcvar_float(pcvar_kz_vote_hold_time), currGameTime);
-		
+
 		// HUD for custom votes
 		if (g_IsKzVoteRunning[id] && !g_IsKzVoteIgnoring[id] && g_IsKzVoteVisible[id])
 		{
@@ -4340,7 +4346,7 @@ UpdateHud(Float:currGameTime)
 			{
 				new specmode = pev(id, pev_iuser1);
 				if (specmode == OBS_CHASE_FREE || specmode == OBS_IN_EYE)
-				{	
+				{
 					new t = pev(id, pev_iuser2);
 					distance = GetDistancePlayerAiming(t);
 
@@ -5501,14 +5507,14 @@ SetMapEndReqs()
 	{
 		TrieSetCell(g_MapEndReqs, "uc1_take_crowbar", REQ_UC1_TAKE_CROWBAR);
 		TrieSetCell(g_MapEndReqs, "uc1_take_glock", REQ_UC1_TAKE_GLOCK);
-		
+
 		g_MapEndTotalReq = REQ_UC1_TAKE_CROWBAR | REQ_UC1_TAKE_GLOCK;
 	}
 	else if (equali(g_Map, "hl1_bhop_uc2", 12))
 	{
 		TrieSetCell(g_MapEndReqs, "uc2_btn_water", REQ_UC2_BTN_WATER);
 		TrieSetCell(g_MapEndReqs, "uc2_btn_lift", REQ_UC2_BTN_LIFT);
-		
+
 		g_MapEndTotalReq = REQ_UC2_BTN_WATER | REQ_UC2_BTN_LIFT;
 	}
 	else if (equali(g_Map, "hl1_bhop_ocwgh", 14))
@@ -5624,7 +5630,7 @@ CmdCancelNoReset(id)
 		ShowMessage(id, "You can only cancel a No-Reset during countdown");
 		return PLUGIN_HANDLED;
 	}
-	
+
 	if (g_RunModeStarting[id] != MODE_NORESET)
 	{
 		ShowMessage(id, "This command only works during No-Reset run countdown");
@@ -5972,7 +5978,7 @@ public CmdReady(id)
 		ready = g_CupReady1;
 		server_print("player1 is %s", ready ? "ready" : "NOT ready");
 	}
-	
+
 	if (id == g_CupPlayer2)
 	{
 		g_CupReady2 = !g_CupReady2;
@@ -6067,7 +6073,7 @@ public CheckAgstartConditions(taskId)
 
 	if (switchedPlayers)
 		server_exec();
-	
+
 	if (switchedPlayers == playersNum)
 	{
 		// No player remaining for this agstart, so abort it
@@ -6423,7 +6429,7 @@ ResetCupMapStates(id)
 
 		if (TrieSetCell(g_CupMapPool, map, MAP_IDLE))
 			i++;
-		
+
 		TrieIterNext(ti);
 	}
 	TrieIterDestroy(ti);
@@ -7167,7 +7173,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 		//console_print(id, "stopped recording");
 		SaveRecordedRun(id, topType);
 	}
-	
+
 	if (rank == 1)
 	{
 		new ret;
@@ -7474,7 +7480,7 @@ GetOwnersBot(id)
 {
 	//console_print(1, "checking bots of player %d", id);
 	for (new i = 1; i <= sizeof(g_BotOwner) - 1; i++)
-	{	
+	{
 		//console_print(1, "%d's owner is %d", i, g_BotOwner[i]);
 		if (id == g_BotOwner[i])
 			return i;
