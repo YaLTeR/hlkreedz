@@ -687,7 +687,6 @@ public plugin_init()
 	register_clcmd("say",		"CmdSayHandler");
 	register_clcmd("say_team",	"CmdSayHandler");
 	register_clcmd("spectate",	"CmdSpectateHandler");
-	register_clcmd("drop",		"CmdDropHandler");
 
 	if (g_IsAgServer)
 	{
@@ -758,6 +757,7 @@ public plugin_init()
 	RegisterHam(Ham_Use, "func_button", "Fw_HamUseButtonPre");
 	RegisterHam(Ham_Touch, "trigger_multiple", "Fw_HamUseButtonPre"); // ag_bhop_master.bsp starts timer when jumping on a platform
 	RegisterHam(Ham_Spawn, "player", "Fw_HamSpawnPlayerPost", 1);
+	RegisterHam(Ham_Spawn, "weaponbox", "Fw_HamSpawnWeaponboxPost", 1);
 	RegisterHam(Ham_Killed, "player", "Fw_HamKilledPlayerPre");
 	RegisterHam(Ham_Killed, "player", "Fw_HamKilledPlayerPost", 1);
 	RegisterHam(Ham_BloodColor, "player", "Fw_HamBloodColorPre");
@@ -1721,8 +1721,6 @@ public client_disconnect(id)
 {
 	SavePlayerSettings(id);
 
-	client_cmd(id, "r_drawviewmodel 1");
-
 	clr_bit(g_bit_is_connected, id);
 	clr_bit(g_bit_is_hltv, id);
 	clr_bit(g_bit_is_bot, id);
@@ -1973,11 +1971,6 @@ public DisplayWelcomeMessage(id)
 		DisplayKzMenu(id, 0);
 }
 
-public CmdDropHandler(id)
-{
-	client_cmd(id, "r_drawviewmodel 0");
-	return PLUGIN_HANDLED;
-}
 
 
 //*******************************************************
@@ -2808,7 +2801,6 @@ CmdRespawn(id)
 	strip_user_weapons(id);
 	ExecuteHamB(Ham_Spawn, id);
 
-	client_cmd(id, "r_drawviewmodel 1");
 	ResumeTimer(id);
 }
 
@@ -4977,7 +4969,13 @@ public Fw_MsgTempEntity()
 	return PLUGIN_CONTINUE;
 }
 
+public Fw_HamSpawnWeaponboxPost(weaponboxId)
+{
+	set_pev(weaponboxId, pev_flags, FL_KILLME);
+	dllfunc(DLLFunc_Think, weaponboxId);
 
+	return HAM_IGNORED;
+}
 
 //*******************************************************
 //*                                                     *
