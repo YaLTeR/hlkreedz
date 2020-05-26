@@ -2,6 +2,8 @@
 
 This repository contains AMX Mod X plugins for Half-Life jump servers, extended with several features for the SourceRuns AG jump server. The already compiled plugins are compiled with AMX Mod X 1.8.3 which is not backwards compatible with 1.8.2 or any other, so if you just grab them without compiling them by yourself, make sure to have AMX Mod X 1.8.3 installed in your server. You can find it here: [AMX Mod X 1.8.3 dev builds](https://www.amxmodx.org/snapshots.php)
 
+For the unstable branch, we're using AMX Mod X 1.10.0, build 5390, which you can get from here: https://www.amxmodx.org/downloads-new.php?branch=master&all=1
+
 ## hl_kreedz
 
 hl_kreedz provides essential functionality such as start and stop buttons, timer and leaderboards.
