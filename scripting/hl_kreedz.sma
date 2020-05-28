@@ -688,6 +688,8 @@ public plugin_init()
 	register_clcmd("say_team",	"CmdSayHandler");
 	register_clcmd("spectate",	"CmdSpectateHandler");
 
+	register_clcmd("jointeam", "CmdJointeamHandler");
+
 	if (g_IsAgServer)
 	{
 		register_clcmd("agstart",				"CmdAgVoteHandler");
@@ -3440,6 +3442,17 @@ public CmdSpectateHandler(id)
 		return PLUGIN_CONTINUE;
 
 	return ClientCommandSpectatePre(id);
+}
+
+public CmdJointeamHandler(id)
+{
+	if(pev(id, pev_iuser1) != OBS_NONE)
+	{
+		client_cmd(id, "spectate");
+		return PLUGIN_HANDLED;
+	}
+
+	return PLUGIN_CONTINUE;
 }
 
 public CmdAgVoteHandler(id)
