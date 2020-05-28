@@ -1854,17 +1854,22 @@ SavePlayerSettings(id)
 	formatex(playerFileName, charsmax(playerFileName), "%s/players/%s.ini", CONFIGS_SUB_DIR, idNumbers);
 
 	// Map-dependent player settings
-	amx_save_setting_int(g_PlayerMapIniFile, idNumbers, "no_reset", g_RunMode[id]);
 	if (g_RunMode[id] == MODE_NORESET)
 	{
 		new Float:kztime = get_gametime() - g_PlayerTime[id];
 		console_print(0, "saving kztime: %.3f", kztime);
 
+
 		// TODO: also save position and velocity?
+		amx_save_setting_int(  g_PlayerMapIniFile, idNumbers, "no_reset",    g_RunMode[id]);
 		amx_save_setting_int(  g_PlayerMapIniFile, idNumbers, "run_type",    get_bit(g_baIsPureRunning, id));
 		amx_save_setting_float(g_PlayerMapIniFile, idNumbers, "run_time",    kztime);
 		amx_save_setting_int(  g_PlayerMapIniFile, idNumbers, "first_spawn", get_bit(g_baIsFirstSpawn, id));
 		amx_save_setting_int(  g_PlayerMapIniFile, idNumbers, "paused",      get_bit(g_baIsPaused, id));
+	}
+	else
+	{
+		amx_save_setting_int(  g_PlayerMapIniFile, idNumbers, "no_reset",    MODE_NORMAL);
 	}
 
 	// Global player settings
@@ -3772,6 +3777,8 @@ FinishTimer(id)
 	client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s^0 finished in %02d:%", "(CPs: %d | TPs: %d) %s%s"),
 		PLUGIN_TAG, name, minutes, seconds, g_CpCounters[id][COUNTER_CP], g_CpCounters[id][COUNTER_TP], pureRun, g_RunMode[id] == MODE_NORESET ? " No-Reset" : "");
 
+	new RUN_MODE:originalRunMode = g_RunMode[id];
+
 	if (!get_pcvar_num(pcvar_kz_nostat) && !IsBot(id))
 	{
 
@@ -3879,7 +3886,7 @@ FinishTimer(id)
 		LaunchRecordFireworks();
 	}
 
-	if (g_RunMode[id] == MODE_RACE)
+	if (originalRunMode == MODE_RACE)
 	{
 		client_print(0, print_chat, "[%s] %s^0 won the race!", PLUGIN_TAG, name);
 		// Same behaviour as in agstart: the first one to finish also ends the runs of the rest of runners
