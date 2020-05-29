@@ -675,6 +675,7 @@ public plugin_init()
 	register_clcmd("kz_map_state",		"CmdMapStateHandler",	ADMIN_CFG, "- modifies the state of a map in the pool");
 	register_clcmd("kz_map_pool_show",	"CmdMapsShowHandler",	ADMIN_CFG, "- shows the maps and their states on the screen");
 	register_clcmd("kz_map_pool_clear",	"CmdMapsClearHandler",	ADMIN_CFG, "- clears the map pool (leaves it empty)");
+	register_clcmd("kz_cup_forceready", "CmdCupForceReady", 	ADMIN_CFG, "- forces a player to ready.");
 
 	register_clcmd("kz_set_custom_start",	"CmdSetCustomStartHandler",		-1, "- sets the custom start position");
 	register_clcmd("kz_clear_custom_start",	"CmdClearCustomStartHandler",	-1, "- clears the custom start position");
@@ -6492,6 +6493,26 @@ public CmdClearCup(id, level, cid)
 	{
 		ClearCup(id);
 	}
+	return PLUGIN_HANDLED;
+}
+
+public CmdCupForceReady(id, level, cid)
+{
+	if(cmd_access(id, level, cid, 1))
+	{
+		if(!g_CupPlayer2 || !g_CupPlayer2)
+		{
+			console_print(id, "The players could not be found.")
+			return PLUGIN_HANDLED;
+		}
+
+		if(!g_CupReady1)
+			CmdReady(g_CupPlayer1);
+
+		if(!g_CupReady2)
+			CmdReady(g_CupPlayer2);
+	}
+
 	return PLUGIN_HANDLED;
 }
 
