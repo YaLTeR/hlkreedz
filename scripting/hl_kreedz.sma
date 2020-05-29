@@ -3815,7 +3815,7 @@ FinishTimer(id)
 		server_cmd("agabort");
 		server_exec();
 
-		if (IsCupMap() && IsCupPlayer(id) && g_CupReady1 && g_CupReady2)
+		if (IsCupMap() && IsCupPlayer(id))
 		{
 			// Do stuff for the cup
 
