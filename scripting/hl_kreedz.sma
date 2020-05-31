@@ -49,12 +49,6 @@
 
 #define FL_ONGROUND_ALL (FL_ONGROUND | FL_PARTIALGROUND | FL_INWATER | FL_CONVEYOR | FL_FLOAT)
 
-#define MAP_IDLE				0
-#define MAP_BANNED				1
-#define MAP_PICKED				2
-#define MAP_PLAYED				3
-#define MAP_DECIDER				4
-
 #define MAX_RACE_ID						65535
 #define MAX_FPS_MULTIPLIER				4	// for replaying demos at a max. fps of 250*MAX_FPS_MULTIPLIER
 #define MIN_DISTANCE_RESPAWN_ADVANTAGE	1300.0
@@ -441,7 +435,7 @@ new bool:g_bMatchRunning;
 new bool:g_bCanTakeAdvantageOfRespawn;
 new bool:g_DisableSpec;
 
-new g_CupMatches; // how many maps will runners play to decide who qualifies
+new g_CupMaps; // how many maps will runners play to decide who qualifies, NOT the total maps in the pool
 new g_CupPlayer1; // player index of opponent 1
 new g_CupPlayer2; // player index of opponent 2
 new g_CupSteam1[32]; // Steam id of opponent 1
@@ -453,6 +447,7 @@ new bool:g_CupReady2; // whether opponent 2 is ready or not
 new Trie:g_CupMapPool; // mapName->mapState (MAP_BANNED, MAP_PICKED, etc.)
 new g_PrevChooser; // index of the last player who banned/picked a map
 new g_FirstBanner; // index of the first player who banned a map
+new MATCH_FORMAT:g_CupFormat[MAX_MATCH_MAPS + 1]; // ABBAABD, etc.
 
 new bool:g_isAnyBoostWeaponInMap;
 
@@ -516,6 +511,7 @@ new pcvar_kz_mysql_host;
 new pcvar_kz_mysql_user;
 new pcvar_kz_mysql_pass;
 new pcvar_kz_mysql_db;
+new pcvar_kz_cup_format;
 new pcvar_kz_cup_max_maps;
 new pcvar_kz_cup_map_change_delay;
 new pcvar_kz_stop_moving_platforms;
@@ -643,6 +639,7 @@ public plugin_init()
 	pcvar_kz_mysql_pass = register_cvar("kz_mysql_pass", ""); // Password of the MySQL user
 	pcvar_kz_mysql_db   = register_cvar("kz_mysql_db", ""); // MySQL database name
 
+	pcvar_kz_cup_format = register_cvar("kz_cup_format", "ABBAABD");
 	pcvar_kz_cup_max_maps = register_cvar("kz_cup_max_maps", "7");
 	pcvar_kz_cup_map_change_delay = register_cvar("kz_cup_map_change_delay", "8.0");
 
@@ -1283,7 +1280,7 @@ DisplayKzMenu(id, mode)
 
 CreateMapMenu(id, const menu_id[], bool:wasBadChoice=false)
 {
-	new playerName[32];
+	new playerName[MAX_NAME_LENGTH];
 	GetColorlessName(id, playerName, charsmax(playerName));
 
 	if (!wasBadChoice)
@@ -1297,26 +1294,29 @@ CreateMapMenu(id, const menu_id[], bool:wasBadChoice=false)
 	new menuText[512];
 	formatex(menuText, charsmax(menuText), "\\w%s:\n", menu_id);
 
-	new i, map[32], mapState;
+	new i, /*map[32], mapState,*/ cupMap[CUP_MAP];
 	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
 	while (!TrieIterEnded(ti))
 	{
-		TrieIterGetCell(ti, mapState);
-		TrieIterGetKey(ti, map, charsmax(map));
+		//TrieIterGetCell(ti, mapState);
+		//TrieIterGetKey(ti, map, charsmax(map));
+		TrieIterGetArray(ti, cupMap, sizeof(cupMap));
+
+		server_print("building menu item %d with map %s", i, cupMap[MAP_NAME]);
 
 		new mapStateText[10];
-		if (g_MapStateString[mapState][0])
+		if (g_MapStateString[cupMap[MAP_STATE_]][0])
 		{
-			formatex(mapStateText, charsmax(mapStateText), "[%s]", g_MapStateString[mapState]);
+			formatex(mapStateText, charsmax(mapStateText), "[%s]", g_MapStateString[cupMap[MAP_STATE_]]);
 			strtoupper(mapStateText);
 		}
 
-		if (mapState == MAP_IDLE)
+		if (cupMap[MAP_STATE_] == MAP_IDLE)
 		{
 			formatex(menuText, charsmax(menuText), "%s\\y%d\\w. %s %s\n",
 				menuText,
 				i+1,
-				map,
+				cupMap[MAP_NAME],
 				mapStateText);
 		}
 		else
@@ -1324,7 +1324,7 @@ CreateMapMenu(id, const menu_id[], bool:wasBadChoice=false)
 			formatex(menuText, charsmax(menuText), "%s\\r%d\\d. %s %s\n",
 				menuText,
 				i+1,
-				map,
+				cupMap[MAP_NAME],
 				mapStateText);
 		}
 
@@ -1342,17 +1342,18 @@ CreateMapMenu(id, const menu_id[], bool:wasBadChoice=false)
 
 public ActionMapBanMenu(id, key)
 {
-	new i, map[32], mapState;
+	new i, /*map[32], mapState*/ cupMap[CUP_MAP];
 	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
 	while (!TrieIterEnded(ti))
 	{
 		if (key == i)
 		{
-			TrieIterGetCell(ti, mapState);
+			//TrieIterGetCell(ti, mapState);
+			TrieIterGetArray(ti, cupMap, sizeof(cupMap));
 
-			if (mapState == MAP_IDLE)
+			if (cupMap[MAP_STATE_] == MAP_IDLE)
 			{
-				TrieIterGetKey(ti, map, charsmax(map));
+				//TrieIterGetKey(ti, cupMap[MAP_NAME], charsmax(cupMap[MAP_NAME]));
 				break;
 			}
 		}
@@ -1362,21 +1363,25 @@ public ActionMapBanMenu(id, key)
 	}
 	TrieIterDestroy(ti);
 
-	if (map[0])
+	if (cupMap[MAP_NAME][0])
 	{
-		// Update map state
-		TrieSetCell(g_CupMapPool, map, MAP_BANNED);
-
+		new totalPoolMaps = TrieGetSize(g_CupMapPool);
 		new availableMaps = CountCupMaps(MAP_IDLE);
+
+		// Update map state
+		//TrieSetCell(g_CupMapPool, map, MAP_BANNED);
+		cupMap[MAP_ORDER]  = totalPoolMaps - availableMaps;
+		cupMap[MAP_STATE_] = MAP_BANNED;
+		cupMap[MAP_PICKER] = MATCH_FORMAT:g_CupFormat[cupMap[MAP_ORDER]];
+		TrieSetArray(g_CupMapPool, cupMap[MAP_NAME], cupMap, sizeof(cupMap));
+		availableMaps--;
 
 		new playerName[32];
 		GetColorlessName(id, playerName, charsmax(playerName));
-		if (!playerName[0])
-			formatex(playerName, charsmax(playerName), "The unnamed player");
 
-		client_print(0, print_chat, "[%s] %s has banned %s.", PLUGIN_TAG, playerName, map);
+		client_print(0, print_chat, "[%s] %s banned %s.", PLUGIN_TAG, playerName, cupMap[MAP_NAME]);
 
-		new remainingMapsToBan = availableMaps - g_CupMatches;
+		new remainingMapsToBan = availableMaps - g_CupMaps;
 		if (remainingMapsToBan > 0)
 		{
 			client_print(0, print_chat, "[%s] Remaining %d map%s to be banned.",
@@ -1385,51 +1390,27 @@ public ActionMapBanMenu(id, key)
 		else
 		{
 			client_print(0, print_chat, "[%s] We're done banning maps. Time to pick! You'll pick %d maps and then the remaining one is the decider.",
-				PLUGIN_TAG, g_CupMatches - 1);
+				PLUGIN_TAG, g_CupMaps - 1);
 		}
 		CmdMapsShowHandler(0);
 
-		// ABBA format banning
-		// (A) 1 --> prev = 0, id = 1, next = 2
-		// (B) 2 --> prev = 1, id = 2, next = 2
-		// (B) 2 --> prev = 2, id = 2, next = 1
-		// (A) 1 --> prev = 2, id = 1, next = 1
-		new nextId;
-		if (g_PrevChooser)
-		{
-			if (id == g_PrevChooser)
-			{
-				// Have done 2 bans in a row, so the turn is now for the opponent
-				nextId = (id == g_CupPlayer1) ? g_CupPlayer2 : g_CupPlayer1;
-			}
-			else
-			{
-				// Have done 1 ban, the turn continues being for the same player
-				nextId = id;
-			}
-		}
-		else
-		{
-			// This was the first ban, so now the turn is for the opponent
-			nextId = (id == g_CupPlayer1) ? g_CupPlayer2 : g_CupPlayer1;
-		}
+		server_print("ActionMapBanMenu :: availableMaps=%d, g_CupMaps=%d", availableMaps, g_CupMaps);
+		new nextPicker = GetNextPicker();
 
-		// Update now the previous chooser, after it's been used
-		g_PrevChooser = id;
-
-		server_print("ActionMapBanMenu :: availableMaps=%d, g_CupMatches=%d", availableMaps, g_CupMatches);
-		if (availableMaps == g_CupMatches)
+		if (availableMaps == g_CupMaps)
 		{
 			// Time to start picking maps
 			// Player1 started banning, now Player2 has to start picking
-			nextId = (g_FirstBanner == g_CupPlayer1) ? g_CupPlayer2 : g_CupPlayer1;
-			g_PrevChooser = 0;
-			CreateMapMenu(nextId, MAP_PICK_MENU_ID);
+			//nextId = (g_FirstBanner == g_CupPlayer1) ? g_CupPlayer2 : g_CupPlayer1;
+			//g_PrevChooser = 0;
+			server_print("showing map pick menu to player #%d", nextPicker);
+			CreateMapMenu(nextPicker, MAP_PICK_MENU_ID);
 		}
 		else
 		{
 			// Continue banning
-			CreateMapMenu(nextId, MAP_BAN_MENU_ID);
+			server_print("showing map ban menu to player #%d", nextPicker);
+			CreateMapMenu(nextPicker, MAP_BAN_MENU_ID);
 		}
 	}
 	else
@@ -1443,17 +1424,18 @@ public ActionMapBanMenu(id, key)
 
 public ActionMapPickMenu(id, key)
 {
-	new i, map[32], mapState;
+	new i, /*map[32], mapState*/ cupMap[CUP_MAP];
 	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
 	while (!TrieIterEnded(ti))
 	{
 		if (key == i)
 		{
-			TrieIterGetCell(ti, mapState);
+			//TrieIterGetCell(ti, mapState);
+			TrieIterGetArray(ti, cupMap, sizeof(cupMap));
 
-			if (mapState == MAP_IDLE)
+			if (cupMap[MAP_STATE_] == MAP_IDLE)
 			{
-				TrieIterGetKey(ti, map, charsmax(map));
+				//TrieIterGetKey(ti, map, charsmax(map));
 				break;
 			}
 		}
@@ -1463,19 +1445,23 @@ public ActionMapPickMenu(id, key)
 	}
 	TrieIterDestroy(ti);
 
-	if (map[0])
+	if (cupMap[MAP_NAME][0])
 	{
-		// Update map state
-		TrieSetCell(g_CupMapPool, map, MAP_PICKED);
-
+		new totalPoolMaps = TrieGetSize(g_CupMapPool);
 		new availableMaps = CountCupMaps(MAP_IDLE);
+
+		// Update map state
+		//TrieSetCell(g_CupMapPool, map, MAP_PICKED);
+		cupMap[MAP_ORDER]  = totalPoolMaps - availableMaps;
+		cupMap[MAP_STATE_] = MAP_PICKED;
+		cupMap[MAP_PICKER] = g_CupFormat[totalPoolMaps - availableMaps];
+		TrieSetArray(g_CupMapPool, cupMap[MAP_NAME], cupMap, sizeof(cupMap));
+		availableMaps--;
 
 		new playerName[32];
 		GetColorlessName(id, playerName, charsmax(playerName));
-		if (!playerName[0])
-			formatex(playerName, charsmax(playerName), "The unnamed player");
 
-		client_print(0, print_chat, "[%s] %s has picked %s.", PLUGIN_TAG, playerName, map);
+		client_print(0, print_chat, "[%s] %s picked %s.", PLUGIN_TAG, playerName, cupMap[MAP_NAME]);
 
 		new mapsToPick = availableMaps - 1; // minus the decider, that is autopicked
 		if (mapsToPick > 0)
@@ -1484,43 +1470,21 @@ public ActionMapPickMenu(id, key)
 				PLUGIN_TAG, mapsToPick, mapsToPick == 1 ? "" : "s");
 		}
 
-		// TODO: DRY, same code as in the map banning function
-		// ABBA format banning
-		// (A) 1 --> prev = 0, id = 1, next = 2
-		// (B) 2 --> prev = 1, id = 2, next = 2
-		// (B) 2 --> prev = 2, id = 2, next = 1
-		// (A) 1 --> prev = 2, id = 1, next = 1
-		new nextId;
-		if (g_PrevChooser)
-		{
-			if (id == g_PrevChooser)
-			{
-				// Have done 2 bans in a row, so the turn is now for the opponent
-				nextId = (id == g_CupPlayer1) ? g_CupPlayer2 : g_CupPlayer1;
-			}
-			else
-			{
-				// Have done 1 ban, the turn continues being for the same player
-				nextId = id;
-			}
-		}
-		else
-		{
-			// This was the first ban, so now the turn is for the opponent
-			nextId = (id == g_CupPlayer1) ? g_CupPlayer2 : g_CupPlayer1;
-		}
-
-		// Update now the previous chooser, after it's been used
-		g_PrevChooser = id;
-
-		server_print("ActionMapPickMenu :: availableMaps=%d, g_CupMatches=%d", availableMaps, g_CupMatches);
+		server_print("ActionMapPickMenu :: availableMaps=%d, g_CupMaps=%d", availableMaps, g_CupMaps);
 		if (availableMaps == 1)
 		{
-			GetLastCupMapAvailable(map, charsmax(map));
+			new lastMap[MAX_MAPNAME_LENGTH];
+			GetLastCupMapAvailable(lastMap, charsmax(lastMap));
+			TrieGetArray(g_CupMapPool, lastMap, cupMap, sizeof(cupMap));
 
 			// The decider is the last map that's left, no more menus, this is chosen automatically
-			TrieSetCell(g_CupMapPool, map, MAP_DECIDER);
-			client_print(0, print_chat, "[%s] %s will be the decider.", PLUGIN_TAG, map);
+			//TrieSetCell(g_CupMapPool, map, MAP_DECIDER);
+			cupMap[MAP_ORDER]  = totalPoolMaps - availableMaps;
+			cupMap[MAP_STATE_] = MAP_DECIDER;
+			cupMap[MAP_PICKER] = g_CupFormat[totalPoolMaps - availableMaps];
+			TrieSetArray(g_CupMapPool, cupMap[MAP_NAME], cupMap, sizeof(cupMap));
+
+			client_print(0, print_chat, "[%s] %s will be the decider.", PLUGIN_TAG, cupMap[MAP_NAME]);
 
 			// Map states during bans/picks only get saved here
 			// If the server crashes or there's a map change in the middle of the
@@ -1528,26 +1492,29 @@ public ActionMapPickMenu(id, key)
 			WriteCupMapPoolFile(0);
 
 			// Now we're gonna change (or not) the map to start playing
-			GetNextCupMapToPlay(map, charsmax(map));
+			new mapName[MAX_MAPNAME_LENGTH];
+			GetNextCupMapToPlay(mapName, charsmax(mapName));
 
-			if (equal(map, g_Map))
+			if (equal(mapName, g_Map))
 			{
 				// We're gonna play in this very map, so no changelevel needed
-				client_print(0, print_chat, "[%s] The next map to be played is %s.", PLUGIN_TAG, map);
+				client_print(0, print_chat, "[%s] The next map to be played is %s.", PLUGIN_TAG, mapName);
 				client_print(0, print_chat, "[%s] We're already in that map, so just waiting for participants to get /ready to start ;)", PLUGIN_TAG);
 			}
 			else
 			{
 				new Float:timeToChange = get_pcvar_float(pcvar_kz_cup_map_change_delay);
-				client_print(0, print_chat, "[%s] The next map to be played is %s. Changing the map in %.0f seconds...", PLUGIN_TAG, map, timeToChange);
+				client_print(0, print_chat, "[%s] The next map to be played is %s. Changing the map in %.0f seconds...", PLUGIN_TAG, mapName, timeToChange);
 
-				set_task(timeToChange, "CupChangeMap", TASKID_CUP_CHANGE_MAP, map, charsmax(map));
+				set_task(timeToChange, "CupChangeMap", TASKID_CUP_CHANGE_MAP, mapName, charsmax(cupMap[MAP_NAME]));
 			}
 		}
 		else
 		{
 			// Continue picking
-			CreateMapMenu(nextId, MAP_PICK_MENU_ID);
+			new nextPicker = GetNextPicker();
+			server_print("showing map pick menu to player #%d", nextPicker);
+			CreateMapMenu(nextPicker, MAP_PICK_MENU_ID);
 		}
 		CmdMapsShowHandler(0);
 	}
@@ -1558,6 +1525,89 @@ public ActionMapPickMenu(id, key)
 	}
 
 	return PLUGIN_HANDLED;
+}
+
+// TODO: refactor to be ordered in the map pool file, and retrieve already ordered
+Array:GetOrderedMapPool()
+{
+	new Array:result = ArrayCreate(CUP_MAP, 7);
+
+	new clean[CUP_MAP];
+	ArrayPushArray(result, clean, sizeof(clean));
+	ArrayPushArray(result, clean, sizeof(clean));
+	ArrayPushArray(result, clean, sizeof(clean));
+	ArrayPushArray(result, clean, sizeof(clean));
+	ArrayPushArray(result, clean, sizeof(clean));
+	ArrayPushArray(result, clean, sizeof(clean));
+	ArrayPushArray(result, clean, sizeof(clean));
+
+	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
+	while (!TrieIterEnded(ti))
+	{
+		new cupMap[CUP_MAP];
+		TrieIterGetArray(ti, cupMap, sizeof(cupMap));
+
+		ArraySetArray(result, cupMap[MAP_ORDER], cupMap, sizeof(cupMap));
+		//ArrayPushArray(result, cupMap, sizeof(cupMap));
+
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+
+	//ArraySortEx(result, "SortMapPool") // doesn't really work...
+
+	return result;
+}
+
+SortMapPool(Array:array, elem1[], elem2[], const data[], data_size)
+{
+	// Sort in ascending order by MAP_ORDER
+
+	if (elem1[MAP_ORDER] < elem2[MAP_ORDER])
+	{
+		return -1;
+	}
+	else if (elem1[MAP_ORDER] > elem2[MAP_ORDER])
+	{
+		return 1;
+	}
+	else
+	{
+		return 0;
+	}
+}
+
+GetNextPicker()
+{
+	new totalPoolMaps = TrieGetSize(g_CupMapPool);
+	new availableMaps = CountCupMaps(MAP_IDLE);
+
+	server_print("GetNextPicker() :: totalPoolMaps = %d, availableMaps = %d", totalPoolMaps, availableMaps);
+
+	new i = totalPoolMaps - availableMaps;
+	while (g_CupFormat[i])
+	{
+		new MATCH_FORMAT:format = g_CupFormat[i];
+
+		server_print("GetNextPicker() :: char #%d = %d", i, format);
+
+		if (format == MATCH_PLAYER1)
+		{
+			return g_CupPlayer1;
+		}
+		else if (format == MATCH_PLAYER2)
+		{
+			return g_CupPlayer2;
+		}
+		else
+		{
+			server_print("GetNextPicker() :: char #%d is decider, probably shouldn't have reached this point", i);
+		}
+
+		i++;
+	}
+
+	return 0;
 }
 
 public ActionKzMenu(id, key)
@@ -3826,8 +3876,13 @@ FinishTimer(id)
 			else
 				g_CupScore2++;
 
+			new cupMap[CUP_MAP];
+			TrieGetArray(g_CupMapPool, g_Map, cupMap, sizeof(cupMap));
+
 			// Update map state
-			TrieSetCell(g_CupMapPool, g_Map, MAP_PLAYED);
+			//TrieSetCell(g_CupMapPool, g_Map, MAP_PLAYED);
+			cupMap[MAP_STATE_] = MAP_PLAYED;
+			TrieSetArray(g_CupMapPool, cupMap[MAP_NAME], cupMap, sizeof(cupMap));
 
 			// Save the changes to file, because we're gonna change the map in a while
 			// and this info has to be taken again from the file right after changing
@@ -6131,14 +6186,15 @@ public CheckAgstartConditions(taskId)
 bool:IsCupMap()
 {
 	// Check if the current map is one of the maps to be played
-	new map[32], mapState, bool:result;
+	new /*map[32], mapState,*/ cupMap[CUP_MAP], bool:result;
 	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
 	while (!TrieIterEnded(ti))
 	{
-		TrieIterGetKey(ti, map, charsmax(map));
-		TrieIterGetCell(ti, mapState);
+		//TrieIterGetKey(ti, map, charsmax(map));
+		//TrieIterGetCell(ti, mapState);
+		TrieIterGetArray(ti, cupMap, sizeof(cupMap));
 
-		if ((mapState == MAP_PICKED || mapState == MAP_DECIDER) && equali(g_Map, map))
+		if ((cupMap[MAP_STATE_] == MAP_PICKED || cupMap[MAP_STATE_] == MAP_DECIDER) && equali(g_Map, cupMap[MAP_NAME]))
 		{
 			result = true;
 			break;
@@ -6218,8 +6274,9 @@ public CmdCupHandler(id, level, cid)
 {
 	if (cmd_access(id, level, cid, 1))
 	{
-		new cupMatches[6], target1[32], target2[32];
-		read_argv(1, cupMatches, charsmax(cupMatches));
+		new cupMaps[4], /*cupFormat[MAX_MATCH_MAPS + 1],*/ target1[32], target2[32];
+		read_argv(1, cupMaps, charsmax(cupMaps));
+		//read_argv(2, cupFormat, charsmax(cupFormat));
 		read_argv(2, target1, charsmax(target1));
 		read_argv(3, target2, charsmax(target2));
 
@@ -6237,8 +6294,26 @@ public CmdCupHandler(id, level, cid)
 			ShowMessage(id, "Cannot find the second player specified in the kz_cup command");
 			return PLUGIN_HANDLED;
 		}
+		
+		/*
+		trim(cupFormat);
+		if (!ProcessCupFormat(id, cupFormat))
+		{
+			new format[MAX_MATCH_MAPS + 1];
+			get_pcvar_string(pcvar_kz_cup_format, format, charsmax(format));
 
-		g_CupMatches = str_to_num(cupMatches);
+			ProcessCupFormat(id, format)
+			//return PLUGIN_HANDLED;
+		}*/
+		g_CupFormat[0] = MATCH_PLAYER1;
+		g_CupFormat[1] = MATCH_PLAYER2;
+		g_CupFormat[2] = MATCH_PLAYER2;
+		g_CupFormat[3] = MATCH_PLAYER1;
+		g_CupFormat[4] = MATCH_PLAYER1;
+		g_CupFormat[5] = MATCH_PLAYER2;
+		g_CupFormat[6] = MATCH_DECIDER;
+
+		g_CupMaps = str_to_num(cupMaps);
 		g_CupPlayer1 = player1;
 		g_CupPlayer2 = player2;
 		GetUserUniqueId(player1, g_CupSteam1, charsmax(g_CupSteam1));
@@ -6251,7 +6326,8 @@ public CmdCupHandler(id, level, cid)
 		g_FirstBanner = 0;
 		ResetCupMapStates(id);
 
-		if (g_CupMatches + 2 == TrieGetSize(g_CupMapPool))
+		/*
+		if (g_CupMaps + 2 == TrieGetSize(g_CupMapPool))
 		{
 			client_print(0, print_chat, "[%s] Flipping a coin to decide who bans first...", PLUGIN_TAG);
 			set_task(2.0, "CupTensionFirstBan", TASKID_CUP_TENSION_FIRST_BAN);
@@ -6261,10 +6337,54 @@ public CmdCupHandler(id, level, cid)
 			g_FirstBanner = g_CupPlayer1;
 			CreateMapMenu(g_FirstBanner, MAP_BAN_MENU_ID);
 		}
-		WriteCupFile(id);
+		*/
+		client_print(0, print_chat, "[%s] Flipping a coin to decide who bans first...", PLUGIN_TAG);
+		set_task(2.0, "CupTensionFirstBan", TASKID_CUP_TENSION_FIRST_BAN);
 	}
 
 	return PLUGIN_HANDLED;
+}
+
+boolean:ProcessCupFormat(id, cupFormat[])
+{
+	new i;
+	while (cupFormat[i])
+	{
+		// TODO: refactor to make it simpler, no conditions
+		if (equali(cupFormat[i], "A"))
+			g_CupFormat[i] = MATCH_PLAYER1;
+		else if (equali(cupFormat[i], "B"))
+			g_CupFormat[i] = MATCH_PLAYER2;
+		else if (equali(cupFormat[i], "D"))
+			g_CupFormat[i] = MATCH_DECIDER;
+		else
+		{
+			g_CupFormat[i] = MATCH_UNKNOWN;
+
+			new format[MAX_MATCH_MAPS + 1];
+			get_pcvar_string(pcvar_kz_cup_format, format, charsmax(format));
+
+			console_print(id, "[%s] Bad kz_cup format! Usage: kz_cup <maps_number> <A|B|D format> <player1_id> <player2_id>", PLUGIN_TAG);
+			console_print(id, "[%s] A is first opponent's pick/ban, B is second opponent's pick/ban, and D is the decider map", PLUGIN_TAG);
+			console_print(id, "[%s] Example: \"kz_cup 5 #49 #54 ABBAABD\"; <-- it's not necessary to specify a format, the default one is %s",
+				PLUGIN_TAG, format);
+
+			return false;
+		}
+		i++;
+	}
+
+	return true;
+}
+
+GetHumanReadableCupFormat(result[])
+{
+	new i;
+	while (g_CupFormat[i])
+	{
+		result[i] = g_CupFormatLetters[g_CupFormat[i]][0];
+		i++;
+	}
 }
 
 public CupTensionFirstBan(taskId)
@@ -6275,18 +6395,31 @@ public CupTensionFirstBan(taskId)
 
 public CupFinallyFirstBan(taskId)
 {
-	new id, rand = random_num(0, 1);
+	new rand = random_num(0, 1);
 	if (rand)
-		id = g_CupPlayer2;
-	else
-		id = g_CupPlayer1;
+	{
+		// Switch players
+		new oldSteam1[MAX_AUTHID_LENGTH], oldSteam2[MAX_AUTHID_LENGTH];
+		new oldPlayer1 = g_CupPlayer1;
+		new oldPlayer2 = g_CupPlayer2;
+		formatex(oldSteam1, charsmax(oldSteam1), g_CupSteam1);
+		formatex(oldSteam2, charsmax(oldSteam2), g_CupSteam2);
+
+		g_CupPlayer1 = oldPlayer2;
+		g_CupPlayer2 = oldPlayer1;
+		formatex(g_CupSteam1, charsmax(g_CupSteam1), oldSteam2);
+		formatex(g_CupSteam2, charsmax(g_CupSteam2), oldSteam1);
+	}
+
+	WriteCupFile(0);
 
 	new playerName[32];
-	GetColorlessName(id, playerName, charsmax(playerName));
-	client_print(0, print_chat, "[%s] Okay, %s bans first!", PLUGIN_TAG, playerName[0] ? playerName : "the unnamed player");
+	GetColorlessName(g_CupPlayer1, playerName, charsmax(playerName));
+	client_print(0, print_chat, "[%s] Okay, %s bans first!", PLUGIN_TAG, playerName);
 
-	g_FirstBanner = id;
-	CreateMapMenu(g_FirstBanner, MAP_BAN_MENU_ID);
+	//g_FirstBanner = id;
+	//CreateMapMenu(g_FirstBanner, MAP_BAN_MENU_ID);
+	CreateMapMenu(g_CupPlayer1, MAP_BAN_MENU_ID);
 }
 
 public CmdMapsShowHandler(id)
@@ -6295,10 +6428,10 @@ public CmdMapsShowHandler(id)
 	formatex(msg, charsmax(msg), "Map pool:\n");
 
 	// Add first the decider
-	new Array:decidersMaps = GetCupMapsWithState(MAP_DECIDER);
-	for (new i = 0; i < ArraySize(decidersMaps); i++)
+	new Array:deciderMaps = GetCupMapsWithState(MAP_DECIDER);
+	for (new i = 0; i < ArraySize(deciderMaps); i++)
 	{
-		ArrayGetString(decidersMaps, i, map, charsmax(map));
+		ArrayGetString(deciderMaps, i, map, charsmax(map));
 		formatex(msg, charsmax(msg), "%s > %s - [DECIDER]\n", msg, map);
 		server_print("getting decider map %s", map);
 	}
@@ -6345,20 +6478,23 @@ public CmdMapsShowHandler(id)
 	return PLUGIN_HANDLED;
 }
 
-Array:GetCupMapsWithState(stateNumber)
+Array:GetCupMapsWithState(MAP_STATE:stateNumber)
 {
 	new Array:result = ArrayCreate(32, 7);
 
-	new map[32], mapState;
+	//new map[32], mapState;
+	new cupMap[CUP_MAP];
 	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
 	while (!TrieIterEnded(ti))
 	{
-		TrieIterGetCell(ti, mapState);
-		if (mapState == stateNumber)
+		//TrieIterGetCell(ti, mapState);
+		TrieIterGetArray(ti, cupMap, sizeof(cupMap));
+
+		if (cupMap[MAP_STATE_] == stateNumber)
 		{
-			TrieIterGetKey(ti, map, charsmax(map));
-			ArrayPushString(result, map);
-			server_print("pushed map %s", map);
+			//TrieIterGetKey(ti, cupMap[MAP_NAME], charsmax(cupMap[MAP_NAME]));
+			ArrayPushString(result, cupMap[MAP_NAME]);
+			//server_print("pushed map %s", cupMap[MAP_NAME]);
 		}
 		TrieIterNext(ti);
 	}
@@ -6378,9 +6514,17 @@ public CmdMapInsertHandler(id, level, cid)
 
 			if (maps[i][0])
 			{
-				if (TrieGetSize(g_CupMapPool) < poolLimit) {
-					TrieSetCell(g_CupMapPool, maps[i], MAP_IDLE);
-				} else {
+				if (TrieGetSize(g_CupMapPool) < poolLimit)
+				{
+					//TrieSetCell(g_CupMapPool, maps[i], MAP_IDLE);
+					new cupMap[CUP_MAP];
+					TrieGetArray(g_CupMapPool, maps[i], cupMap, sizeof(cupMap));
+
+					copy(cupMap[MAP_NAME], charsmax(cupMap[MAP_NAME]), maps[i]);
+					TrieSetArray(g_CupMapPool, maps[i], cupMap, sizeof(cupMap));
+				}
+				else
+				{
 					console_print(id, "[%s] Couldn't add %s to the map pool, the limit of %d maps has been reached.", PLUGIN_TAG, maps[i], poolLimit);
 				}
 			}
@@ -6433,7 +6577,13 @@ public CmdMapStateHandler(id, level, cid)
 
 		if (TrieKeyExists(g_CupMapPool, map))
 		{
-			TrieSetCell(g_CupMapPool, map, mapState);
+			//TrieSetCell(g_CupMapPool, map, mapState);
+			new cupMap[CUP_MAP];
+			TrieGetArray(g_CupMapPool, map, cupMap, sizeof(cupMap));
+
+			cupMap[MAP_STATE_] = mapState;
+			TrieSetArray(g_CupMapPool, map, cupMap, sizeof(cupMap));
+
 			client_print(0, print_chat, "[%s] %s's new state is: %s.",
 				PLUGIN_TAG, map, g_MapStateString[mapState][0] ? g_MapStateString[mapState] : "idle");
 		}
@@ -6467,13 +6617,24 @@ public CmdResetCupMapStates(id, level, cid)
 
 ResetCupMapStates(id)
 {
-	new i;
+	new i, cupMap[CUP_MAP];
+	//cupMap[MAP_ORDER] = 0;
+	//cupMap[MAP_STATE_] = MAP_IDLE;
+	//cupMap[MAP_NAME][0] = EOS;
+	//cupMap[MAP_PICKER] = MATCH_DECIDER; // TODO: refactor; it's not rightly - to go like it
+
 	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
 	while (!TrieIterEnded(ti)) {
-		new map[32];
-		TrieIterGetKey(ti, map, charsmax(map));
+		//new map[MAX_MAPNAME_LENGTH];
+		//TrieIterGetKey(ti, map, charsmax(map));
+		TrieIterGetArray(ti, cupMap, sizeof(cupMap));
 
-		if (TrieSetCell(g_CupMapPool, map, MAP_IDLE))
+		cupMap[MAP_ORDER]  = 0;
+		cupMap[MAP_STATE_] = MAP_IDLE;
+		cupMap[MAP_PICKER] = MATCH_UNKNOWN; // will get corrected later, TODO: make something 
+
+		//if (TrieSetCell(g_CupMapPool, map, MAP_IDLE))
+		if (TrieSetArray(g_CupMapPool, cupMap[MAP_NAME], cupMap, sizeof(cupMap)))
 			i++;
 
 		TrieIterNext(ti);
@@ -6518,7 +6679,7 @@ public CmdCupForceReady(id, level, cid)
 
 ClearCup(id)
 {
-	g_CupMatches = 0;
+	g_CupMaps = 0;
 	g_CupPlayer1 = 0;
 	g_CupPlayer2 = 0;
 	g_CupSteam1[0] = EOS;
@@ -6543,17 +6704,18 @@ WriteCupMapPoolFile(id)
 	}
 
 	console_print(id, "Current maps:");
-	new map[32], mapState, TrieIter:ti = TrieIterCreate(g_CupMapPool);
+	new /*map[32], mapState,*/ cupMap[CUP_MAP], TrieIter:ti = TrieIterCreate(g_CupMapPool);
 	while (!TrieIterEnded(ti)) {
-		TrieIterGetKey(ti, map, charsmax(map));
-		TrieIterGetCell(ti, mapState);
+		//TrieIterGetKey(ti, map, charsmax(map));
+		//TrieIterGetCell(ti, mapState);
+		TrieIterGetArray(ti, cupMap, sizeof(cupMap));
 
-		if (g_MapStateString[mapState][0])
-			console_print(id, " - %s -> %s", map, g_MapStateString[mapState]);
+		if (g_MapStateString[cupMap[MAP_STATE_]][0])
+			console_print(id, " - %s -> #%d, %s, player %d", cupMap[MAP_NAME], cupMap[MAP_ORDER], g_MapStateString[cupMap[MAP_STATE_]], cupMap[MAP_PICKER]);
 		else
-			console_print(id, " - %s", map);
+			console_print(id, " - %s", cupMap[MAP_NAME]);
 
-		fprintf(file, "%s %d\n", map, mapState);
+		fprintf(file, "%d %s %d %d\n", cupMap[MAP_ORDER], cupMap[MAP_NAME], cupMap[MAP_STATE_], cupMap[MAP_PICKER]);
 		TrieIterNext(ti);
 	}
 	TrieIterDestroy(ti);
@@ -6570,9 +6732,12 @@ WriteCupFile(id)
 		return;
 	}
 
-	if (g_CupMatches && g_CupSteam1[0] && g_CupSteam2[0])
+	if (g_CupMaps && g_CupSteam1[0] && g_CupSteam2[0])
 	{
-		fprintf(file, "%d %s %s %d %d\n", g_CupMatches, g_CupSteam1, g_CupSteam2, g_CupScore1, g_CupScore2);
+		//new format[MAX_MATCH_MAPS + 1];
+		//GetHumanReadableCupFormat(format);
+
+		fprintf(file, "%d %s %s %d %d\n", g_CupMaps, g_CupSteam1, g_CupSteam2, g_CupScore1, g_CupScore2);
 	}
 
 	fclose(file);
@@ -6794,19 +6959,32 @@ LoadMapPool()
 	new file = fopen(g_MapPoolFile, "rt");
 	if (!file) return;
 
-	new buffer[48];
+	new buffer[CUP_MAP + 8]; // some extra space as here integers are as chars and take more space
 	while(fgets(file, buffer, charsmax(buffer)))
 	{
-		// One map name and state per line
-		new map[32], mapState[6];
-		parse(buffer,
-				map,		charsmax(map),
-				mapState,	charsmax(mapState));
+		new cupMap[CUP_MAP];
 
-		TrieSetCell(g_CupMapPool, map, str_to_num(mapState));
+		// One map name and state per line
+		new mapOrder[4], mapName[MAX_MAPNAME_LENGTH], mapState[3], mapPicker[3];
+		parse(buffer,
+				mapOrder,	charsmax(mapOrder),
+				mapName,	charsmax(mapName),
+				mapState,	charsmax(mapState),
+				mapPicker,	charsmax(mapPicker));
+
+		cupMap[MAP_ORDER]  = str_to_num(mapOrder);
+		cupMap[MAP_STATE_] = str_to_num(mapState);
+		cupMap[MAP_PICKER] = str_to_num(mapPicker);
+
+		formatex(cupMap[MAP_NAME], charsmax(cupMap[MAP_NAME]), mapName);
+
+		server_print("filling g_CupMapPool with map %s (%s)", mapName, cupMap[MAP_NAME]);
+
+		//TrieSetCell(g_CupMapPool, mapName, str_to_num(mapState));
+		TrieSetArray(g_CupMapPool, mapName, cupMap, sizeof(cupMap));
 	}
 	fclose(file);
-	server_print("[%s] Map pool loaded (%d).", PLUGIN_TAG, TrieGetSize(g_CupMapPool));
+	server_print("[%s] Map pool loaded (%d maps).", PLUGIN_TAG, TrieGetSize(g_CupMapPool));
 }
 
 LoadCup()
@@ -6815,18 +6993,20 @@ LoadCup()
 	new file = fopen(g_CupFile, "rt");
 	if (!file) return;
 
-	new buffer[512];
+	new buffer[256];
 	while(fgets(file, buffer, charsmax(buffer)))
 	{
-		new matches[6], id1[25], id2[25], score1[6], score2[6];
+		new maps[4], /*cupFormat[MAX_MATCH_MAPS + 1],*/ id1[MAX_AUTHID_LENGTH], id2[MAX_AUTHID_LENGTH], score1[4], score2[4];
 		parse(buffer,
-				matches,	charsmax(matches),
+				maps,		charsmax(maps),
+				//cupFormat,	charsmax(cupFormat),
 				id1,		charsmax(id1),
 				id2,		charsmax(id2),
 				score1,		charsmax(score1),
 				score2,		charsmax(score2));
 
-		g_CupMatches = str_to_num(matches);
+		g_CupMaps = str_to_num(maps);
+		//ProcessCupFormat(0, cupFormat);
 		copy(g_CupSteam1, charsmax(g_CupSteam1), id1);
 		copy(g_CupSteam2, charsmax(g_CupSteam2), id2);
 		g_CupScore1 = str_to_num(score1);
@@ -6841,14 +7021,16 @@ GetLastCupMapAvailable(map[], len)
 	new TrieIter:ti = TrieIterCreate(g_CupMapPool), bool:isMapFound;
 	while (!TrieIterEnded(ti))
 	{
-		new mapState;
-		TrieIterGetCell(ti, mapState);
+		//new mapState;
+		//TrieIterGetCell(ti, mapState);
+		new cupMap[CUP_MAP];
+		TrieIterGetArray(ti, cupMap, sizeof(cupMap));
 
-		if (mapState == MAP_IDLE)
+		if (cupMap[MAP_STATE_] == MAP_IDLE)
 		{
 			if (!isMapFound)
 			{
-				TrieIterGetKey(ti, map, len);
+				formatex(map, len, cupMap[MAP_NAME]);
 				isMapFound = true;
 			}
 			else
@@ -6867,63 +7049,40 @@ GetLastCupMapAvailable(map[], len)
 
 GetNextCupMapToPlay(map[], len)
 {
-	new mapState;
+	new Array:orderedMaps = GetOrderedMapPool();
 
-	// Check if the current map can be played
-	TrieGetCell(g_CupMapPool, g_Map, mapState);
-	if (mapState == MAP_PICKED) // if it's the decider and the only one remaining then it will be chosen later below
+	for (new i = 0; i < ArraySize(orderedMaps); i++)
 	{
-		copy(map, len, g_Map);
-		return;
-	}
+		new cupMap[CUP_MAP];
+		ArrayGetArray(orderedMaps, i, cupMap, sizeof(cupMap));
 
-	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
-	while (!TrieIterEnded(ti))
-	{
-		TrieIterGetCell(ti, mapState);
+		server_print("GetNextCupMapToPlay :: #%d map = %s", i, cupMap[MAP_NAME]);
 
-		if (mapState == MAP_PICKED)
+		if (cupMap[MAP_STATE_] == MAP_PICKED || cupMap[MAP_STATE_] == MAP_DECIDER)
 		{
-			TrieIterGetKey(ti, map, len);
-			TrieIterDestroy(ti);
+			formatex(map, len, cupMap[MAP_NAME]);
 			return;
 		}
-
-		TrieIterNext(ti);
 	}
-	TrieIterDestroy(ti);
 
-	// Take the decider map
-	ti = TrieIterCreate(g_CupMapPool);
-	while (!TrieIterEnded(ti))
-	{
-		TrieIterGetCell(ti, mapState);
-
-		if (mapState == MAP_DECIDER)
-		{
-			TrieIterGetKey(ti, map, len);
-			TrieIterDestroy(ti);
-			return;
-		}
-
-		TrieIterNext(ti);
-	}
-	TrieIterDestroy(ti);
-
-	server_print("[%s] Error: trying to get the next map to play, but there's no map remaining to be played", PLUGIN_TAG);
+	server_print("[%s] Error: trying to get the next map to play, but there's no map remaining to be played.", PLUGIN_TAG);
 }
 
-CountCupMaps(theState)
+// state is a reserved word
+CountCupMaps(MAP_STATE:state_)
 {
 	new result = 0;
 
+	new cupMap[CUP_MAP];
 	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
 	while (!TrieIterEnded(ti))
 	{
-		new mapState;
-		TrieIterGetCell(ti, mapState);
+		//new mapState;
+		//TrieIterGetCell(ti, mapState);
+		TrieIterGetArray(ti, cupMap, sizeof(cupMap));
 
-		if (mapState == theState)
+		//if (mapState == state_)
+		if (cupMap[MAP_STATE_] == state_)
 			result++;
 
 		TrieIterNext(ti);

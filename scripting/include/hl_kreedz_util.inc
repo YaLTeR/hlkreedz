@@ -6,6 +6,8 @@
 #include <fakemeta>
 #include <xs>
 
+#define MAX_MATCH_MAPS 101
+
 enum _:STATS
 {
 	STATS_ID[32],
@@ -78,6 +80,39 @@ enum KZ_VOTE_POSITION
 	POSITION_LEFT,
 	POSITION_CENTER,
 	POSITION_RIGHT
+}
+
+enum MAP_STATE
+{
+	MAP_IDLE,
+	MAP_BANNED,
+	MAP_PICKED,
+	MAP_PLAYED,
+	MAP_DECIDER
+}
+
+enum MATCH_FORMAT
+{
+	MATCH_UNKNOWN,
+	MATCH_PLAYER1,
+	MATCH_PLAYER2,
+	MATCH_DECIDER
+}
+
+enum _:CUP_MAP
+{
+	MAP_ORDER,
+	MAP_STATE:MAP_STATE_,
+	MAP_NAME[MAX_MAPNAME_LENGTH],
+	MATCH_FORMAT:MAP_PICKER
+}
+
+new const g_CupFormatLetters[][] =
+{
+	"?",
+	"A",
+	"B",
+	"D"
 }
 
 new const g_KzVotePositionString[][] =
