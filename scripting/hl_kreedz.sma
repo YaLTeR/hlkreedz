@@ -3638,6 +3638,9 @@ ClientCommandSpectatePost(id)
 	}
 	else if (bNotInSpec)
 	{
+		ClearSyncHud(id, g_SyncHudSpecList);
+		ClearSyncHud(pev(id, pev_iuser2), g_SyncHudSpecList);
+
 		// Returned from spectator mode, resume timer
 		ResumeTimer(id);
 	}
@@ -4310,10 +4313,10 @@ UpdateHud(Float:currGameTime)
 				{
 					if (sendTo[i] == true && g_ShowSpecList[i] == true)
 					{
-						set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], 0.75, 0.15, 0, 0.0, 999999.0, 0.0, 0.0, -1);
-						ShowSyncHudMsg(id, g_SyncHudSpecList, specHud);
+						set_hudmessage(g_HudRGB[i][0], g_HudRGB[i][1], g_HudRGB[i][2], 0.75, 0.15, 0, 0.0, 999999.0, 0.0, 0.0, -1);
+						ShowSyncHudMsg(i, g_SyncHudSpecList, specHud);
 					} else {
-						ClearSyncHud(id, g_SyncHudSpecList);
+						ClearSyncHud(i, g_SyncHudSpecList);
 					}
 				}
 			}
@@ -4594,7 +4597,7 @@ GetSpectatorList(id, hud[], len, sendTo[])
 			{
 				if(!(get_pcvar_num(pcvar_kz_speclist_admin_invis) && get_user_flags(dead, 0) & ADMIN_IMMUNITY))
 				{
-					get_user_name(dead, szName, charsmax(szName));
+					GetColorlessName(dead, szName, charsmax(szName));
 					add(szName, charsmax(szName), "\n");
 					add(hud, len, szName);
 					send = true;
@@ -6294,7 +6297,7 @@ public CmdCupHandler(id, level, cid)
 			ShowMessage(id, "Cannot find the second player specified in the kz_cup command");
 			return PLUGIN_HANDLED;
 		}
-		
+
 		/*
 		trim(cupFormat);
 		if (!ProcessCupFormat(id, cupFormat))
@@ -6631,7 +6634,7 @@ ResetCupMapStates(id)
 
 		cupMap[MAP_ORDER]  = 0;
 		cupMap[MAP_STATE_] = MAP_IDLE;
-		cupMap[MAP_PICKER] = MATCH_UNKNOWN; // will get corrected later, TODO: make something 
+		cupMap[MAP_PICKER] = MATCH_UNKNOWN; // will get corrected later, TODO: make something
 
 		//if (TrieSetCell(g_CupMapPool, map, MAP_IDLE))
 		if (TrieSetArray(g_CupMapPool, cupMap[MAP_NAME], cupMap, sizeof(cupMap)))
