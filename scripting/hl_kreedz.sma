@@ -4310,7 +4310,7 @@ UpdateHud(Float:currGameTime)
 				{
 					if (sendTo[i] == true && g_ShowSpecList[i] == true)
 					{
-						set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], 0.75, 0.15, 0, 0.0, 999999.0, 0.0, 0.0, -1);
+						set_hudmessage(g_HudRGB[i][0], g_HudRGB[i][1], g_HudRGB[i][2], 0.75, 0.15, 0, 0.0, 999999.0, 0.0, 0.0, -1);
 						ShowSyncHudMsg(i, g_SyncHudSpecList, specHud);
 					} else {
 						ClearSyncHud(i, g_SyncHudSpecList);
