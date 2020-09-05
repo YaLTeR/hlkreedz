@@ -3638,6 +3638,9 @@ ClientCommandSpectatePost(id)
 	}
 	else if (bNotInSpec)
 	{
+		ClearSyncHud(id, g_SyncHudSpecList);
+		ClearSyncHud(pev(id, pev_iuser2), g_SyncHudSpecList);
+
 		// Returned from spectator mode, resume timer
 		ResumeTimer(id);
 	}
