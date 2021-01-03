@@ -2494,7 +2494,6 @@ SpawnBot(id)
 			new Float:mins[3] = {-16.0, -16.0, -36.0};
 			entity_set_size(bot, mins, maxs);
 
-			// Copy the state of the player who spawned the bot
 			static replay[REPLAY];
 			ArrayGetArray(g_ReplayFrames[id], 0, replay);
 
@@ -2575,7 +2574,7 @@ SpawnDummyBot(id)
 			hl_get_user_model(id, ownerModel, sizeof(ownerModel));
 			set_user_info(bot, "model", ownerModel);
 
-			engfunc(EngFunc_RunPlayerMove, bot, botAngles, 0.0, 0.0, 0.0, pev(id, pev_button), 0, 4);
+			engfunc(EngFunc_RunPlayerMove, bot, botAngles, 0.0, 0.0, 0.0, pev(bot, pev_button), 0, 4);
 		}
 		else
 			client_print(id, print_chat, "[%s] Sorry, couldn't create the bot", PLUGIN_TAG);
@@ -2677,11 +2676,6 @@ public npc_think(id)
 			// as a too high z velocity when not surfing will deal fall damage
 		}
 
-		set_pev(id, pev_origin, replay[RP_ORIGIN]);
-		set_pev(id, pev_angles, replay[RP_ANGLES]);
-		set_pev(id, pev_v_angle, replay[RP_ANGLES]);
-		set_pev(id, pev_button, replay[RP_BUTTONS]);
-		set_pev(id, pev_velocity, botVelocity);
 		set_pev(bot, pev_origin, replay[RP_ORIGIN]);
 		set_pev(bot, pev_angles, replay[RP_ANGLES]);
 		set_pev(bot, pev_v_angle, replay[RP_ANGLES]);
