@@ -58,6 +58,8 @@
 #define MATCH_START_CHECK_SECOND		1
 #define HUD_UPDATE_TIME					0.05
 #define MIN_TIMELEFT_ALLOWED_NORESET	5.0
+#define HUD_SPLIT_HOLDTIME				2.0
+#define HUD_LAP_HOLDTIME				2.5
 
 #define TASKID_ICON						5633445
 #define TASKID_WELCOME					43321
@@ -144,9 +146,10 @@ enum _:COUNTERS
 
 enum BUTTON_TYPE
 {
+	BUTTON_NOT,
 	BUTTON_START,
 	BUTTON_FINISH,
-	BUTTON_NOT,
+	BUTTON_SPLIT
 }
 
 enum _:WEAPON
@@ -155,9 +158,22 @@ enum _:WEAPON
 	Float:WEAPON_ORIGIN[3]
 }
 
+enum _:SPLIT {
+	SPLIT_ID[17],         // unique identifier, e.g.: "sector1"
+	SPLIT_ENTITY,         // entity id of the corresponding trigger_multiple (if any - so 0 means no corresponding entity)
+	SPLIT_NAME[32],       // the name that will appear in the HUD for this split
+	SPLIT_NEXT[17],       // id of the next split
+	bool:SPLIT_LAP_START  // tells if this split is the start/end of a lap or run
+/*
+	// These are for splits defined in a file or ingame, not compiled in the map itself
+	Float:SPLIT_START_POINT[3],	// assuming a prism or rectangle, vertex with the lowest X, Y and Z, diagonally opposite to the end point
+	Float:SPLIT_END_POINT[3]	// assuming a prism or rectangle, vertex with the highest X, Y and Z, diagonally opposite to the start point
+*/
+}
+
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.42";
+new const VERSION[] = "0.43";
 new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the replay format changes
 new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, execut4ble, naz, mxpph";
 
@@ -311,6 +327,14 @@ new g_TeleMenuOption[MAX_PLAYERS + 1];
 new g_KzMenuOption[MAX_PLAYERS + 1];
 new g_CheatCommandsGuard[MAX_PLAYERS + 1];
 new Float:g_PlayerTASed[MAX_PLAYERS + 1];
+
+// Splits stuff
+new Trie:g_Splits;                       // split id -> SPLIT struct
+new Array:g_SplitTimes[MAX_PLAYERS + 1]; // split # -> time, in the current lap
+new Array:g_LapTimes[MAX_PLAYERS + 1];   // lap # -> time
+new Array:g_OrderedSplits;               // split # -> split id
+new g_CurrentLap[MAX_PLAYERS + 1];       // 1-indexed, 0 means player's not running or the map doesn't allow laps
+new g_RunLaps;                           // how many laps players have to do to complete a run
 
 // These are for No-Reset runs, races and matches (agstart)
 new g_RaceId[MAX_PLAYERS + 1];
@@ -526,6 +550,7 @@ new Handle:g_DbHost;
 new Handle:g_DbConnection;
 
 new g_FwLightStyle;
+new g_FwKeyValuePre;
 
 new Array:g_AgAllowedGamemodes;
 new bool:g_AgVoteRunning;
@@ -539,16 +564,26 @@ new mfwd_hlkz_worldrecord;
 
 public plugin_precache()
 {
+	server_print("[%s] Executing plugin_precache()", PLUGIN_TAG);
+
 	g_FwLightStyle = register_forward(FM_LightStyle, "Fw_FmLightStyle");
 	g_PauseSprite = precache_model("sprites/pause_icon.spr");
 	precache_model("models/player/robo/robo.mdl");
 	g_Firework = precache_model("sprites/firework.spr");
 	precache_sound(FIREWORK_SOUND);
 	//precache_model("models/boxy.mdl");
+
+	// Key/Values are read before plugin_init()
+	g_FwKeyValuePre = register_forward(FM_KeyValue, "Fw_FmKeyValuePre");
+
+	// Splits stuff
+	g_Splits        = TrieCreate();
 }
 
 public plugin_init()
 {
+	server_print("[%s] Executing plugin_init()", PLUGIN_TAG);
+
 	register_plugin(PLUGIN, VERSION, AUTHOR);
 	register_cvar("hlkreedz_version", VERSION, FCVAR_SPONLY | FCVAR_SERVER | FCVAR_UNLOGGED);
 
@@ -784,6 +819,10 @@ public plugin_init()
 			register_touch(g_WeaponNames[j], "worldspawn",	"Fw_FmWeaponRespawn");
 	}
 
+	// Registered in precache, no longer necessary
+	unregister_forward(FM_LightStyle, g_FwLightStyle);
+	unregister_forward(FM_KeyValue, g_FwKeyValuePre);
+
 	register_forward(FM_ClientKill,"Fw_FmClientKillPre");
 	register_forward(FM_ClientCommand, "Fw_FmClientCommandPost", 1);
 	register_forward(FM_Think, "Fw_FmThinkPre");
@@ -791,7 +830,6 @@ public plugin_init()
 	register_forward(FM_PlayerPostThink, "Fw_FmPlayerPostThinkPre");
 	register_forward(FM_AddToFullPack, "Fw_FmAddToFullPackPost", 1);
 	register_forward(FM_GetGameDescription,"Fw_FmGetGameDescriptionPre");
-	unregister_forward(FM_LightStyle, g_FwLightStyle);
 	register_forward(FM_Touch, "Fw_FmTouchPre");
 	register_forward(FM_CmdStart, "Fw_FmCmdStartPre");
 	register_touch("hornet", 			"player", "Fw_FmPlayerTouchMonster");
@@ -841,12 +879,42 @@ public plugin_init()
 	g_ArrayStats[PURE]   = ArrayCreate(STATS);
 	g_NoResetLeaderboard = ArrayCreate(NORESET);
 
+	g_OrderedSplits = ArrayCreate(17, 3);
+
+	new split[SPLIT];
+
+	//server_print("Unsorted splits:");
+	new TrieIter:ti = TrieIterCreate(g_Splits);
+	while (!TrieIterEnded(ti))
+	{
+		TrieIterGetArray(ti, split, sizeof(split));
+
+		//server_print("%s (%d, %s, %d)", split[SPLIT_ID], split[SPLIT_ENTITY], split[SPLIT_NAME], split[SPLIT_LAP_START]);
+
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+
+	SortSplits();
+
+	new splitId[17];
+
+	if (ArraySize(g_OrderedSplits))
+	{
+		server_print("Sorted splits:");
+		for (new i = 0; i < ArraySize(g_OrderedSplits); i++)
+		{
+			ArrayGetString(g_OrderedSplits, i, splitId, charsmax(splitId));
+			server_print("#%d - %s", i, splitId);
+		}
+	}
+
 	g_ReplayNum = 0;
 }
 
 public plugin_cfg()
 {
-	server_print("[%s] Executing plugin_cfg", PLUGIN_TAG);
+	server_print("[%s] Executing plugin_cfg()", PLUGIN_TAG);
 	get_configsdir(g_ConfigsDir, charsmax(g_ConfigsDir));
 	get_mapname(g_Map, charsmax(g_Map));
 	strtolower(g_Map);
@@ -934,8 +1002,11 @@ public plugin_end()
 	ArrayDestroy(g_ArrayStats[PURE]);
 	ArrayDestroy(g_NoResetLeaderboard);
 	ArrayDestroy(g_AgAllowedGamemodes);
+	ArrayDestroy(g_OrderedSplits);
+
 	TrieDestroy(g_CupMapPool);
 	TrieDestroy(g_ColorsList);
+	TrieDestroy(g_Splits);
 }
 
 // To be executed after cvars in amxx.cfg and other configs have been set,
@@ -1726,6 +1797,10 @@ public client_putinserver(id)
 	g_RunNextCountdown[id] = 0.0;
 	g_RunCountdown[id] = get_pcvar_float(pcvar_kz_noreset_countdown);
 
+	g_SplitTimes[id] = ArrayCreate(1, 3);
+	g_LapTimes[id] = ArrayCreate();
+	g_CurrentLap[id] = 0;
+
 	g_IsKzVoteRunning[id] = false;
 	g_IsKzVoteVisible[id] = true;
 	g_IsKzVoteIgnoring[id] = false;
@@ -1813,6 +1888,10 @@ public client_disconnect(id)
 	g_KzVoteValue[id] = 0;
 	g_KzVoteStartTime[id] = 0.0;
 	g_KzVoteCaller[id] = 0;
+
+	ArrayClear(g_SplitTimes[id]);
+	ArrayClear(g_LapTimes[id]);
+	g_CurrentLap[id] = 0;
 
 	if (g_RecordRun[id])
 	{
@@ -1976,6 +2055,10 @@ InitPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 	g_PlayerTime[id] = 0.0;
 	g_PlayerTimePause[id] = 0.0;
 	g_PlayerEndReqs[id] = 0;
+
+	ArrayClear(g_SplitTimes[id]);
+	ArrayClear(g_LapTimes[id]);
+	g_CurrentLap[id] = 0;
 
 	if (!onDisconnect)
 	{
@@ -2295,7 +2378,7 @@ CmdReplay(id, RUN_TYPE:runType)
 	minutes = floatround(stats[STATS_TIME], floatround_floor) / 60;
 	seconds = stats[STATS_TIME] - (60 * minutes);
 
-	formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%"), minutes, seconds);
+	formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%0"), minutes, seconds);
 	ucfirst(szTopType);
 	formatex(replayingMsg, charsmax(replayingMsg), "[%s] Replaying %s's %s run (%ss)", PLUGIN_TAG, stats[STATS_NAME], szTopType, time);
 	formatex(replayFailedMsg, charsmax(replayFailedMsg), "[%s] Sorry, no replay available for %s's %s run", PLUGIN_TAG, stats[STATS_NAME], szTopType);
@@ -3744,6 +3827,9 @@ StartClimb(id, bool:isMatch = false)
 	else
 		InitPlayer(id);
 
+	if (g_RunLaps)
+		g_CurrentLap[id] = 1;
+
 	CreateCp(id, CP_TYPE_START);
 	StartTimer(id);
 }
@@ -3773,6 +3859,12 @@ FinishClimb(id)
 		ShowMessage(id, "You don't meet the requirements to finish. Press the required buttons or pass through the required places first");
 		canFinish = false;
 	}
+	if (g_RunLaps && ArraySize(g_SplitTimes[id]) != ArraySize(g_OrderedSplits))
+	{
+		ShowMessage(id, "Can't finish. Make sure you have passed through all splits");
+		canFinish = false;
+	}
+
 	if (!canFinish)
 	{
 		if (kzDeniedSound)
@@ -3825,7 +3917,7 @@ FinishTimer(id)
 	client_cmd(0, "spk fvox/bell");
 
 	get_user_name(id, name, charsmax(name));
-	client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s^0 finished in %02d:%", "(CPs: %d | TPs: %d) %s%s"),
+	client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s^0 finished in %02d:%0", "(CPs: %d | TPs: %d) %s%s"),
 		PLUGIN_TAG, name, minutes, seconds, g_CpCounters[id][COUNTER_CP], g_CpCounters[id][COUNTER_TP], pureRun, g_RunMode[id] == MODE_NORESET ? " No-Reset" : "");
 
 	new RUN_MODE:originalRunMode = g_RunMode[id];
@@ -3961,6 +4053,134 @@ FinishTimer(id)
 	}
 }
 
+SplitTime(id, ent)
+{
+	if (!get_bit(g_baIsClimbing, id))
+		return;
+
+	new split[SPLIT], splitIdx, totalSplits, lastSplitIdx, previousSplitIdx, previousSplitId[17], previousSplit[SPLIT];
+
+	GetSplitByEntityId(ent, split);
+	splitIdx = ArrayFindString(g_OrderedSplits, split[SPLIT_ID]);
+	totalSplits = ArraySize(g_OrderedSplits);
+	lastSplitIdx = totalSplits - 1;
+	previousSplitIdx = splitIdx - 1;
+	if (previousSplitIdx == -1)
+		previousSplitIdx = lastSplitIdx;
+
+	ArrayGetString(g_OrderedSplits, previousSplitIdx, previousSplitId, charsmax(previousSplitId));
+	TrieGetArray(g_Splits, previousSplitId, previousSplit, sizeof(previousSplit));
+
+	new playerSplitRelative = ArraySize(g_SplitTimes[id]);
+	if (playerSplitRelative >= lastSplitIdx)
+	{
+		playerSplitRelative -= totalSplits;
+	}
+
+	if ((splitIdx - 1) != playerSplitRelative)
+	{
+		// Cases leading here:
+		// - Player is still touching the same split that they've gone through a few frames ago, because the bounding box has
+		//   some thickness and takes some frames to stop touching it (player is still inside the bounding box of the split)
+		// - Player is going backwards, touching the previous split(s)
+		// - Player has skipped some split, because some split's bounding box is wrong letting them pass without touching it,
+		//   or because the map is designed like that
+		return;
+	}
+
+	if (splitIdx == 1 && ArraySize(g_SplitTimes[id]) == totalSplits)
+	{
+		// We clear this on the 2nd split (index=1) because the 1st one is still used to get previous lap's last split's time
+		// and during the first split the HUD still has to show that split's time
+		ArrayClear(g_SplitTimes[id]);
+	}
+
+	new splitTimeText[54];
+	new Float:splitTime = GetCurrentRunTime(id) - GetPreviousLapTimes(id) - GetCurrentLapTime(id);
+	formatex(splitTimeText, charsmax(splitTimeText), "%s - %s", previousSplit[SPLIT_NAME], GetSplitTimeText(id, splitTime));
+
+	// HUD and logging for this split
+	console_print(id, splitTimeText);
+	set_dhudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], _, 0.18, 0, 0.0, HUD_SPLIT_HOLDTIME, _, 0.4);
+	show_dhudmessage(id, splitTimeText);
+
+	ArrayPushCell(g_SplitTimes[id], splitTime);
+
+	if (splitIdx == 0)
+	{
+		if (g_RunLaps)
+		{
+			new lapText[24];
+			new Float:lapTime = GetCurrentLapTime(id);
+			formatex(lapText, charsmax(lapText), "Lap %d - %s", g_CurrentLap[id], GetSplitTimeText(id, lapTime));
+
+			// HUD and logging for this lap. Show it a bit below the split time
+			console_print(id, lapText);
+			set_dhudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], _, 0.21, 0, 0.0, HUD_LAP_HOLDTIME, _, 0.4);
+			show_dhudmessage(id, lapText);
+
+			ArrayPushCell(g_LapTimes[id], lapTime);
+
+			g_CurrentLap[id]++;
+		}
+
+		// Extra parentheses because my editor has some syntax highlighting problems
+		if ((!g_RunLaps) || (g_RunLaps && g_CurrentLap[id] > g_RunLaps))
+		{
+			FinishClimb(id);
+		}
+	}
+}
+
+/**
+ * This has different formatting than the one used in the rest of the plugin when the time is less than 1 minute
+ */
+GetSplitTimeText(id, Float:time)
+{
+	new minutes       = floatround(time, floatround_floor) / 60;
+	new Float:seconds = time - (60 * minutes);
+
+	new result[14];
+	if (minutes)
+		formatex(result, charsmax(result), GetVariableDecimalMessage(id, "%d:%0"), minutes, seconds);
+	else
+		formatex(result, charsmax(result), GetVariableDecimalMessage(id, "%"), seconds);
+
+	return result;
+}
+
+Float:GetCurrentRunTime(id)
+{
+	return get_gametime() - g_PlayerTime[id];
+}
+
+Float:GetPreviousLapTimes(id)
+{
+	new Float:result;
+
+	for (new i = 0; i < ArraySize(g_LapTimes[id]); i++)
+	{
+		result += Float:ArrayGetCell(g_LapTimes[id], i);
+	}
+
+	return result;
+}
+
+/**
+ * Doesn't take into account current (ongoing) split's time, only the ones already finished
+ */
+Float:GetCurrentLapTime(id)
+{
+	new Float:result;
+
+	for (new i = 0; i < ArraySize(g_SplitTimes[id]); i++)
+	{
+		result += Float:ArrayGetCell(g_SplitTimes[id], i);
+	}
+
+	return result;
+}
+
 CancelRaces(runId)
 {
 	new players[MAX_PLAYERS], playersNum;
@@ -4087,22 +4307,23 @@ public Fw_HamUseButtonPre(ent, id)
 	new BUTTON_TYPE:type = GetEntityButtonType(ent);
 	switch (type)
 	{
-	case BUTTON_START: StartClimb(id);
-	case BUTTON_FINISH: {
-		new Float:origin[3];
-		fm_get_brush_entity_origin(ent, origin); // find origin of button for fireworks
+		case BUTTON_START: StartClimb(id);
+		case BUTTON_FINISH:
+		{
+			new Float:origin[3];
+			fm_get_brush_entity_origin(ent, origin); // find origin of button for fireworks
 
-		// console_print(0, "origin[0]: %f", origin[0]);
-		// console_print(0, "origin[1]: %f", origin[1]);
-		// console_print(0, "origin[2]: %f", origin[2]);
+			g_PrevButtonOrigin[0] = origin[0];
+			g_PrevButtonOrigin[1] = origin[1];
+			g_PrevButtonOrigin[2] = origin[2];
 
-		g_PrevButtonOrigin[0] = origin[0];
-		g_PrevButtonOrigin[1] = origin[1];
-		g_PrevButtonOrigin[2] = origin[2];
-
-		FinishClimb(id);
-	}
-	case BUTTON_NOT: CheckEndReqs(ent, id);
+			FinishClimb(id);
+		}
+		case BUTTON_SPLIT:
+		{
+			SplitTime(id, ent);
+		}
+		case BUTTON_NOT: CheckEndReqs(ent, id);
 	}
 
 	return HAM_IGNORED;
@@ -4111,31 +4332,24 @@ public Fw_HamUseButtonPre(ent, id)
 BUTTON_TYPE:GetEntityButtonType(ent)
 {
 	static name[32];
+	static pevsToCheck[] = {pev_target, pev_targetname};
 
-	pev(ent, pev_target, name, charsmax(name));
-	if (name[0])
+	for (new i = 0; i < sizeof(pevsToCheck); i++)
 	{
-		if (IsStartEntityName(name))
+		pev(ent, pevsToCheck[i], name, charsmax(name));
+		if (name[0])
 		{
-			return BUTTON_START;
-		}
-		else if (IsStopEntityName(name))
-		{
-			return BUTTON_FINISH;
+			new BUTTON_TYPE:type = GetButtonTypeFromName(name);
+
+			if (type != BUTTON_NOT)
+				return type;
 		}
 	}
 
-	pev(ent, pev_targetname, name, charsmax(name));
-	if (name[0])
+	new split[SPLIT];
+	if (GetSplitByEntityId(ent, split))
 	{
-		if (IsStartEntityName(name))
-		{
-			return BUTTON_START;
-		}
-		else if (IsStopEntityName(name))
-		{
-			return BUTTON_FINISH;
-		}
+		return BUTTON_SPLIT;
 	}
 
 	return BUTTON_NOT;
@@ -4144,17 +4358,41 @@ BUTTON_TYPE:GetEntityButtonType(ent)
 bool:IsStartEntityName(name[])
 {
 	for (new i = 0; i < sizeof(g_szStarts); i++)
+	{
 		if (containi(name, g_szStarts[i]) != -1)
+		{
 			return true;
+		}
+	}
+
 	return false;
 }
 
 bool:IsStopEntityName(name[])
 {
 	for (new i = 0; i < sizeof(g_szStops); i++)
+	{
 		if (containi(name, g_szStops[i]) != -1)
+		{
 			return true;
+		}
+	}
+
 	return false;
+}
+
+BUTTON_TYPE:GetButtonTypeFromName(name[])
+{
+	if (IsStartEntityName(name))
+	{
+		return BUTTON_START;
+	}
+	else if (IsStopEntityName(name))
+	{
+		return BUTTON_FINISH;
+	}
+
+	return BUTTON_NOT;
 }
 
 CheckEndReqs(ent, id)
@@ -4329,8 +4567,9 @@ UpdateHud(Float:currGameTime)
 			new BUTTON_TYPE:type = GetEntityButtonType(ent);
 			switch (type)
 			{
-			case BUTTON_START: ShowInHealthHud(id, "START");
-			case BUTTON_FINISH: ShowInHealthHud(id, "STOP");
+				case BUTTON_START: ShowInHealthHud(id, "START");
+				case BUTTON_FINISH: ShowInHealthHud(id, "STOP");
+				case BUTTON_SPLIT: ShowInHealthHud(id, "SPLIT");
 			}
 
 #if defined _DEBUG
@@ -4366,14 +4605,28 @@ UpdateHud(Float:currGameTime)
 			if (totalReqs)
 				formatex(reqsText, charsmax(reqsText), " | Reqs: %d/%d", completedReqs, totalReqs);
 
+			new lapsText[17];
+			if (g_RunLaps)
+				formatex(lapsText, charsmax(lapsText), " | Lap: %d/%d", g_CurrentLap[targetId], g_RunLaps);
+
+			new splitText[18];
+			if (ArraySize(g_OrderedSplits))
+			{
+				new ongoingSplit = ArraySize(g_SplitTimes[targetId]) + 1;
+				if (ongoingSplit > ArraySize(g_OrderedSplits))
+					ongoingSplit -= ArraySize(g_OrderedSplits); // instead of "Split: 4/3", make it "Split: 1/3"
+
+				formatex(splitText, charsmax(splitText), " | Split: %d/%d", ongoingSplit, ArraySize(g_OrderedSplits));
+			}
+
 			new runModeText[16];
 			if (g_RunMode[targetId] != MODE_NORMAL)
 				formatex(runModeText, charsmax(runModeText), " %s", g_RunModeString[g_RunMode[targetId]]);
 
-			new timerText[80];
-			formatex(timerText, charsmax(timerText), "%s%s run | Time: %02d:%02d | CPs: %d | TPs: %d%s%s",
+			new timerText[128];
+			formatex(timerText, charsmax(timerText), "%s%s run | Time: %02d:%02d | CPs: %d | TPs: %d%s%s%s%s",
 					g_RunType[targetId], runModeText, min, sec, g_CpCounters[targetId][COUNTER_CP], g_CpCounters[targetId][COUNTER_TP],
-					reqsText, get_bit(g_baIsPaused, targetId) ? " | *Paused*" : "");
+					reqsText, lapsText, splitText, get_bit(g_baIsPaused, targetId) ? " | *Paused*" : "");
 
 			switch (g_ShowTimer[id])
 			{
@@ -4895,6 +5148,83 @@ public Fw_FmWeaponRespawn(weaponId, worldspawnId)
 	return PLUGIN_CONTINUE;
 }
 
+public Fw_FmKeyValuePre(ent, kvd)
+{
+	if (!pev_valid(ent))
+		return FMRES_IGNORED;
+
+	static className[32];
+	pev(ent, pev_classname, className, charsmax(className));
+
+	if (equali(className, "trigger_multiple"))
+	{
+		GetSplitsFromMap(ent, kvd);
+	}
+
+	return FMRES_IGNORED;
+}
+
+/**
+ * Gets and stores splits that were created directly in the map (compiled with them),
+ * via trigger_multiple entities with specific properties. This will get called
+ * for each key->value pair of any trigger_multiple
+ */
+GetSplitsFromMap(ent, kvd)
+{
+	new key[32], value[32], split[SPLIT];
+	get_kvd(kvd, KV_KeyName, key, charsmax(key));
+	get_kvd(kvd, KV_Value, value, charsmax(value));
+
+	if (!GetSplitByEntityId(ent, split))
+	{
+		split[SPLIT_ENTITY] = ent;
+	}
+
+	if (equal(key, "split_id"))
+	{
+		copy(split[SPLIT_ID], charsmax(split[SPLIT_ID]), value);
+
+		// Now that we have the proper split id, we remove the entry for this split
+		// that has the entity id as the key, and a new entry will be created later with the split id as the key instead
+		new entityId[5];
+		num_to_str(ent, entityId, charsmax(entityId));
+		TrieDeleteKey(g_Splits, entityId);
+	}
+	else if (equal(key, "split_name"))
+	{
+		copy(split[SPLIT_NAME], charsmax(split[SPLIT_NAME]), value);
+	}
+	else if (equal(key, "split_next"))
+	{
+		copy(split[SPLIT_NEXT], charsmax(split[SPLIT_NEXT]), value);
+	}
+	else if (equal(key, "split_lap_start"))
+	{
+		split[SPLIT_LAP_START] = true;
+	}
+	else if (equal(key, "run_laps"))
+	{
+		g_RunLaps = str_to_num(value);
+	}
+	else
+	{
+		// Nothing to do, it's a normal trigger_multiple property that we don't need
+		return;
+	}
+
+	new trieKey[32];
+
+	// The trie key will be either the split_id value if we already got it, or the entity number (stringified)
+	if (split[SPLIT_ID][0])
+		copy(trieKey, charsmax(trieKey), split[SPLIT_ID]);
+	else
+		num_to_str(ent, trieKey, charsmax(trieKey));
+
+	//server_print("[GetSplits] trieKey: %s | key: %s | value: %s", trieKey, key, value);
+
+	TrieSetArray(g_Splits, trieKey, split, sizeof(split));
+}
+
 public Fw_FmClientKillPre(id)
 {
 	if (get_pcvar_num(pcvar_kz_nokill) || g_RunMode[id] != MODE_NORMAL || g_RunModeStarting[id] != MODE_NORMAL)
@@ -4946,7 +5276,11 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 
 		if (is_user_alive(i) && pev(i, pev_iuser1) == OBS_NONE)
 		{
+			// TODO: refactor the lines below, because they're repeated in StartClimb() too
 			InitPlayer(i, true);
+
+			if (g_RunLaps)
+				g_CurrentLap[i] = 1;
 			StartTimer(i);
 
 			if (get_pcvar_num(pcvar_kz_noreset_agstart))
@@ -5579,6 +5913,87 @@ CheckSpawns()
 
 	if (maxDistance > MIN_DISTANCE_RESPAWN_ADVANTAGE)
 		g_bCanTakeAdvantageOfRespawn = true;
+}
+
+SortSplits()
+{
+	new firstId[17], split[SPLIT];
+
+	// Find the starting split, the one that marks the start/end of a lap
+	new TrieIter:ti = TrieIterCreate(g_Splits);
+	while (!TrieIterEnded(ti))
+	{
+		TrieIterGetArray(ti, split, sizeof(split));
+
+		server_print("IsFirstSplit(%s, %d): %d", split[SPLIT_ID], split[SPLIT_LAP_START], IsFirstSplit(split));
+
+		if (IsFirstSplit(split))
+		{
+			copy(firstId, charsmax(firstId), split[SPLIT_ID]);
+			ArrayPushString(g_OrderedSplits, split[SPLIT_ID]);
+
+			break;
+		}
+
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+
+	if (!firstId[0])
+	{
+		// This map has no splits
+		return;
+	}
+
+	// Splits have a property pointing to the next split a player should go through to continue the run
+	// So we check that to jump from split to split, until the first split is found again or there's no next split
+	do
+	{
+		if (FindNextSplit(split, split))
+		{
+			ArrayPushString(g_OrderedSplits, split[SPLIT_ID]);
+		}
+	}
+	while (!equal(firstId, split[SPLIT_NEXT]));
+}
+
+bool:IsFirstSplit(split[])
+{
+	return bool:split[SPLIT_LAP_START];
+}
+
+bool:FindNextSplit(prev[], result[])
+{
+	new split[SPLIT], emptySplit[SPLIT];
+
+	if (!prev[SPLIT_NEXT])
+	{
+		// There's no next, so this map doesn't support laps, just a normal non-looping run
+		datacopy(result, emptySplit, sizeof(emptySplit));
+
+		return false;
+	}
+
+	new TrieIter:ti = TrieIterCreate(g_Splits);
+	while (!TrieIterEnded(ti))
+	{
+		TrieIterGetArray(ti, split, sizeof(split));
+
+		if (equal(prev[SPLIT_NEXT], split[SPLIT_ID]))
+		{
+			datacopy(result, split, sizeof(split));
+
+			return true;
+		}
+
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+
+	// Haven't found any split by that id
+	datacopy(result, emptySplit, sizeof(emptySplit));
+
+	return false;
 }
 
 CheckMapWeapons()
@@ -7312,7 +7727,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 			seconds = slower - (60 * minutes);
 			if (!(get_bit(g_baIsPureRunning, id) && topType == PRO))
 			{
-				client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You failed your %s time by %02d:%"),
+				client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You failed your %s time by %02d:%0"),
 					PLUGIN_TAG, g_TopType[topType], minutes, seconds);
 			}
 
@@ -7340,7 +7755,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 		faster = stats[STATS_TIME] - kztime;
 		minutes = floatround(faster, floatround_floor) / 60;
 		seconds = faster - (60 * minutes);
-		client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You improved your %s time by %02d:%"),
+		client_print(id, print_chat, GetVariableDecimalMessage(id, "[%s] You improved your %s time by %02d:%0"),
 			PLUGIN_TAG, g_TopType[topType], minutes, seconds);
 
 		deleteItemId = i;
@@ -7458,7 +7873,7 @@ ShowTopClimbers(id, RUN_TYPE:topType)
 		minutes = floatround(stats[STATS_TIME], floatround_floor) / 60;
 		seconds = stats[STATS_TIME] - (60 * minutes);
 
-		formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%"), minutes, seconds);
+		formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%0"), minutes, seconds);
 		format_time(date, charsmax(date), "%d/%m/%Y", stats[STATS_TIMESTAMP]);
 
 		// Check if there's demo for this record
@@ -7547,7 +7962,7 @@ ShowTopNoReset(id)
 		minutes = floatround(stats[NORESET_AVG_TIME], floatround_floor) / 60;
 		seconds = stats[NORESET_AVG_TIME] - (60 * minutes);
 
-		formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%"), minutes, seconds);
+		formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%0"), minutes, seconds);
 		format_time(date, charsmax(date), "%d/%m/%Y", stats[NORESET_LATEST_RUN]);
 
 		len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s  %3d        %s\n", i + 1, stats[NORESET_NAME], time, stats[NORESET_RUNS], date);
@@ -7596,6 +8011,7 @@ public IsPlayerInsideWall(id, Float:origin[3], Float:leadingBoundary[3], Float:c
 		return false;
 }
 
+// TODO: refactor to reduce confusion, make it return just the "%.3f" part for example
 // Create a string that has the correct formating for seconds, that is a float
 // with a variable number of decimals per user configuration
 // This may actually be a silly thing due to my unknowledge about Pawn/AMXX
@@ -7609,7 +8025,7 @@ GetVariableDecimalMessage(id, msg1[], msg2[] = "")
 
 	new msg[192];
 	strcat(msg, msg1, charsmax(msg));
-	strcat(msg, "0", charsmax(msg));
+	//strcat(msg, "0", charsmax(msg));
 	strcat(msg, sec, charsmax(msg));
 	strcat(msg, ".", charsmax(msg));
 	strcat(msg, dec, charsmax(msg));
@@ -7760,6 +8176,29 @@ GetVersionNumber()
 	return str_to_num(numberPart);
 }
 */
+
+bool:GetSplitByEntityId(id, result[])
+{
+	new split[SPLIT];
+	new TrieIter:ti = TrieIterCreate(g_Splits);
+	while (!TrieIterEnded(ti))
+	{
+		TrieIterGetArray(ti, split, sizeof(split));
+
+		if (id && split[SPLIT_ENTITY] == id)
+		{
+			TrieIterDestroy(ti);
+			datacopy(result, split, sizeof(split));
+
+			return true;
+		}
+
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
+
+	return false;
+}
 
 
 
