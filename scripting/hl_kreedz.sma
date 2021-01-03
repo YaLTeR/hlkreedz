@@ -2689,22 +2689,24 @@ public npc_think(id)
 		xs_vec_copy(replay[RP_ORIGIN], botCurrPos);
 
 		new Float:demoTime = replay[RP_TIME] - g_ReplayStartGameTime[owner];
-/*
-		if ((botPrevHSpeed > 0.0 && botCurrHSpeed == 0.0 && get_distance_f(botCurrPos, botPrevPos) > 50.0)
-			|| get_distance_f(botCurrPos, botPrevPos) > 100.0) // Has teleported?
-		{
-			g_Unfreeze[bot]++;
-		}
-		else if (g_Unfreeze[bot])
-			g_Unfreeze[bot]++;
-*/
-		botCurrHSpeed = floatsqroot(floatpower(botVelocity[0], 2.0) + floatpower(botVelocity[1], 2.0));
 
 		if (g_ConsolePrintNextFrames[owner] > 0)
 		{
 			console_print(owner, "[t=%d %.5f] dp: %.2f, px: %.2f, py: %.2f, pz: %.2f, s: %.2f, btns: %d",
-				g_ReplayFramesIdx[owner], demoTime, get_distance_f(botCurrPos, botPrevPos), replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2], botCurrHSpeed, replay[RP_BUTTONS]);
+				g_ReplayFramesIdx[owner], demoTime, get_distance_f(botCurrPos, botPrevPos),
+				replay[RP_ORIGIN][0], replay[RP_ORIGIN][1], replay[RP_ORIGIN][2], botCurrHSpeed, replay[RP_BUTTONS]);
 			g_ConsolePrintNextFrames[owner]--;
+		}
+
+		if (g_ReplayFramesIdx[owner] == 1)
+		{
+			// For some reason sometimes the bot doesn't press the start button even though it has
+			// the IN_USE bit set for pev_buttons in the first frame, so we make it press it here
+			// in the second frame and thus spectators will be able to see the replay's HUD properly
+			StartClimb(bot);
+
+			// We also change the time the run started, cos it should have been first frame's gametime
+			g_PlayerTime[bot] = get_gametime() - (replay[RP_TIME] - replayPrev[RP_TIME]);
 		}
 
 		g_LastFrameTime[owner] = replay[RP_TIME] + frameDuration;
@@ -3801,7 +3803,7 @@ StartClimb(id, bool:isMatch = false)
 		ArrayClear(g_RunFrames[id]);
 	}
 
-	if (get_pcvar_num(pcvar_kz_autorecord))
+	if (get_pcvar_num(pcvar_kz_autorecord) && !IsBot(id))
 	{
 		g_RecordRun[id] = 1;
 		g_RunFrames[id] = ArrayCreate(REPLAY);
@@ -6005,6 +6007,8 @@ CheckTeleportDestinations()
 	{
 		server_print("[%s] The current map has teleports", PLUGIN_TAG);
 	}
+	else
+		server_print("[%s] The current map doesn't have teleports", PLUGIN_TAG);
 }
 
 // FIXME: code smell, take these from some cfg file(s) instead
