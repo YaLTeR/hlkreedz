@@ -345,16 +345,6 @@ new Float:g_RunNextCountdown[MAX_PLAYERS + 1];
 new Float:g_RunCountdown[MAX_PLAYERS + 1];
 new bool:g_IsBannedFromMatch[MAX_PLAYERS + 1];
 
-/*
-new bool:g_IsNoResetMode[MAX_PLAYERS + 1];			// means the player is in a no-reset run; only set during run (NOT during countdown)
-new Float:g_NoResetNextCountdown[MAX_PLAYERS + 1];	// gametime where the next countdown message has to be sent; only set during countdown
-new Float:g_NoResetStartTime[MAX_PLAYERS + 1];			// what gametime does this player's no-reset run start at?; only set during countdown
-new Float:g_NoResetCountdown[MAX_PLAYERS + 1];		// how many seconds of countdown the player wants in no-reset mode
-new bool:g_IsInRace[MAX_PLAYERS + 1];
-new Float:g_RaceNextCountdown[MAX_PLAYERS + 1];
-new Float:g_RaceStartTime[MAX_PLAYERS + 1];
-*/
-
 // Player preferences/settings
 new g_ShowTimer[MAX_PLAYERS + 1];
 new g_ShowKeys[MAX_PLAYERS + 1];
@@ -840,7 +830,7 @@ public plugin_init()
 	register_touch("trigger_push", 		"player", "Fw_FmPlayerTouchPush");
 	register_touch("trigger_multiple", 	"player", "Fw_FmPlayerTouchHealthBooster");
 
-	mfwd_hlkz_cheating = CreateMultiForward("hlkz_cheating", ET_IGNORE, FP_CELL);
+	mfwd_hlkz_cheating    = CreateMultiForward("hlkz_cheating", ET_IGNORE, FP_CELL);
 	mfwd_hlkz_worldrecord = CreateMultiForward("hlkz_worldrecord", ET_IGNORE, FP_CELL, FP_CELL);
 
 	register_message(get_user_msgid("Health"), "Fw_MsgHealth");
@@ -868,7 +858,7 @@ public plugin_init()
 	g_SyncHudKeys           = CreateHudSyncObj();
 	g_SyncHudHealth         = CreateHudSyncObj();
 	g_SyncHudShowStartMsg   = CreateHudSyncObj();
-	g_SyncHudDistance		= CreateHudSyncObj();
+	g_SyncHudDistance       = CreateHudSyncObj();
 	g_SyncHudSpeedometer    = CreateHudSyncObj();
 	g_SyncHudSpecList       = CreateHudSyncObj();
 	g_SyncHudCupMaps        = CreateHudSyncObj();
@@ -948,7 +938,6 @@ public plugin_cfg()
 
 	new playersDir[256];
 	formatex(playersDir, charsmax(playersDir), "%s/%s", g_ConfigsDir, "players");
-	console_print(0, "Players directory: %s", playersDir);
 	if (!dir_exists(playersDir))
 		mkdir(playersDir);
 
@@ -970,6 +959,7 @@ public plugin_cfg()
 
 	g_isAnyBoostWeaponInMap = false;
 	CheckMapWeapons();
+	CheckTeleportDestinations();
 
 	g_MapEndReqs = TrieCreate();
 	g_UnorderedReqsMaps = TrieCreate();
@@ -1007,6 +997,9 @@ public plugin_end()
 	TrieDestroy(g_CupMapPool);
 	TrieDestroy(g_ColorsList);
 	TrieDestroy(g_Splits);
+
+	DestroyForward(mfwd_hlkz_cheating);
+	DestroyForward(mfwd_hlkz_worldrecord);
 }
 
 // To be executed after cvars in amxx.cfg and other configs have been set,
@@ -4302,8 +4295,6 @@ public Fw_HamUseButtonPre(ent, id)
 	if (!IsPlayer(id))
 		return HAM_IGNORED;
 
-	//console_print(id, "using a button");
-
 	new BUTTON_TYPE:type = GetEntityButtonType(ent);
 	switch (type)
 	{
@@ -5281,6 +5272,7 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 
 			if (g_RunLaps)
 				g_CurrentLap[i] = 1;
+
 			StartTimer(i);
 
 			if (get_pcvar_num(pcvar_kz_noreset_agstart))
@@ -5887,7 +5879,11 @@ CheckSpawns()
 
 	new Float:maxDistance;
 	new spawnsNum = ArraySize(spawns);
-	server_print("[%s] There are %d spawns in this map:", PLUGIN_TAG, spawnsNum);
+	server_print("[%s] There are %d spawns in this map", PLUGIN_TAG, spawnsNum);
+
+	if (spawnsNum < 2)
+		return;
+
 	for (new i = 0; i < spawnsNum; i++)
 	{
 		id = ArrayGetCell(spawns, i);
@@ -6009,6 +6005,15 @@ CheckMapWeapons()
 	server_print("[%s] The current map %s weapons to boost with", PLUGIN_TAG, g_isAnyBoostWeaponInMap ? "has" : "doesn't have");
 }
 
+CheckTeleportDestinations()
+{
+	if (find_ent_by_class(-1, "info_teleport_destination"))
+	{
+		server_print("[%s] The current map has teleports", PLUGIN_TAG);
+	}
+}
+
+// FIXME: code smell, take these from some cfg file(s) instead
 // Sets the bitfield for each run ending requirement depending on the map
 SetMapEndReqs()
 {
@@ -7666,7 +7671,7 @@ FillQueryData(queryData[QUERY], RUN_TYPE:topType, isNoReset, stats[STATS])
 	queryData[QUERY_RUN_TYPE] = topType;
 	queryData[QUERY_PID] = 0; // this will be filled in between queries
 	queryData[QUERY_NO_RESET] = isNoReset;
-	datacopy(queryData[QUERY_STATS], stats, sizeof(stats), 0, 0);
+	datacopy(queryData[QUERY_STATS], stats, sizeof(stats));
 }
 
 // Here instead of writing the whole file again, we just insert a few rows in the DB, so it's much less expensive in this case
