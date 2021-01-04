@@ -158,6 +158,7 @@ enum _:WEAPON
 }
 
 enum _:SPLIT {
+	SPLIT_DB_ID,          // unique identifier in database
 	SPLIT_ID[17],         // unique identifier, e.g.: "sector1"
 	SPLIT_ENTITY,         // entity id of the corresponding trigger_multiple (if any - so 0 means no corresponding entity)
 	SPLIT_NAME[32],       // the name that will appear in the HUD for this split
@@ -168,6 +169,13 @@ enum _:SPLIT {
 	Float:SPLIT_START_POINT[3],	// assuming a prism or rectangle, vertex with the lowest X, Y and Z, diagonally opposite to the end point
 	Float:SPLIT_END_POINT[3]	// assuming a prism or rectangle, vertex with the highest X, Y and Z, diagonally opposite to the start point
 */
+}
+
+enum RECORD_STORAGE_TYPE
+{
+	STORE_IN_FILE,
+	STORE_IN_DB,
+	STORE_IN_FILE_AND_DB
 }
 
 new const PLUGIN[] = "HL KreedZ Beta";
@@ -1032,30 +1040,11 @@ public InitTopsAndDB()
 			return;
 		}
 
-		mysql_escape_string(g_EscapedMap, charsmax(g_EscapedMap), g_Map);
-
 		new threadFPS = get_pcvar_num(pcvar_kz_mysql_thread_fps);
 		new threadThinkTime = 1000 / threadFPS;
 		mysql_performance(get_pcvar_num(pcvar_kz_mysql_collect_time_ms), threadThinkTime, get_pcvar_num(pcvar_kz_mysql_threads));
 
-		// Insert the current map if doesn't exist
-		new what[4], insertMapQuery[704], selectMapQuery[176];
-		formatex(what, charsmax(what), "map");
-		formatex(insertMapQuery, charsmax(insertMapQuery), "INSERT INTO map (name) \
-		                                  SELECT '%s' \
-		                                  FROM (select 1) as a \
-		                                  WHERE NOT EXISTS( \
-		                                      SELECT name \
-		                                      FROM map \
-		                                      WHERE name = '%s' \
-		                                  ) \
-		                                  LIMIT 1", g_EscapedMap, g_EscapedMap);
-
-		mysql_query(g_DbConnection, "DefaultInsertHandler", insertMapQuery, what, sizeof(what));
-
-		formatex(selectMapQuery, charsmax(selectMapQuery), "SELECT id FROM map WHERE name = '%s'", g_EscapedMap); // FIXME check if the escaped name may differ from the one in DB
-		mysql_query(g_DbConnection, "SelectMapIdHandler", selectMapQuery);
-
+		GetMapId();
 		LoadNoResetRecords();
 
 		// TODO: Insert server location data
@@ -5859,8 +5848,6 @@ SortSplits()
 	{
 		TrieIterGetArray(ti, split, sizeof(split));
 
-		server_print("IsFirstSplit(%s, %d): %d", split[SPLIT_ID], split[SPLIT_LAP_START], IsFirstSplit(split));
-
 		if (IsFirstSplit(split))
 		{
 			copy(firstId, charsmax(firstId), split[SPLIT_ID]);
@@ -7557,6 +7544,57 @@ LoadRecordsFile(RUN_TYPE:topType)
 	fclose(file);
 }
 
+GetMapId()
+{
+	mysql_escape_string(g_EscapedMap, charsmax(g_EscapedMap), g_Map);
+
+	// Insert the current map if doesn't exist
+	new insertMapQuery[704];
+	formatex(insertMapQuery, charsmax(insertMapQuery), "INSERT INTO map (name) \
+	                                  SELECT '%s' \
+	                                  FROM (select 1) as a \
+	                                  WHERE NOT EXISTS( \
+	                                      SELECT name \
+	                                      FROM map \
+	                                      WHERE name = '%s' \
+	                                  ) \
+	                                  LIMIT 1", g_EscapedMap, g_EscapedMap);
+
+	mysql_query(g_DbConnection, "MapInsertHandler", insertMapQuery, g_EscapedMap, sizeof(g_EscapedMap));
+}
+
+GetSplitIds()
+{
+	for (new i = 0; i < ArraySize(g_OrderedSplits); i++)
+	{
+		new splitId[17], split[SPLIT], escapedSplitId[33], escapedSplitName[33];
+		ArrayGetString(g_OrderedSplits, i, splitId, charsmax(splitId));
+		TrieGetArray(g_Splits, splitId, split, sizeof(split));
+		mysql_escape_string(escapedSplitId, charsmax(escapedSplitId), splitId);
+		mysql_escape_string(escapedSplitName, charsmax(escapedSplitName), split[SPLIT_NAME]);
+
+		// Insert the split if it doesn't exist
+		new insertSplitQuery[704];
+		formatex(insertSplitQuery, charsmax(insertSplitQuery), "INSERT INTO split (name, displayname, map) \
+		                                  SELECT '%s', '%s', %d \
+		                                  FROM (select 1) as a \
+		                                  WHERE NOT EXISTS( \
+		                                      SELECT name, displayname, map \
+		                                      FROM split \
+		                                      WHERE name = '%s' \
+		                                        AND map = %d \
+		                                  ) \
+		                                  LIMIT 1",
+		                                  escapedSplitId, escapedSplitName, g_MapId,
+		                                  escapedSplitId, g_MapId);
+
+
+		//server_print("GetSplitIds(): splitId: %s, id: %s, name: %s", splitId, split[SPLIT_ID], split[SPLIT_NAME]);
+
+		mysql_query(g_DbConnection, "SplitInsertHandler", insertSplitQuery, splitId, sizeof(splitId));
+	}
+}
+
 LoadNoResetRecords()
 {
 	if (get_pcvar_num(pcvar_kz_mysql))
@@ -7647,7 +7685,8 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	new minutes, Float:seconds, Float:slower, Float:faster;
 	LoadRecords(topType);
 
-	new storeInMySql = get_pcvar_num(pcvar_kz_mysql);
+	new storageType = get_pcvar_num(pcvar_kz_mysql);
+	new bool:storeInMySql = storageType == STORE_IN_DB || storageType == STORE_IN_FILE_AND_DB;
 	new Array:arr = g_ArrayStats[topType]; // contains the current leaderboard
 
 	GetUserUniqueId(id, uniqueid, charsmax(uniqueid));
@@ -7748,7 +7787,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 		SaveRecordDB(queryData);
 	}
 
-	if (storeInMySql != 1)
+	if (storageType == STORE_IN_FILE || storageType == STORE_IN_FILE_AND_DB)
 		SaveRecordsFile(topType);
 
 	if (g_RecordRun[id])
@@ -8351,40 +8390,109 @@ public InsertRun(failstate, error[], errNo, queryData[], size, Float:queuetime)
                                       queryData[QUERY_STATS][STATS_TIMESTAMP], queryData[QUERY_STATS][STATS_CP], queryData[QUERY_STATS][STATS_TP], queryData[QUERY_NO_RESET],
                                       queryData[QUERY_PID], queryData[QUERY_STATS][STATS_TIMESTAMP], g_TopType[queryData[QUERY_RUN_TYPE]]);
 
-    mysql_query(g_DbConnection, "InsertRunHandler", query, queryData, size);
+    mysql_query(g_DbConnection, "RunInsertHandler", query, queryData, size);
 }
 
-public InsertRunHandler(failstate, error[], errNo, queryData[], size, Float:queuetime)
+public RunInsertHandler(failstate, error[], errNo, queryData[], size, Float:queuetime)
 {
-    if (failstate != TQUERY_SUCCESS)
-    {
-        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ InsertRunHandler(): [%d] - [%s] - [%d]", errNo, error, queryData[QUERY_RUN_TYPE]);
-        return;
-    }
-    server_print("[%.3f] Inserted run, QueueTime:[%.3f]", get_gametime(), queuetime);
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ RunInsertHandler(): [%d] - [%s] - [%d]", errNo, error, queryData[QUERY_RUN_TYPE]);
+		return;
+	}
+	server_print("[%.3f] Inserted run with id #%d, QueueTime:[%.3f]", get_gametime(), mysql_get_insert_id(), queuetime);
 
-    // Load records and hope that they're retrieved before the client requests the data (e.g.: writes /pure)
-    LoadRecords(queryData[QUERY_RUN_TYPE]);
+	// Load records and hope that they're retrieved before the client requests the data (e.g.: writes /pure)
+	LoadRecords(queryData[QUERY_RUN_TYPE]);
 
-    if (queryData[QUERY_NO_RESET])
-    	LoadNoResetRecords();
+	if (queryData[QUERY_NO_RESET])
+		LoadNoResetRecords();
+
+	// TODO: save split times
+}
+
+public MapInsertHandler(failstate, error[], errNo, escapedMapName[], size, Float:queuetime)
+{
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ MapInsertHandler(): [%d] - [%s] - [%s]", errNo, error, escapedMapName);
+		return;
+	}
+
+	// TODO: do the SELECT first and if there are no results then do the INSERT, and get the id with mysql_get_insert_id()
+	if (mysql_affected_rows())
+		server_print("[%.3f] Inserted map %s (#%d), QueueTime:[%.3f]", get_gametime(), escapedMapName, mysql_get_insert_id(), queuetime);
+
+	new selectMapQuery[176];
+	formatex(selectMapQuery, charsmax(selectMapQuery), "SELECT id FROM map WHERE name = '%s'", escapedMapName); // FIXME check if the escaped name may differ from the one in DB
+	mysql_query(g_DbConnection, "MapIdSelectHandler", selectMapQuery);
 }
 
 // Gets the map id corresponding to the map that is currently being played
-public SelectMapIdHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+public MapIdSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime)
 {
-    if (failstate != TQUERY_SUCCESS)
-    {
-        log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectMapIdHandler(): [%d] - [%s]", errNo, error);
-        return;
-    }
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ MapIdSelectHandler(): [%d] - [%s]", errNo, error);
+		return;
+	}
 
-    if (mysql_more_results())
-        g_MapId = mysql_read_result(0);
+	if (mysql_more_results())
+		g_MapId = mysql_read_result(0);
 
-    server_print("[%.3f] Selected map #%d, QueueTime:[%.3f]", get_gametime(), g_MapId, queuetime);
+	if (ArraySize(g_OrderedSplits))
+		GetSplitIds();
+
+	server_print("[%.3f] Selected map #%d, QueueTime:[%.3f]", get_gametime(), g_MapId, queuetime);
 }
 
+public SplitInsertHandler(failstate, error[], errNo, splitId[], size, Float:queuetime)
+{
+	new escapedSplitId[33];
+	mysql_escape_string(escapedSplitId, charsmax(escapedSplitId), splitId);
+
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SplitInsertHandler(): [%d] - [%s] - [%s]", errNo, error, escapedSplitId);
+		return;
+	}
+
+	// TODO: do the SELECT first and if there are no results then do the INSERT, and get the id with mysql_get_insert_id()
+	if (mysql_affected_rows())
+		server_print("[%.3f] Inserted split #%d (%s), QueueTime:[%.3f]", get_gametime(), mysql_get_insert_id(), splitId, queuetime);
+
+	new selectSplitQuery[192];
+	formatex(selectSplitQuery, charsmax(selectSplitQuery), "SELECT id FROM split WHERE name = '%s' AND map = %d", escapedSplitId, g_MapId); // FIXME check if the escaped name may differ from the one in DB
+	mysql_query(g_DbConnection, "SplitIdSelectHandler", selectSplitQuery, splitId, size);
+}
+
+public SplitIdSelectHandler(failstate, error[], errNo, splitId[], size, Float:queuetime)
+{
+	new escapedSplitId[33];
+	mysql_escape_string(escapedSplitId, charsmax(escapedSplitId), splitId);
+
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SplitIdSelectHandler(): [%d] - [%s] - [%s]", errNo, error, escapedSplitId);
+		return;
+	}
+
+	// TODO: check the displayname for this split and if it's different
+	// to the one compiled into the map, override it with the one from DB
+
+	new splitDbId = 0;
+	if (mysql_more_results())
+	{
+		splitDbId = mysql_read_result(0);
+
+		new split[SPLIT];
+		TrieGetArray(g_Splits, splitId, split, sizeof(split));
+		split[SPLIT_DB_ID] = splitDbId;
+		TrieSetArray(g_Splits, splitId, split, sizeof(split));
+
+	}
+	server_print("[%.3f] Selected split #%d (%s), QueueTime:[%.3f]", get_gametime(), splitDbId, splitId, queuetime);
+}
 
 /*
 ------------------------------------------
