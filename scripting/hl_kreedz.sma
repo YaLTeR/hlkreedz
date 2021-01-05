@@ -1044,17 +1044,19 @@ public InitTopsAndDB()
 		new threadThinkTime = 1000 / threadFPS;
 		mysql_performance(get_pcvar_num(pcvar_kz_mysql_collect_time_ms), threadThinkTime, get_pcvar_num(pcvar_kz_mysql_threads));
 
-		GetMapId();
-		LoadNoResetRecords();
+		GetMapIdAndLeaderboards();
 
 		// TODO: Insert server location data
 		// TODO: Insert the `server` if doesn't exist
 		// TODO: Insert the `server_map` if doesn't exist
 	}
+	else
+	{
+		LoadRecordsFile(PURE);
+		LoadRecordsFile(PRO);
+		LoadRecordsFile(NOOB);
+	}
 
-	LoadRecords(PURE);
-	LoadRecords(PRO);
-	LoadRecords(NOOB);
 }
 
 InitHudColors()
@@ -2329,6 +2331,11 @@ CmdReplay(id, RUN_TYPE:runType)
 	else
 		pattern = regex_compile_ex(fmt(".*%s.*", replayArg), PCRE_CASELESS);
 
+	// TODO: the replaybot would have to spawn in the callback of the query,
+	// so that the leaderboard is up to date and we leave no chance to have a replay of
+	// a different record going on. Right now it works 99% of the time cos
+	// leaderboards are updated right after a new PB is done and by the time we get here
+	// leaderboards are already up to date
 	LoadRecords(runType);
 	new Array:arr = g_ArrayStats[runType];
 
@@ -3889,34 +3896,20 @@ FinishTimer(id)
 
 	new RUN_MODE:originalRunMode = g_RunMode[id];
 
+	// Bots are not gonna set new records yet, unless some bhop AI is created for fun
 	if (!get_pcvar_num(pcvar_kz_nostat) && !IsBot(id))
 	{
-
-		// Bots are not gonna set new records yet, unless some bhop AI is created for fun
 		if (!g_CpCounters[id][COUNTER_CP] && !g_CpCounters[id][COUNTER_TP])
 		{
 			if (get_bit(g_baIsPureRunning, id))
-			{
-				// Update both: pure and pro
 				topType = PURE;
-				UpdateRecords(id, kztime, PURE);
-
-				// We set this so that it doesn't count the pro one as a No-Reset run,
-				// and thus be much easier to handle No-Reset average times for leaderboard
-				g_RunMode[id] = MODE_NORMAL;
-				UpdateRecords(id, kztime, PRO);
-			}
 			else
-			{
 				topType = PRO;
-				UpdateRecords(id, kztime, PRO);
-			}
 		}
 		else
-		{
 			topType = NOOB;
-			UpdateRecords(id, kztime, NOOB);
-		}
+
+		UpdateRecords(id, kztime, topType);
 	}
 
 	if (g_bMatchRunning && !IsBot(id))
@@ -7475,29 +7468,77 @@ LoadRecords(RUN_TYPE:topType)
 {
 	if (get_pcvar_num(pcvar_kz_mysql))
 	{
-		new query[1336];
-		formatex(query, charsmax(query), "SELECT p.unique_id, pn.name, r.checkpoints, r.teleports, r.time, UNIX_TIMESTAMP(r.date) \
-		                                    FROM run r \
-		                                    INNER JOIN player p ON p.id = r.player \
-		                                    INNER JOIN player_name pn ON pn.player = r.player AND pn.date = r.date \
-		                                    INNER JOIN map m ON m.id = r.map \
-		                                    WHERE \
-		                                          r.is_valid = true \
-		                                      AND m.name = '%s' \
-		                                      AND r.type = '%s' \
-		                                      AND r.time = (SELECT MIN(r2.time) \
-		                                                    FROM run r2 \
-		                                                    WHERE \
-		                                                          r2.is_valid = true \
-		                                                      AND r2.player = r.player \
-		                                                      AND r2.map = r.map \
-		                                                      AND r2.type = r.type) \
-		                                    ORDER BY r.time ASC", g_EscapedMap, g_TopType[topType]);
-		// This query takes around 50ms to run (min 30ms, max 72ms, out of 50 queries)
+		new query[1024];
+		if (topType == PRO)
+		{
+			// Pure records no longer will generate an equivalent pro record in database,
+			// so we do a different query as we still want the pro leaderboard to show player's
+			// pure PB if they don't have a pro PB
+			formatex(query, charsmax(query), "\
+			    SELECT \
+			        p.unique_id, \
+			        pn.name, \
+			        r.checkpoints, \
+			        r.teleports, \
+			        r.time, \
+			        UNIX_TIMESTAMP(r.date) \
+			    FROM run r \
+			    INNER JOIN player p ON p.id = r.player \
+			    INNER JOIN player_name pn ON pn.player = r.player AND pn.date = r.date \
+			    WHERE (r.id, r.player, r.time) IN( \
+			        SELECT MAX(r2.id), r2.player, r2.time \
+			        FROM run r2 \
+			        WHERE \
+			              r2.is_valid = TRUE \
+			          AND r2.map = %d \
+			          AND (r2.player, r2.time) IN( \
+			            SELECT r3.player, MIN(r3.time) AS mintime \
+			            FROM run r3 \
+			            WHERE \
+			                  r3.is_valid = TRUE \
+			              AND r3.map = %d \
+			              AND (r3.type = 'pure' OR r3.type = 'pro') \
+			            GROUP BY r3.player \
+			            ORDER BY mintime ASC) \
+			        GROUP BY r2.player, r2.time) \
+			    ORDER BY r.time ASC",
+			    g_MapId, g_MapId);
+		}
+		else
+		{
+			formatex(query, charsmax(query), "\
+			    SELECT \
+			        p.unique_id, \
+			        pn.name, \
+			        r.checkpoints, \
+			        r.teleports, \
+			        r.time, \
+			        UNIX_TIMESTAMP(r.date) \
+			    FROM \
+			        run r \
+			    INNER JOIN player p ON \
+			        p.id = r.player \
+			    INNER JOIN player_name pn ON \
+			        pn.player = r.player AND pn.date = r.date \
+			    WHERE \
+			        r.is_valid = TRUE AND r.map = %d AND r.type = '%s' AND(r.player, r.time) IN( \
+			        SELECT \
+			            r2.player, \
+			            MIN(r2.time) AS mintime \
+			        FROM run r2 \
+			        WHERE \
+			                r2.is_valid = TRUE \
+			            AND r2.map = %d \
+			            AND r2.type = '%s' \
+			        GROUP BY r2.player \
+			        ORDER BY mintime ASC \
+			    ) \
+			    ORDER BY r.time ASC",
+			    g_MapId, g_TopType[topType], g_MapId, g_TopType[topType]);
+		}
+
 		new data[1];
 		data[0] = topType;
-
-		//console_print(0, query);
 
 		mysql_query(g_DbConnection, "SelectRunsHandler", query, data, sizeof(data));
 	}
@@ -7508,11 +7549,9 @@ LoadRecords(RUN_TYPE:topType)
 
 LoadRecordsFile(RUN_TYPE:topType)
 {
-	console_print(0, "LoadRecordsFile :: trying to open %s", g_StatsFile[topType]);
+	console_print(0, "LoadRecordsFile :: loading %s", g_StatsFile[topType]);
 	new file = fopen(g_StatsFile[topType], "r");
 	if (!file) return;
-
-	//console_print(0, "LoadRecordsFile :: file opened correctly");
 
 	new data[1024], stats[STATS], uniqueid[32], name[32], cp[24], tp[24];
 	new kztime[24], timestamp[24];
@@ -7544,7 +7583,7 @@ LoadRecordsFile(RUN_TYPE:topType)
 	fclose(file);
 }
 
-GetMapId()
+GetMapIdAndLeaderboards()
 {
 	mysql_escape_string(g_EscapedMap, charsmax(g_EscapedMap), g_Map);
 
@@ -8204,19 +8243,17 @@ public DefaultInsertHandler(failstate, error[], errNo, what[], size, Float:queue
 
 public SelectRunsHandler(failstate, error[], errNo, data[], size, Float:queuetime)
 {
+	new RUN_TYPE:topType = RUN_TYPE:data[0];
 	if (failstate != TQUERY_SUCCESS)
 	{
-		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectRunsHandler(): [%d] - [%s] - [%d]", errNo, error, data[1]);
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectRunsHandler(): [%d] - [%s] - [%s]", errNo, error, g_TopType[topType]);
 
-		if (get_pcvar_num(pcvar_kz_mysql) == 2)
-			LoadRecordsFile(RUN_TYPE:data[0]);
+		if (get_pcvar_num(pcvar_kz_mysql) == STORE_IN_FILE_AND_DB)
+			LoadRecordsFile(topType);
 
 		return;
 	}
 
-	//console_print(0, "SelectRunsHandler()");
-
-	new RUN_TYPE:topType = RUN_TYPE:data[0];
 	new stats[STATS], uniqueId[32], name[32], cp, tp, Float:kztime, timestamp;
 
 	new Array:arr = g_ArrayStats[topType];
@@ -8232,7 +8269,6 @@ public SelectRunsHandler(failstate, error[], errNo, data[], size, Float:queuetim
 		timestamp = mysql_read_result(5);
 
 		// TODO check if this language allows to dump the data directly to the stats array
-		//console_print(0, "ts %%d = %d", timestamp);
 
 		stats[STATS_TIMESTAMP] = timestamp;
 		copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueId);
@@ -8240,8 +8276,6 @@ public SelectRunsHandler(failstate, error[], errNo, data[], size, Float:queuetim
 		stats[STATS_CP] = cp;
 		stats[STATS_TP] = tp;
 		stats[STATS_TIME] = _:kztime;
-
-		//console_print(0, "time = %.3f", stats[STATS_TIME]);
 
 		ArrayPushArray(arr, stats);
 
@@ -8405,6 +8439,13 @@ public RunInsertHandler(failstate, error[], errNo, queryData[], size, Float:queu
 	// Load records and hope that they're retrieved before the client requests the data (e.g.: writes /pure)
 	LoadRecords(queryData[QUERY_RUN_TYPE]);
 
+	if (queryData[QUERY_RUN_TYPE] == PURE)
+	{
+		// We have to do this as the pro leaderboard shows pure records if they're better
+		// than the pro ones, so if something changes within pure stats, we have to update pro ones too
+		LoadRecords(PRO);
+	}
+
 	if (queryData[QUERY_NO_RESET])
 		LoadNoResetRecords();
 
@@ -8429,6 +8470,7 @@ public MapInsertHandler(failstate, error[], errNo, escapedMapName[], size, Float
 }
 
 // Gets the map id corresponding to the map that is currently being played
+// Then load leaderboards
 public MapIdSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime)
 {
 	if (failstate != TQUERY_SUCCESS)
@@ -8439,6 +8481,25 @@ public MapIdSelectHandler(failstate, error[], errNo, data[], size, Float:queueti
 
 	if (mysql_more_results())
 		g_MapId = mysql_read_result(0);
+
+	if (!g_MapId)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ MapIdSelectHandler(): Could not find the map id for %s", g_EscapedMap);
+		server_print("Queries using the map id won't work, so storage to DB will be disabled to avoid weird stuff from happening");
+
+		set_pcvar_num(pcvar_kz_mysql, STORE_IN_FILE);
+
+		LoadRecordsFile(PURE);
+		LoadRecordsFile(PRO);
+		LoadRecordsFile(NOOB);
+
+		return;
+	}
+
+	LoadRecords(PURE);
+	LoadRecords(PRO);
+	LoadRecords(NOOB);
+	LoadNoResetRecords();
 
 	if (ArraySize(g_OrderedSplits))
 		GetSplitIds();
