@@ -2151,14 +2151,41 @@ CmdStart(id, bool:isNoReset = false)
 
 	if (!isNoReset && g_RunMode[id] == MODE_NORESET)
 	{
+		// This is because players might hit the /start bind accidentally during a race due to muscle memory
+		// from normal runs, so we disable it but still make it possible to /start with /startnr
+		// Also we allow them to do this because they may get stuck at some part and this is the way to unstuck
 		ShowMessage(id, "You're in No-Reset mode! Say /startnr if you really want to go back to the start");
 	}
 	else
 	{
+		new bool:isTeleported = false;
+		// TODO: refactor
 		if (CanTeleport(id, CP_TYPE_START))
+		{
 			Teleport(id, CP_TYPE_START);
+			isTeleported = true;
+		}
 		else if (CanTeleport(id, CP_TYPE_DEFAULT_START))
+		{
 			Teleport(id, CP_TYPE_DEFAULT_START);
+			isTeleported = true;
+		}
+
+		if (!isTeleported)
+			return;
+
+		if (g_RunMode[id] != MODE_NORMAL && g_RunLaps)
+		{
+			// This run has laps, so the player will probably be able to cheat by teleporting to the start
+			// It might be their only way to unstuck during a No-Reset run, and we cannot reset the run as
+			// it goes against the mode's rules. So we're just gonna add a minute to their timer
+			g_PlayerTime[id] -= 60;
+		}
+		else
+		{
+			ResetPlayer(id, false, true);
+			StartClimb(id);
+		}
 	}
 }
 
