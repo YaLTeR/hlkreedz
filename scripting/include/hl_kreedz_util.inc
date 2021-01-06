@@ -107,6 +107,7 @@ enum _:CUP_MAP
 	MATCH_FORMAT:MAP_PICKER
 }
 
+/*
 new const g_CupFormatLetters[][] =
 {
 	"?",
@@ -114,7 +115,7 @@ new const g_CupFormatLetters[][] =
 	"B",
 	"D"
 }
-
+*/
 new const g_KzVotePositionString[][] =
 {
 	"left",
@@ -318,7 +319,7 @@ GetRangeArg(range[2])
 	}
 }
 
-GetDistancePlayerAiming(id)
+Float:GetDistancePlayerAiming(id)
 {
 	new pOrigin[3], aimOrigin[3];
 	new Float:distance;
@@ -335,6 +336,7 @@ GetDistancePlayerAiming(id)
 	return distance;
 }
 
+/*
 // You have to pass the numbers of a SteamID in the format X_Y_Z (without STEAM_) and it stores in the result the full SteamID (like STEAM_X:Y:Z)
 ConvertNumbersToSteamID32(numbers[], result[])
 {
@@ -345,6 +347,7 @@ ConvertNumbersToSteamID32(numbers[], result[])
 
     formatex(result, charsmax(result), "STEAM_%s:%s:%s", a, b, c);
 }
+*/
 
 // You have to pass a STEAM_X:Y:Z and it stores in the result the numbers in the X_Y_Z format (without STEAM_)
 ConvertSteamID32ToNumbers(steamId32[], result[])
@@ -398,19 +401,20 @@ public ConvertSteamID32to64(steamId32[], result[])
 */
 
 // Returns the passed string now filled with the corresponding text
-GetTopTypeString(RUN_TYPE:runType, topType[]) {
+GetTopTypeString(RUN_TYPE:runType, topType[], size) {
 	switch (runType)
 	{
 		// TODO I think the same term should be used everywhere, but I also think that "noob" would be more correct than "nub",
 		// and leaderboard files for the NOOB top already have _nub in the name... so I guess it should be kept like that
 		// not to have to check everytime for both "noob" and "nub" or lose backwards compatibility 
-		case NOOB: formatex(topType, charsmax(topType), "nub");
-		case PRO:  formatex(topType, charsmax(topType), "pro");
-		case PURE: formatex(topType, charsmax(topType), "pure");
+		case NOOB: formatex(topType, size, "nub");
+		case PRO:  formatex(topType, size, "pro");
+		case PURE: formatex(topType, size, "pure");
 	}
 }
 
 // Returns a RUN_TYPE
+/*
 GetTopType(topType[]) {
 	new type[64];
 	formatex(type, charsmax(type), topType);
@@ -423,6 +427,7 @@ GetTopType(topType[]) {
 		case "pure": return PURE;
 	}
 }
+*/
 
 /**
  * Copies information from one array into another. By Tirant
@@ -488,3 +493,4 @@ CreateColor(color[], name[], red, green, blue)
 	color[COLOR_BLUE] = blue;
 	add(color[COLOR_NAME], COLOR_NAME, name);
 }
+
