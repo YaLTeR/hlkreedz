@@ -7692,7 +7692,7 @@ FillQueryData(queryData[QUERY], RUN_TYPE:topType, isNoReset, stats[STATS])
 }
 
 // Here instead of writing the whole file again, we just insert a few rows in the DB, so it's much less expensive in this case
-SaveRecordDB(queryData[QUERY])
+SaveRunDB(queryData[QUERY])
 {
     new escapedUniqueId[64];
     mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), queryData[QUERY_STATS][STATS_ID]);
@@ -7754,7 +7754,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 					PLUGIN_TAG, g_TopType[topType], minutes, seconds);
 			}
 
-			if (storeInMySql && g_RunMode[id] == MODE_NORESET && topType == PURE)
+			if (storeInMySql)
 			{
 				// Runs that are pure and in no-reset mode are saved even if failed,
 				// so we can later make the leaderboard for No-Reset averages
@@ -7769,7 +7769,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 				new queryData[QUERY];
 				FillQueryData(queryData, topType, g_RunMode[id] == MODE_NORESET, failedStats);
 
-				SaveRecordDB(queryData);
+				SaveRunDB(queryData);
 			}
 
 			return;
@@ -7823,7 +7823,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 		new queryData[QUERY];
 		FillQueryData(queryData, topType, g_RunMode[id] == MODE_NORESET, stats);
 
-		SaveRecordDB(queryData);
+		SaveRunDB(queryData);
 	}
 
 	if (storageType == STORE_IN_FILE || storageType == STORE_IN_FILE_AND_DB)
@@ -8344,7 +8344,7 @@ public SelectRunnerId(failstate, error[], errNo, queryData[], size, Float:queuet
     }
     else
     {
-      // Something new must have been inserted in SaveRecordDB because there's no unique_id...
+      // Something new must have been inserted in SaveRunDB() because there's no unique_id...
       // so we get directly the last inserted id
       queryData[QUERY_PID] = mysql_get_insert_id();
       DoQueryInsertRunPlayerName(queryData, size);
