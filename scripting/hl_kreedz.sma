@@ -1823,7 +1823,7 @@ public client_putinserver(id)
 	set_task(1.20, "DisplayWelcomeMessage", id + TASKID_WELCOME);
 }
 
-public client_disconnected(id)
+public client_disconnect(id)
 {
 	SavePlayerSettings(id);
 
