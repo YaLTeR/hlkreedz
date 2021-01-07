@@ -8075,7 +8075,7 @@ RecordRunFrame(id)
 	new Float:maxDuration = get_pcvar_float(pcvar_kz_max_replay_duration);
 	new Float:kztime = get_gametime() - g_PlayerTime[id];
 
-	if (maxDuration > kztime)
+	if (maxDuration < kztime)
 	{
 		g_RecordRun[id] = 0;
 		ArrayClear(g_RunFrames[id]);
