@@ -7467,7 +7467,7 @@ LoadRecords(RUN_TYPE:topType)
 {
 	if (get_pcvar_num(pcvar_kz_mysql))
 	{
-		new query[1024];
+		new query[1184];
 		if (topType == PRO)
 		{
 			// Pure records no longer will generate an equivalent pro record in database,
@@ -7484,24 +7484,25 @@ LoadRecords(RUN_TYPE:topType)
 			    FROM run r \
 			    INNER JOIN player p ON p.id = r.player \
 			    INNER JOIN player_name pn ON pn.player = r.player AND pn.date = r.date \
-			    WHERE (r.id, r.player, r.time) IN( \
-			        SELECT MAX(r2.id), r2.player, r2.time \
-			        FROM run r2 \
-			        WHERE \
-			              r2.is_valid = TRUE \
-			          AND r2.map = %d \
-			          AND (r2.player, r2.time) IN( \
-			            SELECT r3.player, MIN(r3.time) AS mintime \
-			            FROM run r3 \
-			            WHERE \
-			                  r3.is_valid = TRUE \
-			              AND r3.map = %d \
-			              AND (r3.type = 'pure' OR r3.type = 'pro') \
-			            GROUP BY r3.player \
-			            ORDER BY mintime ASC) \
-			        GROUP BY r2.player, r2.time) \
+			    JOIN ( \
+			            SELECT MAX(r2.id) as maxRunId, r2.player, r2.time \
+			            FROM run r2 \
+			            JOIN ( \
+			                    SELECT r3.player, MIN(r3.time) AS minTime \
+			                    FROM run r3 \
+			                    WHERE \
+			                            r3.is_valid = TRUE \
+			                        AND r3.map = %d \
+			                        AND (r3.type = 'pure' OR r3.type = 'pro') \
+			                    GROUP BY r3.player \
+			                    ORDER BY minTime ASC \
+			            ) AS sub2 ON r2.player = sub2.player AND r2.time = sub2.minTime \
+			            GROUP BY \
+			                r2.player, \
+			                r2.time \
+			        ) AS sub ON r.id = sub.maxRunId AND r.player = sub.player AND r.time = sub.time \
 			    ORDER BY r.time ASC",
-			    g_MapId, g_MapId);
+			    g_MapId);
 		}
 		else
 		{
@@ -7523,14 +7524,14 @@ LoadRecords(RUN_TYPE:topType)
 			        r.is_valid = TRUE AND r.map = %d AND r.type = '%s' AND(r.player, r.time) IN( \
 			        SELECT \
 			            r2.player, \
-			            MIN(r2.time) AS mintime \
+			            MIN(r2.time) AS minTime \
 			        FROM run r2 \
 			        WHERE \
 			                r2.is_valid = TRUE \
 			            AND r2.map = %d \
 			            AND r2.type = '%s' \
 			        GROUP BY r2.player \
-			        ORDER BY mintime ASC \
+			        ORDER BY minTime ASC \
 			    ) \
 			    ORDER BY r.time ASC",
 			    g_MapId, g_TopType[topType], g_MapId, g_TopType[topType]);
@@ -7556,6 +7557,9 @@ LoadRecordsFile(RUN_TYPE:topType)
 	new kztime[24], timestamp[24];
 
 	new Array:arr = g_ArrayStats[topType];
+	if (!arr)
+		arr = ArrayCreate(STATS);
+
 	ArrayClear(arr);
 
 	while (!feof(file))
