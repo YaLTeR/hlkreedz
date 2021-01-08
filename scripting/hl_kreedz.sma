@@ -319,6 +319,7 @@ new g_bit_is_hltv, g_bit_is_bot;
 new g_baIsClimbing, g_baIsPaused, g_baIsFirstSpawn, g_baIsPureRunning;
 new g_baIsAgFrozen;    // only used when we're running on an AG server, because it unfreezes on player PreThink()
 
+new g_RunStartTimestamp[MAX_PLAYERS + 1];
 new Float:g_PlayerTime[MAX_PLAYERS + 1];
 new Float:g_PlayerTimePause[MAX_PLAYERS + 1];
 new g_SolidState[MAX_PLAYERS + 1];
@@ -2030,6 +2031,7 @@ InitPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 	clr_bit(g_baIsPaused, id);
 	clr_bit(g_baIsPureRunning, id);
 
+	g_RunStartTimestamp[id] = 0;
 	g_PlayerTime[id] = 0.0;
 	g_PlayerTimePause[id] = 0.0;
 	g_PlayerEndReqs[id] = 0;
@@ -3886,6 +3888,7 @@ StartTimer(id)
 	if (speed <= get_pcvar_float(pcvar_kz_pure_max_start_speed))
 		set_bit(g_baIsPureRunning, id);
 
+	g_RunStartTimestamp[id] = get_systime();
 	g_PlayerTime[id] = get_gametime();
 
 	if (g_ShowStartMsg[id])
@@ -3904,8 +3907,9 @@ StartTimer(id)
 
 FinishTimer(id)
 {
-	new name[32], minutes, Float:seconds, pureRun[11], RUN_TYPE:topType;
+	new name[32], minutes, Float:seconds, pureRun[11];
 	new Float:kztime = get_gametime() - g_PlayerTime[id];
+	new RUN_TYPE:topType = GetTopType(id);
 
 	minutes = floatround(kztime, floatround_floor) / 60;
 	seconds = kztime - (60 * minutes);
@@ -3920,16 +3924,6 @@ FinishTimer(id)
 	// Bots are not gonna set new records yet, unless some bhop AI is created for fun
 	if (!get_pcvar_num(pcvar_kz_nostat) && !IsBot(id))
 	{
-		if (!g_CpCounters[id][COUNTER_CP] && !g_CpCounters[id][COUNTER_TP])
-		{
-			if (get_bit(g_baIsPureRunning, id))
-				topType = PURE;
-			else
-				topType = PRO;
-		}
-		else
-			topType = NOOB;
-
 		UpdateRecords(id, kztime, topType);
 	}
 
@@ -3962,8 +3956,9 @@ FinishTimer(id)
 			WriteCupFile(0);
 			CmdMapsShowHandler(0); // TODO: maybe this should show who won each map instead of just [PLAYED]
 
-			if (!topType)
-				topType = PURE;
+			// Commented out because this shouldn't happen, and if it does it has to be fixed in a better way
+			//if (!topType)
+			//	topType = PURE;
 
 			// Save replays of both participants, for the one that didn't reach the button too
 			if (g_RecordRun[g_CupPlayer1])
@@ -4035,6 +4030,19 @@ FinishTimer(id)
 	}
 }
 
+RUN_TYPE:GetTopType(id)
+{
+	if (!g_CpCounters[id][COUNTER_CP] && !g_CpCounters[id][COUNTER_TP])
+	{
+		if (get_bit(g_baIsPureRunning, id))
+			return PURE;
+		else
+			return PRO;
+	}
+	else
+		return NOOB;
+}
+
 SplitTime(id, ent)
 {
 	if (!get_bit(g_baIsClimbing, id))
@@ -4086,7 +4094,11 @@ SplitTime(id, ent)
 	set_dhudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], _, 0.18, 0, 0.0, HUD_SPLIT_HOLDTIME, _, 0.4);
 	show_dhudmessage(id, splitTimeText);
 
+	new timestamp = get_systime();
+	new RUN_TYPE:topType = GetTopType(id);
+
 	ArrayPushCell(g_SplitTimes[id], splitTime);
+	SplitTimeInsert(id, previousSplit[SPLIT_DB_ID], splitTime, g_CurrentLap[id], topType, timestamp);
 
 	if (splitIdx == 0)
 	{
@@ -4102,6 +4114,7 @@ SplitTime(id, ent)
 			show_dhudmessage(id, lapText);
 
 			ArrayPushCell(g_LapTimes[id], lapTime);
+			LapTimeInsert(id, g_CurrentLap[id], lapTime, topType, timestamp);
 
 			g_CurrentLap[id]++;
 		}
@@ -7475,6 +7488,7 @@ LoadRecords(RUN_TYPE:topType)
 			// pure PB if they don't have a pro PB
 			formatex(query, charsmax(query), "\
 			    SELECT \
+			        r.id, \
 			        p.unique_id, \
 			        pn.name, \
 			        r.checkpoints, \
@@ -7508,6 +7522,7 @@ LoadRecords(RUN_TYPE:topType)
 		{
 			formatex(query, charsmax(query), "\
 			    SELECT \
+			        r.id, \
 			        p.unique_id, \
 			        pn.name, \
 			        r.checkpoints, \
@@ -7540,7 +7555,7 @@ LoadRecords(RUN_TYPE:topType)
 		new data[1];
 		data[0] = _:topType;
 
-		mysql_query(g_DbConnection, "SelectRunsHandler", query, data, sizeof(data));
+		mysql_query(g_DbConnection, "RunSelectHandler", query, data, sizeof(data));
 	}
 	else
 		LoadRecordsFile(topType);
@@ -7610,17 +7625,21 @@ GetSplitIds()
 {
 	for (new i = 0; i < ArraySize(g_OrderedSplits); i++)
 	{
-		new splitId[17], split[SPLIT], escapedSplitId[33], escapedSplitName[65];
+		new splitId[17], split[SPLIT];
 		ArrayGetString(g_OrderedSplits, i, splitId, charsmax(splitId));
 		TrieGetArray(g_Splits, splitId, split, sizeof(split));
+
+		// Things to escape before inserting
+		new escapedSplitId[33], escapedSplitName[65], escapedSplitNext[33];
 		mysql_escape_string(escapedSplitId, charsmax(escapedSplitId), splitId);
 		mysql_escape_string(escapedSplitName, charsmax(escapedSplitName), split[SPLIT_NAME]);
+		mysql_escape_string(escapedSplitNext, charsmax(escapedSplitNext), split[SPLIT_NEXT]);
 
 		// Insert the split if it doesn't exist
 		new insertSplitQuery[448];
 		formatex(insertSplitQuery, charsmax(insertSplitQuery), "\
-		    INSERT INTO split (name, displayname, map) \
-		    SELECT '%s', '%s', %d \
+		    INSERT INTO split (name, displayname, map, next) \
+		    SELECT '%s', '%s', %d, '%s' \
 		    FROM (select 1) as a \
 		    WHERE NOT EXISTS( \
 		        SELECT name, displayname, map \
@@ -7629,11 +7648,11 @@ GetSplitIds()
 		          AND map = %d \
 		    ) \
 		    LIMIT 1",
-		    escapedSplitId, escapedSplitName, g_MapId,
+		    escapedSplitId, escapedSplitName, g_MapId, escapedSplitNext,
 		    escapedSplitId, g_MapId);
 
 
-		//server_print("GetSplitIds(): splitId: %s, id: %s, name: %s", splitId, split[SPLIT_ID], split[SPLIT_NAME]);
+		server_print("GetSplitIds(): splitId: %s, id: %s, name: %s", splitId, split[SPLIT_ID], split[SPLIT_NAME], split[SPLIT_NEXT]);
 
 		mysql_query(g_DbConnection, "SplitInsertHandler", insertSplitQuery, splitId, sizeof(splitId));
 	}
@@ -7688,13 +7707,14 @@ SaveRecordsFile(RUN_TYPE:topType)
 	fclose(file);
 }
 
-FillQueryData(queryData[QUERY], RUN_TYPE:topType, isNoReset, stats[STATS])
+FillQueryData(id, queryData[QUERY], RUN_TYPE:topType, stats[STATS])
 {
 	new pid;
 	TrieGetCell(g_DbPlayerId, stats[STATS_ID], pid);
 
+	queryData[QUERY_RUN_START_TS] = g_RunStartTimestamp[id];
 	queryData[QUERY_RUN_TYPE] = topType;
-	queryData[QUERY_NO_RESET] = isNoReset;
+	queryData[QUERY_NO_RESET] = g_RunMode[id] == MODE_NORESET;
 	queryData[QUERY_PID] = pid;
 	datacopy(queryData[QUERY_STATS], stats, sizeof(stats));
 }
@@ -7781,7 +7801,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 				failedStats[STATS_TIMESTAMP] = get_systime();
 
 				new queryData[QUERY];
-				FillQueryData(queryData, topType, g_RunMode[id] == MODE_NORESET, failedStats);
+				FillQueryData(id, queryData, topType, failedStats);
 
 				SaveRunDB(queryData);
 			}
@@ -7835,7 +7855,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	{
 		// Every No-Reset pure run is saved in DB, so it's been already saved before, right before where failed runs are discarded
 		new queryData[QUERY];
-		FillQueryData(queryData, topType, g_RunMode[id] == MODE_NORESET, stats);
+		FillQueryData(id, queryData, topType, stats);
 
 		SaveRunDB(queryData);
 	}
@@ -8315,12 +8335,12 @@ public PlayerIdSelectHandler(failstate, error[], errNo, uniqueId[], size, Float:
 	server_print("[%s] [%.3f] Selected runner #%d with unique id %s, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), pid, uniqueId, queuetime);
 }
 
-public SelectRunsHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+public RunSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime)
 {
 	new RUN_TYPE:topType = RUN_TYPE:data[0];
 	if (failstate != TQUERY_SUCCESS)
 	{
-		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SelectRunsHandler(): [%d] - [%s] - [%s]", errNo, error, g_TopType[topType]);
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ RunSelectHandler(): [%d] - [%s] - [%s]", errNo, error, g_TopType[topType]);
 
 		if (get_pcvar_num(pcvar_kz_mysql) == _:STORE_IN_FILE_AND_DB)
 			LoadRecordsFile(topType);
@@ -8328,22 +8348,24 @@ public SelectRunsHandler(failstate, error[], errNo, data[], size, Float:queuetim
 		return;
 	}
 
-	new stats[STATS], uniqueId[32], name[32], cp, tp, Float:kztime, timestamp;
+	new stats[STATS], rid, uniqueId[32], name[32], cp, tp, Float:kztime, timestamp;
 
 	new Array:arr = g_ArrayStats[topType];
 	ArrayClear(arr);
 
 	while (mysql_more_results())
 	{
-		mysql_read_result(0, uniqueId, charsmax(uniqueId));
-		mysql_read_result(1, name, charsmax(name));
-		cp = mysql_read_result(2);
-		tp = mysql_read_result(3);
-		mysql_read_result(4, kztime);
-		timestamp = mysql_read_result(5);
+		rid = mysql_read_result(0);
+		mysql_read_result(1, uniqueId, charsmax(uniqueId));
+		mysql_read_result(2, name, charsmax(name));
+		cp = mysql_read_result(3);
+		tp = mysql_read_result(4);
+		mysql_read_result(5, kztime);
+		timestamp = mysql_read_result(6);
 
 		// TODO check if this language allows to dump the data directly to the stats array
 
+		stats[STATS_RUN_ID] = rid;
 		stats[STATS_TIMESTAMP] = timestamp;
 		copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueId);
 		copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
@@ -8475,20 +8497,15 @@ public PlayerNameInsertHandler(failstate, error[], errNo, queryData[], size, Flo
 	new escapedUniqueId[64], query[576];
 	mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), queryData[QUERY_STATS][STATS_ID]);
 
-	// This query only inserts a run if it doesn't exist, I'm not sure how it would be possible for a run to have the same player/date/type
+	// This stored procedure inserts the run and then updates the corresponding splits so that they have the ID of this run
+	// For this to work the splits should be inserted first. Right now they are because there's the player_name insert and
+	// the run insert queries before this one, so it would be weird to have the splits update query run before the splits insert one,
+	// but it's a race condition and has to be tackled at some moment... FIXME: make sure the run is inserted only after the splits insert
 	formatex(query, charsmax(query), "\
-	    INSERT INTO run (player, map, type, time, date, checkpoints, teleports, is_no_reset) \
-	    SELECT %d, %d, '%s', %.6f, FROM_UNIXTIME(%i), %d, %d, %d \
-	    FROM (select 1) as a \
-	    WHERE NOT EXISTS( \
-	        SELECT player, map, type, time, date, checkpoints, teleports, is_no_reset \
-	        FROM run \
-	        WHERE player = %d AND date = FROM_UNIXTIME(%i) AND type = '%s' \
-	    ) \
-	    LIMIT 1",
-	    queryData[QUERY_PID], g_MapId, g_TopType[queryData[QUERY_RUN_TYPE]], queryData[QUERY_STATS][STATS_TIME],
-	    queryData[QUERY_STATS][STATS_TIMESTAMP], queryData[QUERY_STATS][STATS_CP], queryData[QUERY_STATS][STATS_TP], queryData[QUERY_NO_RESET],
-	    queryData[QUERY_PID], queryData[QUERY_STATS][STATS_TIMESTAMP], g_TopType[queryData[QUERY_RUN_TYPE]]);
+	    CALL InsertRunAndUpdateSplits(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %d, %d, %d)",
+	    queryData[QUERY_PID], g_MapId, g_TopType[queryData[QUERY_RUN_TYPE]], queryData[QUERY_STATS][STATS_TIME], queryData[QUERY_RUN_START_TS],
+	    queryData[QUERY_STATS][STATS_TIMESTAMP], queryData[QUERY_STATS][STATS_CP], queryData[QUERY_STATS][STATS_TP], queryData[QUERY_NO_RESET]
+	);
 
 	mysql_query(g_DbConnection, "RunInsertHandler", query, queryData, size);
 }
@@ -8500,7 +8517,7 @@ public RunInsertHandler(failstate, error[], errNo, queryData[], size, Float:queu
 		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ RunInsertHandler(): [%d] - [%s] - [%d]", errNo, error, queryData[QUERY_RUN_TYPE]);
 		return;
 	}
-	server_print("[%s] [%.3f] Inserted run with id #%d, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), mysql_get_insert_id(), queuetime);
+	server_print("[%s] [%.3f] Inserted run with id #%d, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), mysql_read_result(0), queuetime);
 
 	// Load records and hope that they're retrieved before the client requests the data (e.g.: writes /pure)
 	LoadRecords(queryData[QUERY_RUN_TYPE]);
@@ -8514,8 +8531,6 @@ public RunInsertHandler(failstate, error[], errNo, queryData[], size, Float:queu
 
 	if (queryData[QUERY_NO_RESET])
 		LoadNoResetRecords();
-
-	// TODO: save split times
 }
 
 public MapInsertHandler(failstate, error[], errNo, escapedMapName[], size, Float:queuetime)
@@ -8531,7 +8546,7 @@ public MapInsertHandler(failstate, error[], errNo, escapedMapName[], size, Float
 		server_print("[%s] [%.3f] Inserted map %s (#%d), QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), escapedMapName, mysql_get_insert_id(), queuetime);
 
 	new selectMapQuery[176];
-	formatex(selectMapQuery, charsmax(selectMapQuery), "SELECT id FROM map WHERE name = '%s'", escapedMapName); // FIXME check if the escaped name may differ from the one in DB
+	formatex(selectMapQuery, charsmax(selectMapQuery), "SELECT id FROM map WHERE name = '%s'", escapedMapName);
 	mysql_query(g_DbConnection, "MapIdSelectHandler", selectMapQuery);
 }
 
@@ -8589,7 +8604,7 @@ public SplitInsertHandler(failstate, error[], errNo, splitId[], size, Float:queu
 		server_print("[%s] [%.3f] Inserted split #%d (%s), QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), mysql_get_insert_id(), splitId, queuetime);
 
 	new selectSplitQuery[192];
-	formatex(selectSplitQuery, charsmax(selectSplitQuery), "SELECT id FROM split WHERE name = '%s' AND map = %d", escapedSplitId, g_MapId); // FIXME check if the escaped name may differ from the one in DB
+	formatex(selectSplitQuery, charsmax(selectSplitQuery), "SELECT id FROM split WHERE name = '%s' AND map = %d", escapedSplitId, g_MapId);
 	mysql_query(g_DbConnection, "SplitIdSelectHandler", selectSplitQuery, splitId, size);
 }
 
@@ -8619,6 +8634,100 @@ public SplitIdSelectHandler(failstate, error[], errNo, splitId[], size, Float:qu
 
 	}
 	server_print("[%s] [%.3f] Selected split #%d (%s), QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), splitDbId, splitId, queuetime);
+}
+
+SplitTimeInsert(id, sid, Float:splitTime, lapNumber, RUN_TYPE:topType, timestamp)
+{
+	new uniqueid[32], pid;
+	GetUserUniqueId(id, uniqueid, charsmax(uniqueid));
+	TrieGetCell(g_DbPlayerId, uniqueid, pid);
+
+	// Insert the split time if it doesn't exist
+	new insertSplitTimeQuery[608];
+	formatex(insertSplitTimeQuery, charsmax(insertSplitTimeQuery), "\
+	    INSERT INTO split_run (split, player, lap, type, is_no_reset, time, date) \
+	    SELECT %d, %d, %d, '%s', %d, %.6f, FROM_UNIXTIME(%i) \
+	    FROM (select 1) as a \
+	    WHERE NOT EXISTS( \
+	        SELECT split, player, lap, type, is_no_reset, time, date \
+	        FROM split_run \
+	        WHERE \
+	              split = %d \
+	          AND player = %d \
+	          AND type = '%s' \
+	          AND date = FROM_UNIXTIME(%i) \
+	    ) \
+	    LIMIT 1",
+	    sid, pid, lapNumber, g_TopType[topType], g_RunMode[id] == MODE_NORESET, splitTime, timestamp,
+	    sid, pid, g_TopType[topType], timestamp);
+
+	new data[1];
+	data[0] = sid;
+	mysql_query(g_DbConnection, "SplitTimeInsertHandler", insertSplitTimeQuery, data, sizeof(data));
+}
+
+public SplitTimeInsertHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+	new sid = data[0];
+
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ SplitTimeInsertHandler(): [%d] - [%s] - [%d]", errNo, error, sid);
+		return;
+	}
+
+	if (mysql_affected_rows())
+	{
+		server_print("[%s] [%.3f] Inserted split_run #%d for split #%d, QueueTime:[%.3f]",
+			PLUGIN_TAG, get_gametime(), mysql_get_insert_id(), sid, queuetime);
+	}
+}
+
+LapTimeInsert(id, lapNumber, Float:lapTime, RUN_TYPE:topType, timestamp)
+{
+	new uniqueid[32], pid;
+	GetUserUniqueId(id, uniqueid, charsmax(uniqueid));
+	TrieGetCell(g_DbPlayerId, uniqueid, pid);
+
+	// Insert the split time if it doesn't exist
+	new insertLapTimeQuery[608];
+	formatex(insertLapTimeQuery, charsmax(insertLapTimeQuery), "\
+	    INSERT INTO lap_run (lap, player, map, type, is_no_reset, time, date) \
+	    SELECT %d, %d, %d, '%s', %d, %.6f, FROM_UNIXTIME(%i) \
+	    FROM (select 1) as a \
+	    WHERE NOT EXISTS( \
+	        SELECT lap, player, map, type, is_no_reset, time, date \
+	        FROM lap_run \
+	        WHERE \
+	              lap = %d \
+	          AND player = %d \
+	          AND type = '%s' \
+	          AND date = FROM_UNIXTIME(%i) \
+	    ) \
+	    LIMIT 1",
+	    lapNumber, pid, g_MapId, g_TopType[topType], g_RunMode[id] == MODE_NORESET, lapTime, timestamp,
+	    lapNumber, pid, g_TopType[topType], timestamp);
+
+	new data[1];
+	data[0] = lapNumber;
+	mysql_query(g_DbConnection, "LapTimeInsertHandler", insertLapTimeQuery, data, sizeof(data));
+}
+
+public LapTimeInsertHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+	new lapNumber = data[0];
+
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ LapTimeInsertHandler(): [%d] - [%s] - [%d]", errNo, error, lapNumber);
+		return;
+	}
+
+	if (mysql_affected_rows())
+	{
+		server_print("[%s] [%.3f] Inserted lap_run #%d for lap #%d, QueueTime:[%.3f]",
+			PLUGIN_TAG, get_gametime(), mysql_get_insert_id(), lapNumber, queuetime);
+	}
 }
 
 /*

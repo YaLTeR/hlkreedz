@@ -10,6 +10,7 @@
 
 enum _:STATS
 {
+	STATS_RUN_ID,
 	STATS_ID[32],
 	STATS_NAME[32],
 	STATS_CP,
@@ -52,10 +53,11 @@ enum KZVOTE_VALUE
 // Encapsulates all the info that might be required in the different queries to DB
 enum _:QUERY
 {
-	RUN_TYPE:QUERY_RUN_TYPE,	// pure, pro, noob
-	QUERY_PID,					// player id in database
-	QUERY_NO_RESET,				// was no-reset mode set for this run?
-	QUERY_STATS[STATS]			// steam id, nickname, cps, tps, run duration, end date
+	RUN_TYPE:QUERY_RUN_TYPE,  // pure, pro, noob
+	QUERY_PID,                // player ID in database
+	QUERY_NO_RESET,           // was no-reset mode set for this run?
+	QUERY_STATS[STATS],       // steam ID, nickname, cps, tps, run duration, end date
+	QUERY_RUN_START_TS	      // timestamp of the time the run was started, might have to put this into STATS instead
 }
 
 enum _:NORESET
@@ -415,7 +417,7 @@ GetTopTypeString(RUN_TYPE:runType, topType[], size) {
 
 // Returns a RUN_TYPE
 /*
-GetTopType(topType[]) {
+GetTopTypeFromString(topType[]) {
 	new type[64];
 	formatex(type, charsmax(type), topType);
 	strtolower(type);
