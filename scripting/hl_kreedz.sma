@@ -425,6 +425,7 @@ new g_SyncHudDistance;
 new g_SyncHudSpecList;
 new g_SyncHudCupMaps;
 new g_SyncHudKzVote;
+new g_SyncHudLoading;
 
 new g_MaxPlayers;
 new g_PauseSprite;
@@ -868,6 +869,7 @@ public plugin_init()
 	g_SyncHudSpecList       = CreateHudSyncObj();
 	g_SyncHudCupMaps        = CreateHudSyncObj();
 	g_SyncHudKzVote         = CreateHudSyncObj();
+	g_SyncHudLoading        = CreateHudSyncObj();
 
 	g_ArrayStats[NOOB]   = ArrayCreate(STATS);
 	g_ArrayStats[PRO]    = ArrayCreate(STATS);
@@ -891,6 +893,8 @@ public plugin_init()
 	TrieIterDestroy(ti);
 
 	SortSplits();
+
+	g_DbPlayerId = TrieCreate();
 
 	new splitId[17];
 
@@ -978,8 +982,6 @@ public plugin_cfg()
 		// then they simply won't stop, LOL, so stop them before that happens
 		StopMovingPlatforms();
 	}
-
-	g_DbPlayerId = TrieCreate();
 
 	// Load map pool for kz_cup
 	formatex(g_MapPoolFile, charsmax(g_MapPoolFile), "%s/%s", g_ConfigsDir, MAP_POOL_FILE);
@@ -1225,16 +1227,17 @@ DisplayKzMenu(id, mode)
 	{
 	case 0:
 		{
-			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7; // | MENU_KEY_8;
+			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7 | MENU_KEY_8;
 
 			len = formatex(menuBody[len], charsmax(menuBody) - len, "%s\n\n", PLUGIN);
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. START CLIMB\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Checkpoints\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Practice checkpoints\n\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. HUD settings\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. HUD settings\n\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Top climbers\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Spectate players\n\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "7. Help\n\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Lap leaderboards\n\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "7. Spectate players\n\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "8. Help\n\n");
 			//len += formatex(menuBody[len], charsmax(menuBody) - len, "8. About\n\n");
 			//len += formatex(menuBody[len], charsmax(menuBody) - len, "9. Admin area\n\n");
 		}
@@ -1317,6 +1320,22 @@ DisplayKzMenu(id, mode)
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Pro 15\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Noob 15\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. No-Reset 15\n");
+		}
+	case 6:
+		{
+			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6;
+
+			len = formatex(menuBody[len], charsmax(menuBody) - len, "Show laps from PBs:\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Pure\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Pro\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Noob\n\n");
+			// TODO: len += formatex(menuBody[len], charsmax(menuBody) - len, "4. No-Reset\n\n")
+
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "Show Gold laps:\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Pure\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Pro\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "6. Noob\n");
+			// TODO: len += formatex(menuBody[len], charsmax(menuBody) - len, "8. No-Reset\n");
 		}
 	}
 
@@ -1680,8 +1699,9 @@ public ActionKzMenu(id, key)
 		case 3: return DisplayKzMenu(id, 3);
 		case 4: return DisplayKzMenu(id, 4);
 		case 5: return DisplayKzMenu(id, 5);
-		case 6: CmdSpec(id);
-		case 7: CmdHelp(id);
+		case 6: return DisplayKzMenu(id, 6);
+		case 7: CmdSpec(id);
+		case 8: CmdHelp(id);
 		}
 	case 1:
 		switch (key)
@@ -1724,6 +1744,18 @@ public ActionKzMenu(id, key)
 		case 2: ShowTopClimbers(id, PRO);
 		case 3: ShowTopClimbers(id, NOOB);
 		case 4: ShowTopNoReset(id);
+		}
+	case 6:
+		switch (key)
+		{
+		case 1: ShowTopClimbersPbLaps(id, PURE);
+		case 2: ShowTopClimbersPbLaps(id, PRO);
+		case 3: ShowTopClimbersPbLaps(id, NOOB);
+		// TODO: case 4: ShowTopNoResetPbLaps(id);
+		case 4: ShowTopClimbersGoldLaps(id, PURE);
+		case 5: ShowTopClimbersGoldLaps(id, PRO);
+		case 6: ShowTopClimbersGoldLaps(id, NOOB);
+		// TODO: case 8: ShowTopNoResetGoldLaps(id);
 		}
 	}
 
@@ -1816,7 +1848,7 @@ public client_putinserver(id)
 	if (equal(g_CupSteam2, uniqueId))
 		g_CupPlayer2 = id;
 
-	if (get_pcvar_num(pcvar_kz_mysql))
+	if (get_pcvar_num(pcvar_kz_mysql) && !IsBot(id))
 		SelectPlayerId(uniqueId, charsmax(uniqueId));
 
 	LoadPlayerSettings(id);
@@ -3161,6 +3193,24 @@ public CmdSayHandler(id, level, cid)
 
 	else if (containi(args[1], "nv") == 0 || containi(args[1], "nightvision") == 0)
 		CmdNightvision(id);
+
+	else if (containi(args[1], "purepblaps") == 0)
+		ShowTopClimbersPbLaps(id, PURE);
+
+	else if (containi(args[1], "propblaps") == 0)
+		ShowTopClimbersPbLaps(id, PRO);
+
+	else if (containi(args[1], "nubpblaps") == 0 || containi(args[1], "noobpblaps") == 0)
+		ShowTopClimbersPbLaps(id, NOOB);
+
+	else if (containi(args[1], "puregoldlaps") == 0)
+		ShowTopClimbersGoldLaps(id, PURE);
+
+	else if (containi(args[1], "progoldlaps") == 0)
+		ShowTopClimbersGoldLaps(id, PRO);
+
+	else if (containi(args[1], "nubgoldlaps") == 0 || containi(args[1], "noobgoldlaps") == 0)
+		ShowTopClimbersGoldLaps(id, NOOB);
 
 	else if (containi(args[1], "pure") == 0)
 		ShowTopClimbers(id, PURE);
@@ -7652,7 +7702,7 @@ GetSplitIds()
 		    escapedSplitId, g_MapId);
 
 
-		server_print("GetSplitIds(): splitId: %s, id: %s, name: %s", splitId, split[SPLIT_ID], split[SPLIT_NAME], split[SPLIT_NEXT]);
+		//server_print("GetSplitIds(): splitId: %s, id: %s, name: %s", splitId, split[SPLIT_ID], split[SPLIT_NAME], split[SPLIT_NEXT]);
 
 		mysql_query(g_DbConnection, "SplitInsertHandler", insertSplitQuery, splitId, sizeof(splitId));
 	}
@@ -7878,6 +7928,40 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	}
 }
 
+ShowTopClimbersPbLaps(id, RUN_TYPE:topType)
+{
+	new query[80];
+	if (topType == PRO)
+		formatex(query, charsmax(query), "CALL SelectBestProRunLaps(%d)", g_MapId);
+	else
+		formatex(query, charsmax(query), "CALL SelectBestRunLaps(%d, '%s')", g_MapId, g_TopType[topType]);
+
+	set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], _, -1.0, _, 0.0, 999999.9);
+	ShowSyncHudMsg(id, g_SyncHudLoading, "Loading...");
+
+	new data[2];
+	data[0] = id;
+	data[1] = _:topType;
+	mysql_query(g_DbConnection, "PbLapsTopSelectHandler", query, data, sizeof(data));
+}
+
+ShowTopClimbersGoldLaps(id, RUN_TYPE:topType)
+{
+	new query[80];
+	if (topType == PRO)
+		formatex(query, charsmax(query), "CALL SelectGoldProLaps(%d)", g_MapId);
+	else
+		formatex(query, charsmax(query), "CALL SelectGoldLaps(%d, '%s')", g_MapId, g_TopType[topType]);
+
+	set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], _, -1.0, _, 0.0, 999999.9);
+	ShowSyncHudMsg(id, g_SyncHudLoading, "Loading...");
+
+	new data[2];
+	data[0] = id;
+	data[1] = _:topType;
+	mysql_query(g_DbConnection, "GoldLapsTopSelectHandler", query, data, sizeof(data));
+}
+
 // FIXME: PRO leaderboard is not merged with PURE when using file storage
 ShowTopClimbers(id, RUN_TYPE:topType)
 {
@@ -8067,10 +8151,10 @@ public IsPlayerInsideWall(id, Float:origin[3], Float:leadingBoundary[3], Float:c
 		return false;
 }
 
-// TODO: refactor to reduce confusion, make it return just the "%.3f" part for example
 // Create a string that has the correct formating for seconds, that is a float
 // with a variable number of decimals per user configuration
 // This may actually be a silly thing due to my unknowledge about Pawn/AMXX
+// TODO: refactor to reduce confusion, make it return just the "%.3f" part for example
 GetVariableDecimalMessage(id, msg1[], msg2[] = "")
 {
 	new sec[3]; // e.g.: number 6 in "%06.3f"
@@ -8545,9 +8629,9 @@ public MapInsertHandler(failstate, error[], errNo, escapedMapName[], size, Float
 	if (mysql_affected_rows())
 		server_print("[%s] [%.3f] Inserted map %s (#%d), QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), escapedMapName, mysql_get_insert_id(), queuetime);
 
-	new selectMapQuery[176];
-	formatex(selectMapQuery, charsmax(selectMapQuery), "SELECT id FROM map WHERE name = '%s'", escapedMapName);
-	mysql_query(g_DbConnection, "MapIdSelectHandler", selectMapQuery);
+	new query[176];
+	formatex(query, charsmax(query), "SELECT id FROM map WHERE name = '%s'", escapedMapName);
+	mysql_query(g_DbConnection, "MapIdSelectHandler", query);
 }
 
 // Gets the map id corresponding to the map that is currently being played
@@ -8603,9 +8687,9 @@ public SplitInsertHandler(failstate, error[], errNo, splitId[], size, Float:queu
 	if (mysql_affected_rows())
 		server_print("[%s] [%.3f] Inserted split #%d (%s), QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), mysql_get_insert_id(), splitId, queuetime);
 
-	new selectSplitQuery[192];
-	formatex(selectSplitQuery, charsmax(selectSplitQuery), "SELECT id FROM split WHERE name = '%s' AND map = %d", escapedSplitId, g_MapId);
-	mysql_query(g_DbConnection, "SplitIdSelectHandler", selectSplitQuery, splitId, size);
+	new query[192];
+	formatex(query, charsmax(query), "SELECT id FROM split WHERE name = '%s' AND map = %d", escapedSplitId, g_MapId);
+	mysql_query(g_DbConnection, "SplitIdSelectHandler", query, splitId, size);
 }
 
 public SplitIdSelectHandler(failstate, error[], errNo, splitId[], size, Float:queuetime)
@@ -8638,13 +8722,16 @@ public SplitIdSelectHandler(failstate, error[], errNo, splitId[], size, Float:qu
 
 SplitTimeInsert(id, sid, Float:splitTime, lapNumber, RUN_TYPE:topType, timestamp)
 {
+	if (IsBot(id))
+		return;
+
 	new uniqueid[32], pid;
 	GetUserUniqueId(id, uniqueid, charsmax(uniqueid));
 	TrieGetCell(g_DbPlayerId, uniqueid, pid);
 
 	// Insert the split time if it doesn't exist
-	new insertSplitTimeQuery[608];
-	formatex(insertSplitTimeQuery, charsmax(insertSplitTimeQuery), "\
+	new query[608];
+	formatex(query, charsmax(query), "\
 	    INSERT INTO split_run (split, player, lap, type, is_no_reset, time, date) \
 	    SELECT %d, %d, %d, '%s', %d, %.6f, FROM_UNIXTIME(%i) \
 	    FROM (select 1) as a \
@@ -8663,7 +8750,7 @@ SplitTimeInsert(id, sid, Float:splitTime, lapNumber, RUN_TYPE:topType, timestamp
 
 	new data[1];
 	data[0] = sid;
-	mysql_query(g_DbConnection, "SplitTimeInsertHandler", insertSplitTimeQuery, data, sizeof(data));
+	mysql_query(g_DbConnection, "SplitTimeInsertHandler", query, data, sizeof(data));
 }
 
 public SplitTimeInsertHandler(failstate, error[], errNo, data[], size, Float:queuetime)
@@ -8683,15 +8770,18 @@ public SplitTimeInsertHandler(failstate, error[], errNo, data[], size, Float:que
 	}
 }
 
-LapTimeInsert(id, lapNumber, Float:lapTime, RUN_TYPE:topType, timestamp)
+LapTimeInsert(id, lap, Float:lapTime, RUN_TYPE:topType, timestamp)
 {
+	if (IsBot(id))
+		return;
+
 	new uniqueid[32], pid;
 	GetUserUniqueId(id, uniqueid, charsmax(uniqueid));
 	TrieGetCell(g_DbPlayerId, uniqueid, pid);
 
 	// Insert the split time if it doesn't exist
-	new insertLapTimeQuery[608];
-	formatex(insertLapTimeQuery, charsmax(insertLapTimeQuery), "\
+	new query[608];
+	formatex(query, charsmax(query), "\
 	    INSERT INTO lap_run (lap, player, map, type, is_no_reset, time, date) \
 	    SELECT %d, %d, %d, '%s', %d, %.6f, FROM_UNIXTIME(%i) \
 	    FROM (select 1) as a \
@@ -8705,29 +8795,250 @@ LapTimeInsert(id, lapNumber, Float:lapTime, RUN_TYPE:topType, timestamp)
 	          AND date = FROM_UNIXTIME(%i) \
 	    ) \
 	    LIMIT 1",
-	    lapNumber, pid, g_MapId, g_TopType[topType], g_RunMode[id] == MODE_NORESET, lapTime, timestamp,
-	    lapNumber, pid, g_TopType[topType], timestamp);
+	    lap, pid, g_MapId, g_TopType[topType], g_RunMode[id] == MODE_NORESET, lapTime, timestamp,
+	    lap, pid, g_TopType[topType], timestamp);
 
 	new data[1];
-	data[0] = lapNumber;
-	mysql_query(g_DbConnection, "LapTimeInsertHandler", insertLapTimeQuery, data, sizeof(data));
+	data[0] = lap;
+	mysql_query(g_DbConnection, "LapTimeInsertHandler", query, data, sizeof(data));
 }
 
 public LapTimeInsertHandler(failstate, error[], errNo, data[], size, Float:queuetime)
 {
-	new lapNumber = data[0];
+	new lap = data[0];
 
 	if (failstate != TQUERY_SUCCESS)
 	{
-		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ LapTimeInsertHandler(): [%d] - [%s] - [%d]", errNo, error, lapNumber);
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ LapTimeInsertHandler(): [%d] - [%s] - [%d]", errNo, error, lap);
 		return;
 	}
 
 	if (mysql_affected_rows())
 	{
 		server_print("[%s] [%.3f] Inserted lap_run #%d for lap #%d, QueueTime:[%.3f]",
-			PLUGIN_TAG, get_gametime(), mysql_get_insert_id(), lapNumber, queuetime);
+			PLUGIN_TAG, get_gametime(), mysql_get_insert_id(), lap, queuetime);
+public PbLapsTopSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+	new id = data[0];
+	new RUN_TYPE:topType = RUN_TYPE:data[1];
+
+	ClearSyncHud(id, g_SyncHudLoading);
+
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ PbLapsTopSelectHandler(): [%d] - [%s] - [%s]", errNo, error, g_TopType[topType]);
+		return;
 	}
+
+	new len, buffer[MAX_MOTD_LENGTH], time[32], minutes, Float:seconds, totalLaps;
+
+	new cvarDefaultRecords = get_pcvar_num(pcvar_kz_top_records);
+	new cvarMaxRecords = get_pcvar_num(pcvar_kz_top_records_max);
+
+	// TODO: DRY, same as ShowTopClimbers
+	// Get the info... from what record until what record we have to show
+	new topArgs[2];
+	GetRangeArg(topArgs); // e.g.: "say /pro 20-30" --> the '20' goes to topArgs[0] and '30' to topArgs[1]
+	new recFrom = min(topArgs[0], topArgs[1]);
+	new recTo = max(topArgs[0], topArgs[1]);
+	if (recTo > ArraySize(g_ArrayStats[topType])) ShowMessage(id, "There are less records than requested");
+	if (!recTo)	recTo = cvarDefaultRecords;
+	if (recFrom < 0) recFrom = 0;
+	if (recTo < 0) recTo = 1;
+	if (recFrom) 	recFrom -= 1; // so that in "say /pro 1-20" it takes from 1 to 20 both inclusive
+	// Yeah this one below is duplicated, because recTo may have changed in the previous checks and the first check is only to notify the player
+	if (recTo > ArraySize(g_ArrayStats[topType])) recTo = ArraySize(g_ArrayStats[topType]); // there may be less records than the player is requesting, limit it to that amount
+	if (recTo - cvarMaxRecords > recFrom)
+	{
+		// Limit max. records to show
+		recTo = recFrom + cvarMaxRecords;
+		client_print(id, print_chat, "[%s] Sorry, cannot load more than %d records at once", PLUGIN_TAG, cvarMaxRecords);
+	}
+
+	new runId, name[32], lap, Float:lapTime;
+
+	new prevRank, rank, prevRunId;
+	while (mysql_more_results())
+	{
+		runId = mysql_read_result(0);
+		mysql_read_result(1, name, charsmax(name));
+		lap = mysql_read_result(2);
+		mysql_read_result(3, lapTime);
+
+		if (totalLaps < lap)
+			totalLaps = lap;
+
+		if (runId != prevRunId)
+		{
+			// The data corresponds to a different run than we had before, so it's already the next run
+			rank++;
+		}
+		prevRunId = runId;
+
+		if (rank < recFrom || rank > recTo)
+		{
+			mysql_next_row();
+			continue;
+		}
+
+		if (prevRank != rank)
+			len += formatex(buffer[len], charsmax(buffer) - len, "\n%-2d  %-17s", rank, name);
+
+		prevRank = rank;
+
+		// Put the lap time into "mm:ss.ms" format
+		minutes = floatround(lapTime, floatround_floor) / 60;
+		seconds = lapTime - (60 * minutes);
+		formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%0"), minutes, seconds);
+
+		len += formatex(buffer[len], charsmax(buffer) - len, "  %10s", time);
+
+		mysql_next_row();
+	}
+
+	len += formatex(buffer[len], charsmax(buffer) - len, "\n\n%s %s", PLUGIN, VERSION);
+
+
+	new header[48], subHeader[96];
+
+	// Sub-header text
+	new shLen = 0;
+	if (totalLaps)
+	{
+		shLen += formatex(subHeader[shLen], charsmax(subHeader) - shLen, "#   Player           ");
+		for (new i = 1; i <= totalLaps; i++)
+		{
+			shLen += formatex(subHeader[shLen], charsmax(subHeader) - shLen, "   Lap %3d  ", i);
+		}
+	}
+	else
+		shLen += formatex(subHeader[shLen], charsmax(subHeader) - shLen, "#   Player               Laps\n");
+
+	formatex(header, charsmax(header), "Lap Times From PB Runs [%d-%d]", recFrom ? recFrom : 1, recTo);
+	format(buffer, charsmax(buffer), "%s\n%s", subHeader, buffer);
+	show_motd(id, buffer, header);
+}
+
+public GoldLapsTopSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+	new id = data[0];
+	new RUN_TYPE:topType = RUN_TYPE:data[1];
+
+	ClearSyncHud(id, g_SyncHudLoading);
+
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ GoldLapsTopSelectHandler(): [%d] - [%s] - [%s]", errNo, error, g_TopType[topType]);
+		return;
+	}
+
+	new len, timeBufLen, buffer[MAX_MOTD_LENGTH], timeBuf[MAX_MOTD_LENGTH - 256], time[32], minutes, Float:seconds, totalLaps;
+
+	new cvarDefaultRecords = get_pcvar_num(pcvar_kz_top_records);
+	new cvarMaxRecords = get_pcvar_num(pcvar_kz_top_records_max);
+
+	// TODO: DRY, same as ShowTopClimbers
+	// Get the info... from what record until what record we have to show
+	new topArgs[2];
+	GetRangeArg(topArgs); // e.g.: "say /pro 20-30" --> the '20' goes to topArgs[0] and '30' to topArgs[1]
+	new recFrom = min(topArgs[0], topArgs[1]);
+	new recTo = max(topArgs[0], topArgs[1]);
+	// FIXME: args not working, maybe being a query handler affects it somehow?
+	//server_print("pre | from: %d -> to %d", recFrom, recTo);
+	if (recTo > ArraySize(g_ArrayStats[topType])) ShowMessage(id, "There are less records than requested");
+	if (!recTo)	recTo = cvarDefaultRecords;
+	if (recFrom < 0) recFrom = 0;
+	if (recTo < 0) recTo = 1;
+	if (recFrom) 	recFrom -= 1; // so that in "say /pro 1-20" it takes from 1 to 20 both inclusive
+	// Yeah this one below is duplicated, because recTo may have changed in the previous checks and the first check is only to notify the player
+	if (recTo > ArraySize(g_ArrayStats[topType])) recTo = ArraySize(g_ArrayStats[topType]); // there may be less records than the player is requesting, limit it to that amount
+	if (recTo - cvarMaxRecords > recFrom)
+	{
+		// Limit max. records to show
+		recTo = recFrom + cvarMaxRecords;
+		client_print(id, print_chat, "[%s] Sorry, cannot load more than %d records at once", PLUGIN_TAG, cvarMaxRecords);
+	}
+	//server_print("post | from: %d -> to %d", recFrom, recTo);
+
+	// TODO: try to refactor, too complex, also it could be easier but not taking
+	// some things for granted like lap amount, since it might not be always 5 in the
+	// future or in other maps, and we want to keep compatibility with querying tops
+	// of other maps than the current one, with a possibly different total laps number
+
+	new uniqueId[32], name[32], lap, Float:lapTime;
+	new prevRank, rank, prevUniqueId[32], prevName[32], nameToDisplay[32];
+
+	new i = 1;
+	while (mysql_more_results())
+	{
+		mysql_read_result(0, uniqueId, charsmax(uniqueId));
+		mysql_read_result(1, name, charsmax(name)); // has NULL for all laps except the last one
+		lap = mysql_read_result(2);
+		mysql_read_result(3, lapTime);
+
+		if (totalLaps < lap)
+			totalLaps = lap;
+
+		if (prevUniqueId[0] && !equal(uniqueId, prevUniqueId))
+		{
+			// The data corresponds to a different run than we had before, so it's already the next run
+			rank++;
+			copy(nameToDisplay, charsmax(nameToDisplay), prevName);
+		}
+		copy(prevUniqueId, charsmax(prevUniqueId), uniqueId);
+		copy(prevName, charsmax(prevName), name);
+
+		//server_print("i=%d, prevRank=%d, rank=%d, lap=%d, name=%s, uniqueId=%s, prevUniqueId=%s", i, prevRank, rank, lap, name, uniqueId, prevUniqueId);
+
+		if (rank < recFrom || rank > recTo)
+		{
+			i++;
+			mysql_next_row();
+			continue;
+		}
+
+		if (prevRank != rank)
+		{
+			len += formatex(buffer[len], charsmax(buffer) - len, "\n%-2d  %-17s%s", rank, nameToDisplay, timeBuf);
+			timeBuf[0] = EOS;
+			timeBufLen = 0;
+		}
+		prevRank = rank;
+
+		// Put the lap time into "mm:ss.ms" format
+		minutes = floatround(lapTime, floatround_floor) / 60;
+		seconds = lapTime - (60 * minutes);
+		formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%0"), minutes, seconds);
+
+		timeBufLen += formatex(timeBuf[timeBufLen], charsmax(timeBuf) - timeBufLen, "  %10s", time);
+
+		i++;
+		mysql_next_row();
+	}
+
+	len += formatex(buffer[len], charsmax(buffer) - len, "\n%-2d  %-17s%s", ++rank, name, timeBuf);
+
+	len += formatex(buffer[len], charsmax(buffer) - len, "\n\n%s %s", PLUGIN, VERSION);
+
+
+	new header[48], subHeader[96];
+
+	// Sub-header text
+	new shLen = 0;
+	if (totalLaps)
+	{
+		shLen += formatex(subHeader[shLen], charsmax(subHeader) - shLen, "#   Player           ");
+		for (new i = 1; i <= totalLaps; i++)
+		{
+			shLen += formatex(subHeader[shLen], charsmax(subHeader) - shLen, "   Lap %3d  ", i);
+		}
+	}
+	else
+		shLen += formatex(subHeader[shLen], charsmax(subHeader) - shLen, "#   Player               Laps\n");
+
+	formatex(header, charsmax(header), "Gold Lap Times [%d-%d]", recFrom ? recFrom : 1, recTo);
+	format(buffer, charsmax(buffer), "%s\n%s", subHeader, buffer);
+	show_motd(id, buffer, header);
 }
 
 /*
