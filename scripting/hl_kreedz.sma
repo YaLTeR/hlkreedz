@@ -59,6 +59,11 @@
 #define MIN_TIMELEFT_ALLOWED_NORESET    5.0
 #define HUD_SPLIT_HOLDTIME              2.0
 #define HUD_LAP_HOLDTIME                2.5
+#define HUD_DEFAULT_SPLIT_Y             0.18
+//#define HUD_DEFAULT_LAP_Y               0.26
+#define HUD_DEFAULT_LAP_Y               0.21
+#define HUD_DEFAULT_DELTA_Y             0.28
+#define HUD_DELTA_SPLIT_OFFSET          0.03
 #define DEFAULT_TIME_DECIMALS           3
 
 #define TASKID_ICON                     5633445
@@ -67,6 +72,7 @@
 #define TASKID_CAM_UNFREEZE             1622952
 #define TASKID_CONFIGURE_DB             2037262
 #define TASKID_MATCH_START_CHECK        2906871
+#define TASKID_INIT_PLAYER_GOLDS        468261
 
 #define TASKID_CUP_TENSION_FIRST_BAN    9357015
 #define TASKID_CUP_FINALLY_FIRST_BAN    8357015
@@ -337,7 +343,13 @@ new g_KzMenuOption[MAX_PLAYERS + 1];
 new g_CheatCommandsGuard[MAX_PLAYERS + 1];
 new Float:g_PlayerTASed[MAX_PLAYERS + 1];
 
+new g_UniqueId[MAX_PLAYERS + 1][32];
 new Trie:g_DbPlayerId;
+new Array:g_GoldSplits[MAX_PLAYERS + 1][RUN_TYPE];    // Best individual split times
+new Array:g_GoldLaps[MAX_PLAYERS + 1][RUN_TYPE];      // Best individual lap times
+new Array:g_PbSplits[MAX_PLAYERS + 1][RUN_TYPE];      // Split times of PB run
+new Array:g_PbLaps[MAX_PLAYERS + 1][RUN_TYPE];        // Lap times of PB run
+new bool:g_PbSplitsUpToDate[MAX_PLAYERS + 1];         // To decide whether to retrieve split/lap times again
 
 // Splits stuff
 new Trie:g_Splits;                       // split id -> SPLIT struct
@@ -411,7 +423,8 @@ new g_MapWeapons[256][WEAPON];    // weapons that are in the map, with their ori
 new g_HudRGB[MAX_PLAYERS + 1][3];
 new colorRed[COLOR], colorGreen[COLOR], colorBlue[COLOR],
 	colorCyan[COLOR], colorMagenta[COLOR], colorYellow[COLOR],
-	colorDefault[COLOR], colorGray[COLOR], colorWhite[COLOR];
+	colorDefault[COLOR], colorGray[COLOR], colorWhite[COLOR],
+	colorGold[COLOR], colorBehind[COLOR], colorAhead[COLOR];
 
 new Trie:g_ColorsList;
 
@@ -1066,27 +1079,117 @@ InitTopsAndDB()
 
 InitHudColors()
 {
-	CreateColor(colorRed, "red",			255, 0, 0);
-	CreateColor(colorGreen, "green",		0, 255, 0);
-	CreateColor(colorBlue, "blue",			0, 0, 255);
-	CreateColor(colorCyan, "cyan",			0, 255, 255);
-	CreateColor(colorMagenta,"magenta", 	255, 0, 255);
-	CreateColor(colorYellow, "yellow",		255, 255, 0);
-	CreateColor(colorDefault, "default",	255, 160, 0);
-	CreateColor(colorGray, "gray",			128, 128, 128);
-	CreateColor(colorWhite, "white",		255, 255, 255);
+	//                        Name       R    G    B
+	CreateColor(colorRed,     "red",     255,   0,   0);
+	CreateColor(colorGreen,   "green",     0, 255,   0);
+	CreateColor(colorBlue,    "blue",      0,   0, 255);
+	CreateColor(colorCyan,    "cyan",      0, 255, 255);
+	CreateColor(colorMagenta, "magenta", 255,   0, 255);
+	CreateColor(colorYellow,  "yellow",  255, 255,   0);
+	CreateColor(colorDefault, "default", 255, 160,   0);
+	CreateColor(colorGray,    "gray",    128, 128, 128);
+	CreateColor(colorWhite,   "white",   255, 255, 255);
+
+	// These are defaults for delta times
+	CreateColor(colorGold,   "gold",      255, 215,   0);
+	CreateColor(colorBehind, "crimson",   220,  20,  60); // crimson color (redish)
+	CreateColor(colorAhead,  "emerald",    80, 220, 100); // limegreen color (greenish)
 
 	g_ColorsList = TrieCreate();
 
-	TrieSetArray(g_ColorsList, "red", colorRed, sizeof(colorRed));
-	TrieSetArray(g_ColorsList, "green", colorGreen, sizeof(colorGreen));
-	TrieSetArray(g_ColorsList, "blue", colorBlue, sizeof(colorBlue));
-	TrieSetArray(g_ColorsList, "cyan", colorCyan, sizeof(colorCyan));
-	TrieSetArray(g_ColorsList, "magenta", colorMagenta, sizeof(colorMagenta));
-	TrieSetArray(g_ColorsList, "yellow", colorYellow, sizeof(colorYellow));
-	TrieSetArray(g_ColorsList, "default", colorDefault, sizeof(colorDefault));
-	TrieSetArray(g_ColorsList, "gray", colorGray, sizeof(colorGray));
-	TrieSetArray(g_ColorsList, "white", colorWhite, sizeof(colorWhite));
+	TrieSetArray(g_ColorsList, "red",       colorRed,     sizeof(colorRed));
+	TrieSetArray(g_ColorsList, "green",     colorGreen,   sizeof(colorGreen));
+	TrieSetArray(g_ColorsList, "blue",      colorBlue,    sizeof(colorBlue));
+	TrieSetArray(g_ColorsList, "cyan",      colorCyan,    sizeof(colorCyan));
+	TrieSetArray(g_ColorsList, "magenta",   colorMagenta, sizeof(colorMagenta));
+	TrieSetArray(g_ColorsList, "yellow",    colorYellow,  sizeof(colorYellow));
+	TrieSetArray(g_ColorsList, "default",   colorDefault, sizeof(colorDefault));
+	TrieSetArray(g_ColorsList, "gray",      colorGray,    sizeof(colorGray));
+	TrieSetArray(g_ColorsList, "white",     colorWhite,   sizeof(colorWhite));
+
+	TrieSetArray(g_ColorsList, "gold",      colorGold,    sizeof(colorGold));
+	TrieSetArray(g_ColorsList, "crimson",   colorBehind,  sizeof(colorBehind));
+	TrieSetArray(g_ColorsList, "limegreen", colorAhead,   sizeof(colorAhead));
+}
+
+public InitPlayerSplits(taskId)
+{
+	new id = taskId - TASKID_INIT_PLAYER_GOLDS;
+
+	if (!g_MapId)
+	{
+		// Ugly way
+		set_task(1.0, "InitPlayerSplits", taskId);
+		return;
+	}
+
+	g_GoldLaps[id][PURE] = ArrayCreate(1, 5);
+	g_GoldLaps[id][PRO] = ArrayCreate(1, 5);
+	g_GoldLaps[id][NOOB] = ArrayCreate(1, 5);
+
+	g_GoldSplits[id][PURE] = ArrayCreate(1, 15);
+	g_GoldSplits[id][PRO] = ArrayCreate(1, 15);
+	g_GoldSplits[id][NOOB] = ArrayCreate(1, 15);
+
+	g_PbLaps[id][PURE] = ArrayCreate(1, 5);
+	g_PbLaps[id][PRO] = ArrayCreate(1, 5);
+	g_PbLaps[id][NOOB] = ArrayCreate(1, 5);
+
+	g_PbSplits[id][PURE] = ArrayCreate(1, 15);
+	g_PbSplits[id][PRO] = ArrayCreate(1, 15);
+	g_PbSplits[id][NOOB] = ArrayCreate(1, 15);
+
+	// Allocate the number of cells that we're gonna use throughout runs in this map,
+	// so we can straight up do ArrayGetCell()/ArraySetCell() later without having
+	// to clutter everything with size checks, ArrayPushCell() and stuff
+	for (new i = 0; i < g_RunLaps; i++)
+	{
+		ArrayPushCell(Array:g_GoldLaps[id][PURE], 0.0);
+		ArrayPushCell(Array:g_GoldLaps[id][PRO], 0.0);
+		ArrayPushCell(Array:g_GoldLaps[id][NOOB], 0.0);
+
+		ArrayPushCell(Array:g_PbLaps[id][PURE], 0.0);
+		ArrayPushCell(Array:g_PbLaps[id][PRO], 0.0);
+		ArrayPushCell(Array:g_PbLaps[id][NOOB], 0.0);
+	}
+
+	new totalSplits = g_RunLaps * ArraySize(g_OrderedSplits);
+	for (new i = 0; i < totalSplits; i++)
+	{
+		ArrayPushCell(Array:g_GoldSplits[id][PURE], 0.0);
+		ArrayPushCell(Array:g_GoldSplits[id][PRO], 0.0);
+		ArrayPushCell(Array:g_GoldSplits[id][NOOB], 0.0);
+
+		ArrayPushCell(Array:g_PbSplits[id][PURE], 0.0);
+		ArrayPushCell(Array:g_PbSplits[id][PRO], 0.0);
+		ArrayPushCell(Array:g_PbSplits[id][NOOB], 0.0);
+	}
+
+	PlayerGoldLapsSelect(id, PURE);
+	PlayerGoldLapsSelect(id, PRO);
+	PlayerGoldLapsSelect(id, NOOB);
+
+	PlayerGoldSplitsSelect(id, PURE);
+	PlayerGoldSplitsSelect(id, PRO);
+	PlayerGoldSplitsSelect(id, NOOB);
+
+	LoadPlayerPbSplits(id);
+
+	// TODO same for No-Reset gold laps when it's implemented
+}
+
+LoadPlayerPbSplits(id)
+{
+	PlayerPbLapsSelect(id, PURE);
+	PlayerPbLapsSelect(id, PRO);
+	PlayerPbLapsSelect(id, NOOB);
+
+	PlayerPbSplitsSelect(id, PURE);
+	PlayerPbSplitsSelect(id, PRO);
+	PlayerPbSplitsSelect(id, NOOB);
+
+	// Not really updated yet, until the queries are executed, but this is enough for the moment
+	g_PbSplitsUpToDate[id] = true;
 }
 
 //*******************************************************
@@ -1841,6 +1944,7 @@ public client_putinserver(id)
 	// Link this player to the cup player
 	new uniqueId[32];
 	GetUserUniqueId(id, uniqueId, charsmax(uniqueId));
+	copy(g_UniqueId[id], charsmax(g_UniqueId[]), uniqueId);
 
 	if (equal(g_CupSteam1, uniqueId))
 		g_CupPlayer1 = id;
@@ -1862,7 +1966,6 @@ public client_disconnect(id)
 
 	clr_bit(g_bit_is_connected, id);
 	clr_bit(g_bit_is_hltv, id);
-	clr_bit(g_bit_is_bot, id);
 	clr_bit(g_bit_invis, id);
 	clr_bit(g_bit_waterinvis, id);
 	clr_bit(g_baIsFirstSpawn, id);
@@ -1904,6 +2007,27 @@ public client_disconnect(id)
 	ArrayClear(g_LapTimes[id]);
 	g_CurrentLap[id] = 0;
 
+	if (!IsBot(id))
+	{
+		ArrayClear(Array:g_GoldLaps[id][PURE]);
+		ArrayClear(Array:g_GoldLaps[id][PRO]);
+		ArrayClear(Array:g_GoldLaps[id][NOOB]);
+
+		ArrayClear(Array:g_GoldSplits[id][PURE]);
+		ArrayClear(Array:g_GoldSplits[id][PRO]);
+		ArrayClear(Array:g_GoldSplits[id][NOOB]);
+
+		ArrayClear(Array:g_PbLaps[id][PURE]);
+		ArrayClear(Array:g_PbLaps[id][PRO]);
+		ArrayClear(Array:g_PbLaps[id][NOOB]);
+
+		ArrayClear(Array:g_PbSplits[id][PURE]);
+		ArrayClear(Array:g_PbSplits[id][PRO]);
+		ArrayClear(Array:g_PbSplits[id][NOOB]);
+
+		// TODO clear No-Reset gold laps too when they're implemented
+	}
+
 	if (g_RecordRun[id])
 	{
 		if (IsCupPlayer(id) && g_bMatchRunning)
@@ -1922,10 +2046,14 @@ public client_disconnect(id)
 	ArrayClear(g_ReplayFrames[id]);
 	g_ReplayFramesIdx[id] = 0;
 
+	g_UniqueId[id][0] = EOS;
+
 	// Clear and reset other things
 	ResetPlayer(id, true, false);
 
 	g_ControlPoints[id][CP_TYPE_START][CP_VALID] = false;
+
+	clr_bit(g_bit_is_bot, id);
 }
 
 LoadPlayerSettings(id)
@@ -4098,12 +4226,12 @@ SplitTime(id, ent)
 	if (!get_bit(g_baIsClimbing, id))
 		return;
 
-	new split[SPLIT], splitIdx, totalSplits, lastSplitIdx, previousSplitIdx, previousSplitId[17], previousSplit[SPLIT];
+	new split[SPLIT], splitIdx, splitsPerLap, lastSplitIdx, previousSplitIdx, previousSplitId[17], previousSplit[SPLIT];
 
 	GetSplitByEntityId(ent, split);
 	splitIdx = ArrayFindString(g_OrderedSplits, split[SPLIT_ID]);
-	totalSplits = ArraySize(g_OrderedSplits);
-	lastSplitIdx = totalSplits - 1;
+	splitsPerLap = ArraySize(g_OrderedSplits);
+	lastSplitIdx = splitsPerLap - 1;
 	previousSplitIdx = splitIdx - 1;
 	if (previousSplitIdx == -1)
 		previousSplitIdx = lastSplitIdx;
@@ -4114,7 +4242,7 @@ SplitTime(id, ent)
 	new playerSplitRelative = ArraySize(g_SplitTimes[id]);
 	if (playerSplitRelative >= lastSplitIdx)
 	{
-		playerSplitRelative -= totalSplits;
+		playerSplitRelative -= splitsPerLap;
 	}
 
 	if ((splitIdx - 1) != playerSplitRelative)
@@ -4128,45 +4256,24 @@ SplitTime(id, ent)
 		return;
 	}
 
-	if (splitIdx == 1 && ArraySize(g_SplitTimes[id]) == totalSplits)
+	if (splitIdx == 1 && ArraySize(g_SplitTimes[id]) == splitsPerLap)
 	{
 		// We clear this on the 2nd split (index=1) because the 1st one is still used to get previous lap's last split's time
 		// and during the first split the HUD still has to show that split's time
 		ArrayClear(g_SplitTimes[id]);
 	}
 
-	new splitTimeText[54];
-	new Float:splitTime = GetCurrentRunTime(id) - GetPreviousLapTimes(id) - GetCurrentLapTime(id);
-	formatex(splitTimeText, charsmax(splitTimeText), "%s - %s", previousSplit[SPLIT_NAME], GetSplitTimeText(id, splitTime));
-
-	// HUD and logging for this split
-	console_print(id, splitTimeText);
-	set_dhudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], _, 0.18, 0, 0.0, HUD_SPLIT_HOLDTIME, _, 0.4);
-	show_dhudmessage(id, splitTimeText);
-
+	new currLap = g_CurrentLap[id];
 	new timestamp = get_systime();
 	new RUN_TYPE:topType = GetTopType(id);
 
-	ArrayPushCell(g_SplitTimes[id], splitTime);
-	SplitTimeInsert(id, previousSplit[SPLIT_DB_ID], splitTime, g_CurrentLap[id], topType, timestamp);
+	FinishSplit(id, currLap, timestamp, topType, previousSplit, splitsPerLap);
 
 	if (splitIdx == 0)
 	{
 		if (g_RunLaps)
 		{
-			new lapText[24];
-			new Float:lapTime = GetCurrentLapTime(id);
-			formatex(lapText, charsmax(lapText), "Lap %d - %s", g_CurrentLap[id], GetSplitTimeText(id, lapTime));
-
-			// HUD and logging for this lap. Show it a bit below the split time
-			console_print(id, lapText);
-			set_dhudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], _, 0.21, 0, 0.0, HUD_LAP_HOLDTIME, _, 0.4);
-			show_dhudmessage(id, lapText);
-
-			ArrayPushCell(g_LapTimes[id], lapTime);
-			LapTimeInsert(id, g_CurrentLap[id], lapTime, topType, timestamp);
-
-			g_CurrentLap[id]++;
+			FinishLap(id, currLap, timestamp, topType);
 		}
 
 		// Extra parentheses because my editor has some syntax highlighting problems
@@ -4177,19 +4284,175 @@ SplitTime(id, ent)
 	}
 }
 
+FinishSplit(id, currLap, timestamp, RUN_TYPE:topType, previousSplit[SPLIT], splitsPerLap)
+{
+	new splitText[54];
+	new Float:splitTime = GetCurrentRunTime(id) - GetPreviousLapTimes(id) - GetCurrentLapTime(id);
+	formatex(splitText, charsmax(splitText), "%s - %s", previousSplit[SPLIT_NAME], GetSplitTimeText(id, splitTime));
+
+	ArrayPushCell(g_SplitTimes[id], splitTime);
+	SplitTimeInsert(id, previousSplit[SPLIT_DB_ID], splitTime, currLap, topType, timestamp);
+
+	// Get the split index over the total splits (5 laps with 3 splits each -> 15 splits)
+	new totalSplitIdx       = (splitsPerLap * (currLap - 1)) + ArraySize(g_SplitTimes[id]);
+
+	new Float:pbSplitTime, Float:goldSplitTime, bool:isNewGold;
+
+	if (!IsBot(id))
+	{
+		pbSplitTime   = ArrayGetCell(g_PbSplits[id][topType], totalSplitIdx - 1);
+		goldSplitTime = ArrayGetCell(g_GoldSplits[id][topType], totalSplitIdx - 1);
+
+		isNewGold = goldSplitTime > splitTime
+		if (isNewGold)
+			ArraySetCell(g_GoldSplits[id][topType], totalSplitIdx - 1, splitTime);
+	}
+
+	// HUD and logging for this split
+	new msgColor[COLOR];
+	console_print(id, splitText);
+
+	if (isNewGold)
+		datacopy(msgColor, colorGold, sizeof(colorGold));
+	else
+	{
+		msgColor[COLOR_RED]   = g_HudRGB[id][0];
+		msgColor[COLOR_GREEN] = g_HudRGB[id][1];
+		msgColor[COLOR_BLUE]  = g_HudRGB[id][2];
+	}
+	//set_dhudmessage(msgColor[COLOR_RED], msgColor[COLOR_GREEN], msgColor[COLOR_BLUE], _, HUD_DEFAULT_SPLIT_Y, 0, 0.0, HUD_SPLIT_HOLDTIME, _, 0.4);
+	//show_dhudmessage(id, splitText);
+	BroadcastSplitHudMessage(id, splitText, msgColor, HUD_DEFAULT_SPLIT_Y, HUD_SPLIT_HOLDTIME);
+
+	if (!IsBot(id))
+		ShowDeltaMessage(id, pbSplitTime, currLap, topType);
+}
+
+FinishLap(id, currLap, timestamp, RUN_TYPE:topType)
+{
+	new lapText[24];
+	new Float:lapTime = GetCurrentLapTime(id);
+	formatex(lapText, charsmax(lapText), "Lap %d - %s", currLap, GetSplitTimeText(id, lapTime));
+
+	ArrayPushCell(g_LapTimes[id], lapTime);
+	LapTimeInsert(id, currLap, lapTime, topType, timestamp);
+
+	new Float:pbLapTime, Float:goldLapTime, bool:isNewGold;
+
+	if (!IsBot(id))
+	{
+		//pbLapTime   = ArrayGetCell(g_PbLaps[id][topType], currLap - 1);
+		goldLapTime = ArrayGetCell(g_GoldLaps[id][topType], currLap - 1);
+
+		isNewGold = goldLapTime > lapTime;
+		if (isNewGold)
+			ArraySetCell(g_GoldLaps[id][topType], currLap - 1, lapTime);
+	}
+
+	// HUD and logging for this lap. Show it a bit below the split time
+	new msgColor[COLOR];
+	console_print(id, lapText);
+
+	if (isNewGold)
+		datacopy(msgColor, colorGold, sizeof(colorGold));
+	else
+	{
+		msgColor[COLOR_RED]   = g_HudRGB[id][0];
+		msgColor[COLOR_GREEN] = g_HudRGB[id][1];
+		msgColor[COLOR_BLUE]  = g_HudRGB[id][2];
+	}
+	//set_dhudmessage(msgColor[COLOR_RED], msgColor[COLOR_GREEN], msgColor[COLOR_BLUE], _, HUD_DEFAULT_LAP_Y, 0, 0.0, HUD_LAP_HOLDTIME, _, 0.4);
+	//show_dhudmessage(id, lapText);
+	BroadcastSplitHudMessage(id, lapText, msgColor, HUD_DEFAULT_LAP_Y, HUD_LAP_HOLDTIME);
+
+	//ShowDeltaMessage(id, pbLapTime, currLap, topType);
+
+	g_CurrentLap[id]++;
+}
+
+ShowDeltaMessage(id, Float:pbTime, currLap, RUN_TYPE:topType)
+{
+	if (!pbTime)
+	{
+		// TODO: implement a user setting to compare against PB or against gold,
+		// for the moment we only show delta time against PB, so if no PB yet, nothing to do here
+		return;
+	}
+
+	new totalSplitIdx, Float:runDeltaTime, deltaColor[COLOR];
+
+	totalSplitIdx = (ArraySize(g_OrderedSplits) * (currLap - 1)) + ArraySize(g_SplitTimes[id]);
+
+	runDeltaTime  = GetCurrentRunTime(id) - GetPbRunTime(id, totalSplitIdx - 1, topType);
+
+	if (runDeltaTime > 0.0)
+		datacopy(deltaColor, colorBehind, sizeof(colorBehind));
+	else if (runDeltaTime < 0.0)
+		datacopy(deltaColor, colorAhead, sizeof(colorAhead));
+	else
+		datacopy(deltaColor, colorCyan, sizeof(colorCyan));
+
+	new deltaText[24];
+	formatex(deltaText, charsmax(deltaText), "(%s%s)", runDeltaTime > 0.0 ? "+" : "", GetSplitTimeText(id, runDeltaTime));
+	//set_dhudmessage(deltaColor[COLOR_RED], deltaColor[COLOR_GREEN], deltaColor[COLOR_BLUE], _, HUD_DEFAULT_DELTA_Y, 0, 0.0, HUD_LAP_HOLDTIME, _, 0.4);
+	//show_dhudmessage(id, deltaText);
+	BroadcastSplitHudMessage(id, deltaText, deltaColor, HUD_DEFAULT_DELTA_Y, HUD_LAP_HOLDTIME);
+}
+
+BroadcastSplitHudMessage(id, text[], color[COLOR], Float:y, Float:holdTime)
+{
+	new auxColor[COLOR];
+
+	if (IsBot(id))
+		datacopy(auxColor, colorDefault, sizeof(colorDefault));
+	else
+		datacopy(auxColor, color, sizeof(color));
+
+	new players[MAX_PLAYERS], playersNum, id2, mode, targetId;
+	get_players_ex(players, playersNum, GetPlayers_ExcludeBots);
+
+	for (new i = 0; i < playersNum; i++)
+	{
+		id2 = players[i];
+
+		mode = pev(id2, pev_iuser1);
+		targetId = mode == OBS_CHASE_LOCKED || mode == OBS_CHASE_FREE || mode == OBS_IN_EYE || mode == OBS_MAP_CHASE ? pev(id2, pev_iuser2) : id2;
+
+		new playerName[32], targetName[32];
+		GetColorlessName(id2, playerName, charsmax(playerName));
+		GetColorlessName(targetId, targetName, charsmax(targetName));
+
+		if (targetId != id)
+		{
+			server_print("[%.3f] SKIPPING showing splits HUD about player '%s' to player '%s'", get_gametime(), targetName, playerName);
+			continue;
+		}
+		server_print("[%.3f] showing splits HUD about player '%s' to player '%s'", get_gametime(), targetName, playerName);
+
+		// Now we only have players that are spectating us, or ourselves, so show the message to these
+		set_dhudmessage(auxColor[COLOR_RED], auxColor[COLOR_GREEN], auxColor[COLOR_BLUE], _, y, 0, 0.0, holdTime, _, 0.4);
+		show_dhudmessage(id2, text);
+	}
+}
+
 /**
- * This has different formatting than the one used in the rest of the plugin when the time is less than 1 minute
+ * This has a different format than the one used in the rest of the plugin when the time is less than 1 minute
  */
 GetSplitTimeText(id, Float:time)
 {
-	new minutes       = floatround(time, floatround_floor) / 60;
-	new Float:seconds = time - (60 * minutes);
+	new Float:absTime = xs_fabs(time);
+	new minutes       = floatround(absTime, floatround_tozero) / 60;
+	new Float:seconds = absTime - (60 * minutes);
+
+	new sign[2];
+	if (time < 0.0)
+		formatex(sign, sizeof(sign), "-");
 
 	new result[14];
 	if (minutes)
-		formatex(result, charsmax(result), GetVariableDecimalMessage(id, "%d:%0"), minutes, seconds);
+		formatex(result, charsmax(result), GetVariableDecimalMessage(id, "%s%d:%0"), sign, minutes, seconds);
 	else
-		formatex(result, charsmax(result), GetVariableDecimalMessage(id, "%"), seconds);
+		formatex(result, charsmax(result), GetVariableDecimalMessage(id, "%s%"), sign, seconds);
 
 	return result;
 }
@@ -4197,6 +4460,18 @@ GetSplitTimeText(id, Float:time)
 Float:GetCurrentRunTime(id)
 {
 	return get_gametime() - g_PlayerTime[id];
+}
+
+Float:GetPbRunTime(id, idx, RUN_TYPE:topType)
+{
+	new Float:result;
+
+	for (new i = 0; i <= idx; i++)
+	{
+		result += Float:ArrayGetCell(g_PbSplits[id][topType], i);
+	}
+
+	return result;
 }
 
 Float:GetPreviousLapTimes(id)
@@ -7526,6 +7801,16 @@ GetUserUniqueId(id, uniqueid[], len)
 	}
 }
 
+GetPlayerFromUniqueId(uniqueId[])
+{
+	for (new i = 1; i <= sizeof(g_UniqueId) - 1; i++)
+	{
+		if (equal(uniqueId, g_UniqueId[i]))
+			return i;
+	}
+	return 0;
+}
+
 LoadRecords(RUN_TYPE:topType)
 {
 	if (get_pcvar_num(pcvar_kz_mysql))
@@ -7867,6 +8152,8 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 
 		deleteItemId = i;
 
+		g_PbSplitsUpToDate[id] = false;
+
 		break;
 	}
 
@@ -7930,6 +8217,29 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 
 ShowTopClimbersPbLaps(id, RUN_TYPE:topType)
 {
+	new cvarDefaultRecords = get_pcvar_num(pcvar_kz_top_records);
+	new cvarMaxRecords = get_pcvar_num(pcvar_kz_top_records_max);
+
+	// TODO: DRY, same as ShowTopClimbers
+	// Get the info... from what record until what record we have to show
+	new topArgs[2];
+	GetRangeArg(topArgs); // e.g.: "say /pro 20-30" --> the '20' goes to topArgs[0] and '30' to topArgs[1]
+	new recFrom = min(topArgs[0], topArgs[1]);
+	new recTo = max(topArgs[0], topArgs[1]);
+	if (recTo > ArraySize(g_ArrayStats[topType])) ShowMessage(id, "There are less records than requested");
+	if (!recTo)	recTo = cvarDefaultRecords;
+	if (recFrom < 0) recFrom = 0;
+	if (recTo < 0) recTo = 1;
+	if (recFrom) 	recFrom -= 1; // so that in "say /pro 1-20" it takes from 1 to 20 both inclusive
+	// Yeah this one below is duplicated, because recTo may have changed in the previous checks and the first check is only to notify the player
+	if (recTo > ArraySize(g_ArrayStats[topType])) recTo = ArraySize(g_ArrayStats[topType]); // there may be less records than the player is requesting, limit it to that amount
+	if (recTo - cvarMaxRecords > recFrom)
+	{
+		// Limit max. records to show
+		recTo = recFrom + cvarMaxRecords;
+		client_print(id, print_chat, "[%s] Sorry, cannot load more than %d records at once", PLUGIN_TAG, cvarMaxRecords);
+	}
+
 	new query[80];
 	if (topType == PRO)
 		formatex(query, charsmax(query), "CALL SelectBestProRunLaps(%d)", g_MapId);
@@ -7939,14 +8249,41 @@ ShowTopClimbersPbLaps(id, RUN_TYPE:topType)
 	set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], _, -1.0, _, 0.0, 999999.9);
 	ShowSyncHudMsg(id, g_SyncHudLoading, "Loading...");
 
-	new data[2];
+	new data[4];
 	data[0] = id;
 	data[1] = _:topType;
+	data[2] = recFrom;
+	data[3] = recTo;
 	mysql_query(g_DbConnection, "PbLapsTopSelectHandler", query, data, sizeof(data));
 }
 
 ShowTopClimbersGoldLaps(id, RUN_TYPE:topType)
 {
+	new cvarDefaultRecords = get_pcvar_num(pcvar_kz_top_records);
+	new cvarMaxRecords = get_pcvar_num(pcvar_kz_top_records_max);
+
+	// TODO: DRY, same as ShowTopClimbers
+	// Get the info... from what record until what record we have to show
+	new topArgs[2];
+	GetRangeArg(topArgs); // e.g.: "say /pro 20-30" --> the '20' goes to topArgs[0] and '30' to topArgs[1]
+	new recFrom = min(topArgs[0], topArgs[1]);
+	new recTo = max(topArgs[0], topArgs[1]);
+	// FIXME: args not working, maybe being a query handler affects it somehow?
+	//server_print("pre | from: %d -> to %d", recFrom, recTo);
+	if (recTo > ArraySize(g_ArrayStats[topType])) ShowMessage(id, "There are less records than requested");
+	if (!recTo)	recTo = cvarDefaultRecords;
+	if (recFrom < 0) recFrom = 0;
+	if (recTo < 0) recTo = 1;
+	if (recFrom) 	recFrom -= 1; // so that in "say /pro 1-20" it takes from 1 to 20 both inclusive
+	// Yeah this one below is duplicated, because recTo may have changed in the previous checks and the first check is only to notify the player
+	if (recTo > ArraySize(g_ArrayStats[topType])) recTo = ArraySize(g_ArrayStats[topType]); // there may be less records than the player is requesting, limit it to that amount
+	if (recTo - cvarMaxRecords > recFrom)
+	{
+		// Limit max. records to show
+		recTo = recFrom + cvarMaxRecords;
+		client_print(id, print_chat, "[%s] Sorry, cannot load more than %d records at once", PLUGIN_TAG, cvarMaxRecords);
+	}
+
 	new query[80];
 	if (topType == PRO)
 		formatex(query, charsmax(query), "CALL SelectGoldProLaps(%d)", g_MapId);
@@ -7956,9 +8293,11 @@ ShowTopClimbersGoldLaps(id, RUN_TYPE:topType)
 	set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], _, -1.0, _, 0.0, 999999.9);
 	ShowSyncHudMsg(id, g_SyncHudLoading, "Loading...");
 
-	new data[2];
+	new data[4];
 	data[0] = id;
 	data[1] = _:topType;
+	data[2] = recFrom;
+	data[3] = recTo;
 	mysql_query(g_DbConnection, "GoldLapsTopSelectHandler", query, data, sizeof(data));
 }
 
@@ -8416,6 +8755,9 @@ public PlayerIdSelectHandler(failstate, error[], errNo, uniqueId[], size, Float:
 	new pid = mysql_read_result(0);
 	TrieSetCell(g_DbPlayerId, uniqueId, pid);
 
+	new id = GetPlayerFromUniqueId(uniqueId);
+	InitPlayerSplits(TASKID_INIT_PLAYER_GOLDS + id);
+
 	server_print("[%s] [%.3f] Selected runner #%d with unique id %s, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), pid, uniqueId, queuetime);
 }
 
@@ -8602,6 +8944,10 @@ public RunInsertHandler(failstate, error[], errNo, queryData[], size, Float:queu
 		return;
 	}
 	server_print("[%s] [%.3f] Inserted run with id #%d, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), mysql_read_result(0), queuetime);
+
+	new id = GetPlayerFromUniqueId(queryData[QUERY_STATS][STATS_ID]);
+	if (!g_PbSplitsUpToDate[id])
+		LoadPlayerPbSplits(id);
 
 	// Load records and hope that they're retrieved before the client requests the data (e.g.: writes /pure)
 	LoadRecords(queryData[QUERY_RUN_TYPE]);
@@ -8817,10 +9163,200 @@ public LapTimeInsertHandler(failstate, error[], errNo, data[], size, Float:queue
 	{
 		server_print("[%s] [%.3f] Inserted lap_run #%d for lap #%d, QueueTime:[%.3f]",
 			PLUGIN_TAG, get_gametime(), mysql_get_insert_id(), lap, queuetime);
+	}
+}
+
+// TODO: DRY, refactor player's gold and PB times retrieval
+PlayerGoldLapsSelect(id, RUN_TYPE:topType)
+{
+	new pid = 0;
+	TrieGetCell(g_DbPlayerId, g_UniqueId[id], pid);
+
+	new query[96];
+	if (topType == PRO)
+		formatex(query, charsmax(query), "CALL SelectPlayerGoldProLaps(%d, %d)", g_MapId, pid);
+	else
+		formatex(query, charsmax(query), "CALL SelectPlayerGoldLaps(%d, %d, '%s')", g_MapId, pid, g_TopType[topType]);
+
+	new data[2];
+	data[0] = id;
+	data[1] = _:topType;
+
+	mysql_query(g_DbConnection, "PlayerGoldLapsSelectHandler", query, data, sizeof(data));
+}
+
+public PlayerGoldLapsSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+	new id = data[0];
+	new RUN_TYPE:topType = RUN_TYPE:data[1];
+
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ PlayerGoldLapsSelectHandler(): [%d] - [%s] - [%s] - [%s]", errNo, error, g_UniqueId[id], g_TopType[topType]);
+		return;
+	}
+
+	new lap, Float:lapTime;
+
+	while (mysql_more_results())
+	{
+		lap = mysql_read_result(0);
+		mysql_read_result(1, lapTime);
+
+		//console_print(id, "Retrieving gold %s lap #%d with time %.3f", g_TopType[topType], lap, lapTime);
+
+		ArraySetCell(g_GoldLaps[id][topType], lap - 1, lapTime);
+
+		mysql_next_row();
+	}
+	server_print("[%s] [%.3f] Selected gold %s laps for %s, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), g_TopType[topType], g_UniqueId[id], queuetime);
+}
+
+PlayerGoldSplitsSelect(id, RUN_TYPE:topType)
+{
+	new pid = 0;
+	TrieGetCell(g_DbPlayerId, g_UniqueId[id], pid);
+
+	new query[96];
+	if (topType == PRO)
+		formatex(query, charsmax(query), "CALL SelectPlayerGoldProSplits(%d, %d)", g_MapId, pid);
+	else
+		formatex(query, charsmax(query), "CALL SelectPlayerGoldSplits(%d, %d, '%s')", g_MapId, pid, g_TopType[topType]);
+
+	new data[2];
+	data[0] = id;
+	data[1] = _:topType;
+
+	mysql_query(g_DbConnection, "PlayerGoldSplitsSelectHandler", query, data, sizeof(data));
+}
+
+public PlayerGoldSplitsSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+	new id = data[0];
+	new RUN_TYPE:topType = RUN_TYPE:data[1];
+
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ PlayerGoldSplitsSelectHandler(): [%d] - [%s] - [%s] - [%s]", errNo, error, g_UniqueId[id], g_TopType[topType]);
+		return;
+	}
+
+	new split, lap, Float:splitTime;
+
+	while (mysql_more_results())
+	{
+		split = mysql_read_result(0);
+		lap = mysql_read_result(1);
+		mysql_read_result(2, splitTime);
+
+		//console_print(id, "Retrieving gold %s split %d-%d with time %.3f", g_TopType[topType], split, lap, splitTime);
+
+		new splitIdx = (ArraySize(g_OrderedSplits) * (lap - 1)) + split;
+		ArraySetCell(g_GoldSplits[id][topType], splitIdx - 1, splitTime);
+
+		mysql_next_row();
+	}
+	server_print("[%s] [%.3f] Selected gold %s splits for %s, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), g_TopType[topType], g_UniqueId[id], queuetime);
+}
+
+PlayerPbLapsSelect(id, RUN_TYPE:topType)
+{
+	new pid = 0;
+	TrieGetCell(g_DbPlayerId, g_UniqueId[id], pid);
+
+	new query[96];
+	if (topType == PRO)
+		formatex(query, charsmax(query), "CALL SelectPlayerPbProLaps(%d, %d)", g_MapId, pid);
+	else
+		formatex(query, charsmax(query), "CALL SelectPlayerPbLaps(%d, %d, '%s')", g_MapId, pid, g_TopType[topType]);
+
+	new data[2];
+	data[0] = id;
+	data[1] = _:topType;
+
+	mysql_query(g_DbConnection, "PlayerPbLapsSelectHandler", query, data, sizeof(data));
+}
+
+public PlayerPbLapsSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+	new id = data[0];
+	new RUN_TYPE:topType = RUN_TYPE:data[1];
+
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ PlayerPbLapsSelectHandler(): [%d] - [%s] - [%s] - [%s]", errNo, error, g_UniqueId[id], g_TopType[topType]);
+		return;
+	}
+
+	new lap, Float:lapTime;
+
+	while (mysql_more_results())
+	{
+		lap = mysql_read_result(0);
+		mysql_read_result(1, lapTime);
+
+		//console_print(id, "Retrieving PB run's %s lap #%d with time %.3f", g_TopType[topType], lap, lapTime);
+
+		ArraySetCell(g_PbLaps[id][topType], lap - 1, lapTime);
+
+		mysql_next_row();
+	}
+	server_print("[%s] [%.3f] Selected PB run's %s laps for %s, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), g_TopType[topType], g_UniqueId[id], queuetime);
+}
+
+PlayerPbSplitsSelect(id, RUN_TYPE:topType)
+{
+	new pid = 0;
+	TrieGetCell(g_DbPlayerId, g_UniqueId[id], pid);
+
+	new query[96];
+	if (topType == PRO)
+		formatex(query, charsmax(query), "CALL SelectPlayerPbProSplits(%d, %d)", g_MapId, pid);
+	else
+		formatex(query, charsmax(query), "CALL SelectPlayerPbSplits(%d, %d, '%s')", g_MapId, pid, g_TopType[topType]);
+
+	new data[2];
+	data[0] = id;
+	data[1] = _:topType;
+
+	mysql_query(g_DbConnection, "PlayerPbSplitsSelectHandler", query, data, sizeof(data));
+}
+
+public PlayerPbSplitsSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+	new id = data[0];
+	new RUN_TYPE:topType = RUN_TYPE:data[1];
+
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ PlayerPbSplitsSelectHandler(): [%d] - [%s] - [%s] - [%s]", errNo, error, g_UniqueId[id], g_TopType[topType]);
+		return;
+	}
+
+	new split, lap, Float:splitTime;
+
+	while (mysql_more_results())
+	{
+		split = mysql_read_result(0);
+		lap = mysql_read_result(1);
+		mysql_read_result(2, splitTime);
+
+		//console_print(id, "Retrieving PB run's %s split %d-%d with time %.3f", g_TopType[topType], split, lap, splitTime);
+
+		new splitIdx = (ArraySize(g_OrderedSplits) * (lap - 1)) + split;
+		ArraySetCell(g_PbSplits[id][topType], splitIdx - 1, splitTime);
+
+		mysql_next_row();
+	}
+	server_print("[%s] [%.3f] Selected PB run's %s splits for %s, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), g_TopType[topType], g_UniqueId[id], queuetime);
+}
+
 public PbLapsTopSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime)
 {
 	new id = data[0];
 	new RUN_TYPE:topType = RUN_TYPE:data[1];
+	new recFrom = data[2];
+	new recTo = data[3];
 
 	ClearSyncHud(id, g_SyncHudLoading);
 
@@ -8831,29 +9367,6 @@ public PbLapsTopSelectHandler(failstate, error[], errNo, data[], size, Float:que
 	}
 
 	new len, buffer[MAX_MOTD_LENGTH], time[32], minutes, Float:seconds, totalLaps;
-
-	new cvarDefaultRecords = get_pcvar_num(pcvar_kz_top_records);
-	new cvarMaxRecords = get_pcvar_num(pcvar_kz_top_records_max);
-
-	// TODO: DRY, same as ShowTopClimbers
-	// Get the info... from what record until what record we have to show
-	new topArgs[2];
-	GetRangeArg(topArgs); // e.g.: "say /pro 20-30" --> the '20' goes to topArgs[0] and '30' to topArgs[1]
-	new recFrom = min(topArgs[0], topArgs[1]);
-	new recTo = max(topArgs[0], topArgs[1]);
-	if (recTo > ArraySize(g_ArrayStats[topType])) ShowMessage(id, "There are less records than requested");
-	if (!recTo)	recTo = cvarDefaultRecords;
-	if (recFrom < 0) recFrom = 0;
-	if (recTo < 0) recTo = 1;
-	if (recFrom) 	recFrom -= 1; // so that in "say /pro 1-20" it takes from 1 to 20 both inclusive
-	// Yeah this one below is duplicated, because recTo may have changed in the previous checks and the first check is only to notify the player
-	if (recTo > ArraySize(g_ArrayStats[topType])) recTo = ArraySize(g_ArrayStats[topType]); // there may be less records than the player is requesting, limit it to that amount
-	if (recTo - cvarMaxRecords > recFrom)
-	{
-		// Limit max. records to show
-		recTo = recFrom + cvarMaxRecords;
-		client_print(id, print_chat, "[%s] Sorry, cannot load more than %d records at once", PLUGIN_TAG, cvarMaxRecords);
-	}
 
 	new runId, name[32], lap, Float:lapTime;
 
@@ -8923,6 +9436,8 @@ public GoldLapsTopSelectHandler(failstate, error[], errNo, data[], size, Float:q
 {
 	new id = data[0];
 	new RUN_TYPE:topType = RUN_TYPE:data[1];
+	new recFrom = data[2];
+	new recTo = data[3];
 
 	ClearSyncHud(id, g_SyncHudLoading);
 
@@ -8933,32 +9448,6 @@ public GoldLapsTopSelectHandler(failstate, error[], errNo, data[], size, Float:q
 	}
 
 	new len, timeBufLen, buffer[MAX_MOTD_LENGTH], timeBuf[MAX_MOTD_LENGTH - 256], time[32], minutes, Float:seconds, totalLaps;
-
-	new cvarDefaultRecords = get_pcvar_num(pcvar_kz_top_records);
-	new cvarMaxRecords = get_pcvar_num(pcvar_kz_top_records_max);
-
-	// TODO: DRY, same as ShowTopClimbers
-	// Get the info... from what record until what record we have to show
-	new topArgs[2];
-	GetRangeArg(topArgs); // e.g.: "say /pro 20-30" --> the '20' goes to topArgs[0] and '30' to topArgs[1]
-	new recFrom = min(topArgs[0], topArgs[1]);
-	new recTo = max(topArgs[0], topArgs[1]);
-	// FIXME: args not working, maybe being a query handler affects it somehow?
-	//server_print("pre | from: %d -> to %d", recFrom, recTo);
-	if (recTo > ArraySize(g_ArrayStats[topType])) ShowMessage(id, "There are less records than requested");
-	if (!recTo)	recTo = cvarDefaultRecords;
-	if (recFrom < 0) recFrom = 0;
-	if (recTo < 0) recTo = 1;
-	if (recFrom) 	recFrom -= 1; // so that in "say /pro 1-20" it takes from 1 to 20 both inclusive
-	// Yeah this one below is duplicated, because recTo may have changed in the previous checks and the first check is only to notify the player
-	if (recTo > ArraySize(g_ArrayStats[topType])) recTo = ArraySize(g_ArrayStats[topType]); // there may be less records than the player is requesting, limit it to that amount
-	if (recTo - cvarMaxRecords > recFrom)
-	{
-		// Limit max. records to show
-		recTo = recFrom + cvarMaxRecords;
-		client_print(id, print_chat, "[%s] Sorry, cannot load more than %d records at once", PLUGIN_TAG, cvarMaxRecords);
-	}
-	//server_print("post | from: %d -> to %d", recFrom, recTo);
 
 	// TODO: try to refactor, too complex, also it could be easier but not taking
 	// some things for granted like lap amount, since it might not be always 5 in the
