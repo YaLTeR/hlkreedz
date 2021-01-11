@@ -200,6 +200,7 @@ new const CONFIGS_SUB_DIR[] = "hl_kreedz";
 new const PLUGIN_CFG_FILENAME[] = "hl_kreedz.cfg";
 new const PLUGIN_CFG_SHORTENED[] = "hlkz";
 new const MYSQL_LOG_FILENAME[] = "kz_mysql.log";
+new const HLKZ_LOG_FILENAME[] = "hl_kreedz.log";
 new const MAP_POOL_FILE[] = "map_pool.ini";
 new const CUP_FILE[] = "cup.ini";
 new const HUD_SETTINGS[] = "HUD Settings";
@@ -380,6 +381,11 @@ new bool:g_ShowSpeed[MAX_PLAYERS + 1];
 new bool:g_ShowDistance[MAX_PLAYERS + 1];
 new bool:g_ShowSpecList[MAX_PLAYERS + 1];
 new bool:g_TpOnCountdown[MAX_PLAYERS + 1];    // Teleport to start position when agstart or NR countdown starts?
+
+new bool:g_PrevRunCountdown[MAX_PLAYERS + 1];
+new g_PrevShowTimer[MAX_PLAYERS + 1];
+new g_PrevTimeDecimals[MAX_PLAYERS + 1];
+new g_PrevHudRGB[MAX_PLAYERS + 1][3];
 
 new g_BotOwner[MAX_PLAYERS + 1];
 new g_BotEntity[MAX_PLAYERS + 1];
@@ -2472,9 +2478,9 @@ public CmdHudColor(id)
 
 		if (numR < 20 && numG < 20 && numB < 20) // (0,0,0) is invisible, prevent that.
 		{
-			numR = 255;
-			numG = 160;
-			numB = 0;
+			numR = colorDefault[COLOR_RED];
+			numG = colorDefault[COLOR_GREEN];
+			numB = colorDefault[COLOR_BLUE];
 			ShowMessage(id, "That color is barely visible! Setting default color");
 		}
 	}
@@ -5173,6 +5179,30 @@ GetSpectatorList(id, hud[], len, sendTo[])
 	return send;
 }
 
+CheckSettings(id)
+{
+	if (ColorsZeroed(id) &&	g_PrevRunCountdown[id] && !g_RunCountdown[id])
+	{
+		// The settings bug occurred, for the moment just gonna restore the important settings and log the incident
+		new name[32];
+		GetColorlessName(id, name, charsmax(name));
+		log_to_file(HLKZ_LOG_FILENAME, "ERROR | CheckSettings() | Settings bug detected on player with ID %s and nickname %s", g_UniqueId[id], name);
+
+		g_ShowTimer[id] = g_PrevShowTimer[id];
+		g_TimeDecimals[id] = g_PrevTimeDecimals[id];
+		g_HudRGB[id][0] = g_PrevHudRGB[id][0];
+		g_HudRGB[id][1] = g_PrevHudRGB[id][1];
+		g_HudRGB[id][2] = g_PrevHudRGB[id][2];
+		g_RunCountdown[id] = g_PrevRunCountdown[id];
+	}
+}
+
+bool:ColorsZeroed(id)
+{
+	// We had some color set in the previous frame, and now we don't have any color (R, G, B) set
+	return (g_PrevHudRGB[id][0] || g_PrevHudRGB[id][1] || g_PrevHudRGB[id][2]) && (!g_HudRGB[id][0] && !g_HudRGB[id][0] && !g_HudRGB[id][0]);
+}
+
 HudStorePressedKeys(id)
 {
 	if (!get_pcvar_num(pcvar_kz_show_keys))
@@ -5732,6 +5762,16 @@ public Fw_FmPlayerPreThinkPost(id)
 		g_HBFrameCounter[id] -= 1;
 		CheckHealthBoost(id);
 	}
+
+	CheckSettings(id);
+
+	// Copy some settings to be able to log when the bug with settings being zeroed happens mid-game
+	g_PrevRunCountdown[id] = g_RunCountdown[id];
+	g_PrevShowTimer[id] = g_ShowTimer[id];
+	g_PrevTimeDecimals[id] = g_TimeDecimals[id];
+	g_PrevHudRGB[id][0] = g_HudRGB[id][0];
+	g_PrevHudRGB[id][1] = g_HudRGB[id][1];
+	g_PrevHudRGB[id][2] = g_HudRGB[id][2];
 
 	new Float:prevPos[3];
 	xs_vec_copy(g_Origin[id], prevPos);
