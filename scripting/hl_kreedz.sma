@@ -479,7 +479,7 @@ new bool:g_IsAgServer;
 new bool:g_bMatchRunning;
 new bool:g_DisableSpec;
 
-new g_CupMaps;            // how many maps will runners play to decide who qualifies, NOT the total maps in the pool
+new g_BestOfN;            // how many maps will runners play to decide who qualifies, NOT the total maps in the pool, e.g.: Bo5 -> 5
 new g_CupPlayer1;         // player index of opponent 1
 new g_CupPlayer2;         // player index of opponent 2
 new g_CupSteam1[32];      // Steam id of opponent 1
@@ -553,7 +553,7 @@ new pcvar_kz_mysql_host;
 new pcvar_kz_mysql_user;
 new pcvar_kz_mysql_pass;
 new pcvar_kz_mysql_db;
-//new pcvar_kz_cup_format;
+new pcvar_kz_cup_format;
 new pcvar_kz_cup_max_maps;
 new pcvar_kz_cup_map_change_delay;
 new pcvar_kz_stop_moving_platforms;
@@ -691,7 +691,7 @@ public plugin_init()
 	pcvar_kz_mysql_pass = register_cvar("kz_mysql_pass", "");  // Password of the MySQL user
 	pcvar_kz_mysql_db   = register_cvar("kz_mysql_db", "");    // MySQL database name
 
-	//pcvar_kz_cup_format = register_cvar("kz_cup_format", "ABBAABD");
+	pcvar_kz_cup_format = register_cvar("kz_cup_format", "ABABABD");
 	pcvar_kz_cup_max_maps = register_cvar("kz_cup_max_maps", "7");
 	pcvar_kz_cup_map_change_delay = register_cvar("kz_cup_map_change_delay", "8.0");
 
@@ -714,6 +714,9 @@ public plugin_init()
 
 	// Cup and map pool stuff
 	register_clcmd("kz_cup",            "CmdCupHandler",        ADMIN_CFG, "- start a cup match between 2 players");
+	register_clcmd("kz_bo",             "CmdCupHandler",        ADMIN_CFG, "- start a cup match between 2 players");
+	register_clcmd("kz_bestof",         "CmdCupHandler",        ADMIN_CFG, "- start a cup match between 2 players");
+	register_clcmd("kz_bestofn",        "CmdCupHandler",        ADMIN_CFG, "- start a cup match between 2 players");
 	register_clcmd("kz_cup_reset_maps", "CmdResetCupMapStates", ADMIN_CFG, "- resets the state of all the maps in the pool");
 	register_clcmd("kz_cup_clear",      "CmdClearCup",          ADMIN_CFG, "- clears all the cached cup data");
 	register_clcmd("kz_map_add",        "CmdMapInsertHandler",  ADMIN_CFG, "- adds a map to the map pool");
@@ -1545,7 +1548,7 @@ public ActionMapBanMenu(id, key)
 	}
 	TrieIterDestroy(ti);
 
-	if (cupMap[MAP_NAME][0])
+	if (cupMap[MAP_STATE_] == MAP_IDLE)
 	{
 		new totalPoolMaps = TrieGetSize(g_CupMapPool);
 		new availableMaps = CountCupMaps(MAP_IDLE);
@@ -1563,7 +1566,7 @@ public ActionMapBanMenu(id, key)
 
 		client_print(0, print_chat, "[%s] %s banned %s.", PLUGIN_TAG, playerName, cupMap[MAP_NAME]);
 
-		new remainingMapsToBan = availableMaps - g_CupMaps;
+		new remainingMapsToBan = availableMaps - g_BestOfN;
 		if (remainingMapsToBan > 0)
 		{
 			client_print(0, print_chat, "[%s] Remaining %d map%s to be banned.",
@@ -1572,14 +1575,14 @@ public ActionMapBanMenu(id, key)
 		else
 		{
 			client_print(0, print_chat, "[%s] We're done banning maps. Time to pick! You'll pick %d maps and then the remaining one is the decider.",
-				PLUGIN_TAG, g_CupMaps - 1);
+				PLUGIN_TAG, availableMaps - 1);
 		}
 		CmdMapsShowHandler(0);
 
-		server_print("ActionMapBanMenu :: availableMaps=%d, g_CupMaps=%d", availableMaps, g_CupMaps);
+		server_print("ActionMapBanMenu :: availableMaps=%d, g_BestOfN=%d", availableMaps, g_BestOfN);
 		new nextPicker = GetNextPicker();
 
-		if (availableMaps == g_CupMaps)
+		if (availableMaps == g_BestOfN)
 		{
 			// Time to start picking maps
 			server_print("showing map pick menu to player #%d", nextPicker);
@@ -1624,7 +1627,7 @@ public ActionMapPickMenu(id, key)
 	}
 	TrieIterDestroy(ti);
 
-	if (cupMap[MAP_NAME][0])
+	if (cupMap[MAP_STATE_] == MAP_IDLE)
 	{
 		new totalPoolMaps = TrieGetSize(g_CupMapPool);
 		new availableMaps = CountCupMaps(MAP_IDLE);
@@ -1649,7 +1652,7 @@ public ActionMapPickMenu(id, key)
 				PLUGIN_TAG, mapsToPick, mapsToPick == 1 ? "" : "s");
 		}
 
-		server_print("ActionMapPickMenu :: availableMaps=%d, g_CupMaps=%d", availableMaps, g_CupMaps);
+		server_print("ActionMapPickMenu :: availableMaps=%d, g_BestOfN=%d", availableMaps, g_BestOfN);
 		if (availableMaps == 1)
 		{
 			new lastMap[MAX_MAPNAME_LENGTH];
@@ -7010,46 +7013,56 @@ public CmdCupHandler(id, level, cid)
 {
 	if (cmd_access(id, level, cid, 1))
 	{
-		new cupMaps[4], /*cupFormat[MAX_MATCH_MAPS + 1],*/ target1[32], target2[32];
-		read_argv(1, cupMaps, charsmax(cupMaps));
-		//read_argv(2, cupFormat, charsmax(cupFormat));
-		read_argv(2, target1, charsmax(target1));
-		read_argv(3, target2, charsmax(target2));
+		new buffer[256];
+		read_args(buffer, charsmax(buffer));
+		remove_quotes(buffer);
+		trim(buffer);
+
+		new cupMaps[4], target1[32], target2[32], cupFormat[MAX_MATCH_MAPS + 1];
+		parse(buffer,
+				cupMaps,	charsmax(cupMaps),
+				target1,	charsmax(target1),
+				target2,	charsmax(target2),
+				cupFormat,	charsmax(cupFormat));
+
+		trim(cupMaps);
+		trim(target1);
+		trim(target2);
+		trim(cupFormat);
+
+		if (!cupMaps[0] || !target1[0] || !target2[0])
+		{
+			console_print(id, "Usage: kz_cup <number_of_maps> <#player1> <#player2> [<format>]");
+			console_print(id, "number_of_maps would be 5 if it's a Bo5; the format is optional, and here's an example of format: ABBAABD");
+		}
 
 		new player1 = cmd_target(id, target1, CMDTARGET_ALLOW_SELF | CMDTARGET_NO_BOTS);
 		new player2 = cmd_target(id, target2, CMDTARGET_ALLOW_SELF | CMDTARGET_NO_BOTS);
 
 		if (!player1)
 		{
-			ShowMessage(id, "Cannot find the first player specified in the kz_cup command");
+			console_print(id, "Cannot find the first player specified in the kz_cup command");
 			return PLUGIN_HANDLED;
 		}
 
 		if (!player2)
 		{
-			ShowMessage(id, "Cannot find the second player specified in the kz_cup command");
+			console_print(id, "Cannot find the second player specified in the kz_cup command");
 			return PLUGIN_HANDLED;
 		}
-		
-		/*
-		trim(cupFormat);
-		if (!ProcessCupFormat(id, cupFormat))
+
+		if (!cupFormat[0] || !ProcessCupFormat(id, cupFormat))
 		{
 			new format[MAX_MATCH_MAPS + 1];
 			get_pcvar_string(pcvar_kz_cup_format, format, charsmax(format));
 
-			ProcessCupFormat(id, format)
-			//return PLUGIN_HANDLED;
-		}*/
-		g_CupFormat[0] = MATCH_PLAYER1;
-		g_CupFormat[1] = MATCH_PLAYER2;
-		g_CupFormat[2] = MATCH_PLAYER2;
-		g_CupFormat[3] = MATCH_PLAYER1;
-		g_CupFormat[4] = MATCH_PLAYER1;
-		g_CupFormat[5] = MATCH_PLAYER2;
-		g_CupFormat[6] = MATCH_DECIDER;
+			if (!ProcessCupFormat(id, format))
+			{
+				return PLUGIN_HANDLED;
+			}
+		}
 
-		g_CupMaps = str_to_num(cupMaps);
+		g_BestOfN = str_to_num(cupMaps);
 		g_CupPlayer1 = player1;
 		g_CupPlayer2 = player2;
 		GetUserUniqueId(player1, g_CupSteam1, charsmax(g_CupSteam1));
@@ -7066,18 +7079,18 @@ public CmdCupHandler(id, level, cid)
 
 	return PLUGIN_HANDLED;
 }
-/*
+
 boolean:ProcessCupFormat(id, cupFormat[])
 {
 	new i;
 	while (cupFormat[i])
 	{
 		// TODO: refactor to make it simpler, no conditions
-		if (equali(cupFormat[i], "A"))
+		if (equali(cupFormat[i], "A", 1))
 			g_CupFormat[i] = MATCH_PLAYER1;
-		else if (equali(cupFormat[i], "B"))
+		else if (equali(cupFormat[i], "B", 1))
 			g_CupFormat[i] = MATCH_PLAYER2;
-		else if (equali(cupFormat[i], "D"))
+		else if (equali(cupFormat[i], "D", 1))
 			g_CupFormat[i] = MATCH_DECIDER;
 		else
 		{
@@ -7086,10 +7099,9 @@ boolean:ProcessCupFormat(id, cupFormat[])
 			new format[MAX_MATCH_MAPS + 1];
 			get_pcvar_string(pcvar_kz_cup_format, format, charsmax(format));
 
-			console_print(id, "[%s] Bad kz_cup format! Usage: kz_cup <maps_number> <A|B|D format> <player1_id> <player2_id>", PLUGIN_TAG);
+			console_print(id, "[%s] The provided format is wrong! You can set it with kz_cup_format <format>", PLUGIN_TAG);
+			console_print(id, "[%s] Example: \"kz_cup_format ABBAABD\". The default one is %s", PLUGIN_TAG, format);
 			console_print(id, "[%s] A is first opponent's pick/ban, B is second opponent's pick/ban, and D is the decider map", PLUGIN_TAG);
-			console_print(id, "[%s] Example: \"kz_cup 5 #49 #54 ABBAABD\"; <-- it's not necessary to specify a format, the default one is %s",
-				PLUGIN_TAG, format);
 
 			return false;
 		}
@@ -7108,7 +7120,6 @@ GetHumanReadableCupFormat(result[])
 		i++;
 	}
 }
-*/
 
 public CupTensionFirstBan(taskId)
 {
@@ -7399,7 +7410,7 @@ public CmdCupForceReady(id, level, cid)
 
 ClearCup(id)
 {
-	g_CupMaps = 0;
+	g_BestOfN = 0;
 	g_CupPlayer1 = 0;
 	g_CupPlayer2 = 0;
 	g_CupSteam1[0] = EOS;
@@ -7448,12 +7459,12 @@ WriteCupFile(id)
 		return;
 	}
 
-	if (g_CupMaps && g_CupSteam1[0] && g_CupSteam2[0])
+	if (g_BestOfN && g_CupSteam1[0] && g_CupSteam2[0])
 	{
 		//new format[MAX_MATCH_MAPS + 1];
 		//GetHumanReadableCupFormat(format);
 
-		fprintf(file, "%d %s %s %d %d\n", g_CupMaps, g_CupSteam1, g_CupSteam2, g_CupScore1, g_CupScore2);
+		fprintf(file, "%d %s %s %d %d\n", g_BestOfN, g_CupSteam1, g_CupSteam2, g_CupScore1, g_CupScore2);
 	}
 
 	fclose(file);
@@ -7720,7 +7731,7 @@ LoadCup()
 				score1,		charsmax(score1),
 				score2,		charsmax(score2));
 
-		g_CupMaps = str_to_num(maps);
+		g_BestOfN = str_to_num(maps);
 		//ProcessCupFormat(0, cupFormat);
 		copy(g_CupSteam1, charsmax(g_CupSteam1), id1);
 		copy(g_CupSteam2, charsmax(g_CupSteam2), id2);
