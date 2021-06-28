@@ -28,6 +28,7 @@
 //#define _DEBUG    // Enable debug output at server console.
 
 #define MAX_PLAYERS         32
+#define MAX_ENTITIES		2048	// not really 2048, the max is num_edicts i think, and it can go up to 8192?
 
 #define OBS_NONE            0
 #define OBS_CHASE_LOCKED    1
@@ -425,6 +426,7 @@ new g_RampFrameCounter[MAX_PLAYERS + 1];
 new g_HBFrameCounter[MAX_PLAYERS + 1];    // frame counter for healthbooster trigger_multiple
 
 new g_MapWeapons[256][WEAPON];    // weapons that are in the map, with their origin and angles
+new g_HideableEntity[MAX_ENTITIES];
 
 new g_HudRGB[MAX_PLAYERS + 1][3];
 new colorRed[COLOR], colorGreen[COLOR], colorBlue[COLOR],
@@ -449,7 +451,6 @@ new g_SyncHudLoading;
 new g_MaxPlayers;
 new g_PauseSprite;
 new g_TaskEnt;
-
 new g_Firework;
 new Float:g_PrevButtonOrigin[3];
 
@@ -991,6 +992,7 @@ public plugin_cfg()
 	g_isAnyBoostWeaponInMap = false;
 	CheckMapWeapons();
 	CheckTeleportDestinations();
+	CheckHideableEntities();
 
 	g_MapEndReqs = TrieCreate();
 	g_UnorderedReqsMaps = TrieCreate();
@@ -6100,34 +6102,34 @@ public Fw_FmAddToFullPackPre(es, e, ent, host, hostflags, player, pSet)
 }
 */
 
+/*
+(Documentaion copied from HLSDK -> client.cpp -> AddToFullPack())
+
+es is the server maintained copy of the state info that is transmitted to the client
+a MOD could alter values copied into es to send the "host" a different look for a particular entity update, etc.
+e and ent are the entity that is being added to the update, if 1 is returned
+host is the player's edict of the player whom we are sending the update to
+player is 1 if the ent/e is a player and 0 otherwise
+pSet is either the PAS or PVS that we previous set up.  We can use it to ask the engine to filter the entity against the PAS or PVS.
+we could also use the pas/ pvs that we set in SetupVisibility, if we wanted to.  Caching the value is valid in that case, but still only for the current frame
+*/
 public Fw_FmAddToFullPackPost(es, e, ent, host, hostflags, player, pSet)
 {
+	if (!IsConnected(host))
+		return FMRES_IGNORED;
+
 	if (!player)
 	{
-		if (get_bit(g_bit_waterinvis, host) && !IsHltv(host) && !IsConnected(ent) && IsConnected(host) && pev_valid(ent))
+		if (get_bit(g_bit_waterinvis, host) && g_HideableEntity[ent])
 		{
-			static className[32];
-			pev(ent, pev_classname, className, charsmax(className));
-			if (equali(className, "func_water") || equali(className, "func_conveyor"))
-				set_es(es, ES_Effects, get_es(es, ES_Effects) | EF_NODRAW);
-
-			else if (equali(className, "func_illusionary"))
-			{
-				new iContent = pev(ent, pev_skin);
-				// CONTENTS_ORIGIN is Volumetric light, which is the only content option other than Empty
-				// in some map editors and is used for liquids too
-				if (iContent == CONTENTS_WATER || iContent == CONTENTS_ORIGIN
-					|| iContent == CONTENTS_LAVA || iContent == CONTENTS_SLIME)
-					set_es(es, ES_Effects, get_es(es, ES_Effects) | EF_NODRAW);
-			}
-
+			set_es(es, ES_Effects, get_es(es, ES_Effects) | EF_NODRAW);
 		}
 		return FMRES_IGNORED;
 	}
 	else if (player && (g_Nightvision[host] == 1) && (ent == host))
 		set_es(es, ES_Effects, get_es(es, ES_Effects) | EF_BRIGHTLIGHT);
 
-	if (ent == host || IsHltv(host) || !IsConnected(ent) || !IsConnected(host) || !get_pcvar_num(pcvar_kz_semiclip) || pev(host, pev_iuser1) || !get_orig_retval())
+	if (ent == host || IsHltv(host) || !IsConnected(ent) || !get_pcvar_num(pcvar_kz_semiclip) || pev(host, pev_iuser1) || !get_orig_retval())
 		return FMRES_IGNORED;
 
 	if(get_bit(g_bit_invis, host))
@@ -6330,6 +6332,52 @@ CheckTeleportDestinations()
 	}
 	else
 		server_print("[%s] The current map doesn't have teleports", PLUGIN_TAG);
+}
+
+CheckHideableEntities()
+{
+	new ent, className[32], entCount;
+
+	for (ent = g_MaxPlayers + 1; ent < global_get(glb_maxEntities); ent++)
+	{
+		if (!pev_valid(ent))
+			continue;
+
+		if (IsLiquid(ent))
+		{
+			g_HideableEntity[ent] = true;
+			entCount++;
+		}
+	}
+
+	server_print("[%s] The current map has %d entities that can be hidden with /winvis", PLUGIN_TAG, entCount);
+}
+
+bool:IsLiquid(ent)
+{
+	static className[32];
+	pev(ent, pev_classname, className, charsmax(className));
+
+	if (equali(className, "func_water", 10))
+		return true;
+
+	if (equali(className, "func_conveyor", 13))
+		return true;
+
+	if (equali(className, "func_illusionary"))
+	{
+		new contents = pev(ent, pev_skin);
+
+		// CONTENTS_ORIGIN is Volumetric light, which is the only content option
+		// other than Empty in some map editors and is used for liquids too
+		if (contents == CONTENTS_WATER || contents == CONTENTS_ORIGIN
+			|| contents == CONTENTS_LAVA || contents == CONTENTS_SLIME)
+		{
+			return true;
+		}
+	}
+
+	return false;
 }
 
 // FIXME: code smell, take these from some cfg file(s) instead
