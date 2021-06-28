@@ -6136,7 +6136,7 @@ public Fw_FmAddToFullPackPost(es, e, ent, host, hostflags, player, pSet)
 	{
 		set_es(es, ES_RenderMode, kRenderTransTexture);
 		set_es(es, ES_RenderAmt, 0);
-		set_es(es, ES_Origin, { 999999999.0, 999999999.0, 999999999.0 } );
+		set_es(es, ES_Origin, { 8000.0, -8000.0, -8000.0 } );
 		return FMRES_IGNORED;
 	}
 
