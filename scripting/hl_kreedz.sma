@@ -2394,7 +2394,7 @@ CmdSpec(id)
 
 CmdInvis(id)
 {
-	if(get_bit(g_bit_invis, id) || !IsAlive(id) || pev(id, pev_iuser1))
+	if(get_bit(g_bit_invis, id))
 	{
 		clr_bit(g_bit_invis, id);
 		client_print(id, print_chat, "[%s] All players visible", PLUGIN_TAG);
@@ -2408,7 +2408,7 @@ CmdInvis(id)
 
 CmdWaterInvis(id)
 {
-	if (get_bit(g_bit_waterinvis, id) || pev(id, pev_iuser1))
+	if (get_bit(g_bit_waterinvis, id))
 	{
 		clr_bit(g_bit_waterinvis, id);
 		client_print(id, print_chat, "[%s] Liquids are now visible", PLUGIN_TAG);
