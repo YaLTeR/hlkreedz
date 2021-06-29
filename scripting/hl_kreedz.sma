@@ -2313,53 +2313,66 @@ CmdPracticePrev(id)
 	}
 }
 
-CmdStart(id, bool:isNoReset = false)
+CmdStart(id)
 {
-	if (g_RunMode[id] == MODE_NORMAL && CanTeleport(id, CP_TYPE_CUSTOM_START, false))
+	if (g_RunMode[id] != MODE_NORMAL)
+	{
+		// This is because players might hit the /start bind accidentally during a race due to muscle memory
+		// from normal runs, so we disable it but still make it possible to /start with /startnr
+		// Also we allow them to do this because they may get stuck at some part and this is the way to unstuck
+		ShowMessage(id, "You're in No-Reset mode! Say /startnr if you really want to go back to the start");
+		return;
+	}
+
+	if (CanTeleport(id, CP_TYPE_CUSTOM_START, false))
 	{
 		ResetPlayer(id, false, true);
 		Teleport(id, CP_TYPE_CUSTOM_START);
 		return;
 	}
 
-	if (!isNoReset && g_RunMode[id] == MODE_NORESET)
+	new bool:isTeleported = false;
+	// TODO: refactor
+	if (CanTeleport(id, CP_TYPE_START))
 	{
-		// This is because players might hit the /start bind accidentally during a race due to muscle memory
-		// from normal runs, so we disable it but still make it possible to /start with /startnr
-		// Also we allow them to do this because they may get stuck at some part and this is the way to unstuck
-		ShowMessage(id, "You're in No-Reset mode! Say /startnr if you really want to go back to the start");
+		Teleport(id, CP_TYPE_START);
+		isTeleported = true;
 	}
-	else
+	else if (CanTeleport(id, CP_TYPE_DEFAULT_START))
 	{
-		new bool:isTeleported = false;
-		// TODO: refactor
-		if (CanTeleport(id, CP_TYPE_START))
-		{
-			Teleport(id, CP_TYPE_START);
-			isTeleported = true;
-		}
-		else if (CanTeleport(id, CP_TYPE_DEFAULT_START))
-		{
-			Teleport(id, CP_TYPE_DEFAULT_START);
-			isTeleported = true;
-		}
-
-		if (!isTeleported)
-			return;
-
-		if (g_RunMode[id] != MODE_NORMAL && g_RunLaps)
-		{
-			// This run has laps, so the player will probably be able to cheat by teleporting to the start
-			// It might be their only way to unstuck during a No-Reset run, and we cannot reset the run as
-			// it goes against the mode's rules. So we're just gonna add a minute to their timer
-			g_PlayerTime[id] -= 60;
-		}
-		else
-		{
-			ResetPlayer(id, false, true);
-			StartClimb(id);
-		}
+		Teleport(id, CP_TYPE_DEFAULT_START);
+		isTeleported = true;
 	}
+
+	if (!isTeleported)
+		return;
+
+	ResetPlayer(id, false, true);
+	StartClimb(id);
+}
+
+CmdStartNr(id)
+{
+	if (g_RunMode[id] == MODE_NORMAL)
+	{
+		// We're in a normal run, behave the same as "/start"
+		CmdStart(id);
+		return;
+	}
+
+	if (g_RunLaps)
+	{
+		// This run has laps, so the player will probably be able to cheat by teleporting to the start
+		// It might be their only way to unstuck during a No-Reset run, and we cannot reset the run as
+		// it goes against the mode's rules. So we're just gonna add a minute to their timer
+		g_PlayerTime[id] -= 60;
+	}
+
+	// The teleport is enough, we're not gonna reset their timer
+	if (CanTeleportNr(id, CP_TYPE_START))
+		Teleport(id, CP_TYPE_START);
+	else if (CanTeleportNr(id, CP_TYPE_DEFAULT_START))
+		Teleport(id, CP_TYPE_DEFAULT_START);
 }
 
 CmdPause(id)
@@ -3218,7 +3231,7 @@ public CmdSayHandler(id, level, cid)
 		CmdStart(id);
 
 	else if (equali(args[1], "startnr") || equali(args[1], "nrstart"))
-		CmdStart(id, true);
+		CmdStartNr(id);
 
 	else if (equali(args[1], "cancelnr") || equali(args[1], "nrcancel"))
 		CmdCancelNoReset(id);
@@ -3506,9 +3519,6 @@ bool:CanCreateCp(id, bool:showMessages = true, bool:practiceMode = false)
 
 bool:CanTeleport(id, cp, bool:showMessages = true)
 {
-	if (cp >= CP_TYPES)
-		return false;
-
 	if ((g_RunMode[id] != MODE_NORMAL || g_RunModeStarting[id] != MODE_NORMAL) && cp != CP_TYPE_START && cp != CP_TYPE_DEFAULT_START)
 	{
 		// If a NR is during countdown or already started, cannot TP to any other than start or default one,
@@ -3516,6 +3526,14 @@ bool:CanTeleport(id, cp, bool:showMessages = true)
 		if (showMessages) ShowMessage(id, "Unable to teleport to a checkpoint during race or No-Reset run!");
 		return false;
 	}
+
+	return CanTeleportNr(id, cp, showMessages);
+}
+
+bool:CanTeleportNr(id, cp, bool:showMessages = true)
+{
+	if (cp >= CP_TYPES)
+		return false;
 
 	if (cp != CP_TYPE_START && cp != CP_TYPE_CUSTOM_START && cp != CP_TYPE_PRACTICE && !get_pcvar_num(pcvar_kz_checkpoints))
 	{
@@ -3786,6 +3804,14 @@ public CmdJointeamHandler(id)
 
 public CmdAgVoteHandler(id)
 {
+	if (g_RunMode[id] != MODE_NORMAL)
+	{
+		// TODO: others can still vote agstart and get you into a new no-reset before finishing this one,
+		// it requires some effort for the exploiter but gotta be handled at some point
+		ShowMessage(id, "You're in a no-reset/race/agstart run. Please, finish it before voting a new match!");
+		return PLUGIN_HANDLED;
+	}
+
 	new players[MAX_PLAYERS], playersNum;
 	get_players_ex(players, playersNum, GetPlayers_ExcludeBots);
 	for (new i = 0; i < playersNum; i++)
@@ -6608,6 +6634,12 @@ EndKzVote(id)
 
 CmdVote(id, KZVOTE_VALUE:value)
 {
+	if (g_RunMode[id] != MODE_NORMAL && KZVOTE_YES == value)
+	{
+		ShowMessage(id, "You are not allowed to vote while you're in a no-reset/race/agstart run!");
+		return PLUGIN_HANDLED;
+	}
+
 	if (g_IsKzVoteRunning[id])
 		g_KzVoteValue[id] = value;
 
@@ -6616,6 +6648,12 @@ CmdVote(id, KZVOTE_VALUE:value)
 
 CmdVoteRace(id)
 {
+	if (g_RunMode[id] != MODE_NORMAL)
+	{
+		ShowMessage(id, "You're in a no-reset/race/agstart run. Please, finish it before voting a new race!");
+		return PLUGIN_HANDLED;
+	}
+
 	new Float:voteWaitTime = get_pcvar_float(pcvar_kz_vote_wait_time);
 	if (g_KzVoteStartTime[id] && get_gametime() < (g_KzVoteStartTime[id] + get_pcvar_float(pcvar_kz_vote_hold_time) + voteWaitTime))
 	{
