@@ -74,6 +74,7 @@
 #define TASKID_CONFIGURE_DB             2037262
 #define TASKID_MATCH_START_CHECK        2906871
 #define TASKID_INIT_PLAYER_GOLDS        468261
+#define TASKID_RELOAD_PLAYER_SETTINGS   1975201
 
 #define TASKID_CUP_TENSION_FIRST_BAN    9357015
 #define TASKID_CUP_FINALLY_FIRST_BAN    8357015
@@ -461,6 +462,7 @@ new g_Map[64];
 new g_EscapedMap[128];
 new g_ConfigsDir[256];
 new g_ReplaysDir[256];
+new g_PlayersDir[256];
 new g_StatsFile[RUN_TYPE][256];
 new g_TopType[RUN_TYPE][32];
 new Array:g_ArrayStats[RUN_TYPE];
@@ -971,10 +973,9 @@ public plugin_cfg()
 	if (!dir_exists(g_ReplaysDir))
 		mkdir(g_ReplaysDir);
 
-	new playersDir[256];
-	formatex(playersDir, charsmax(playersDir), "%s/%s", g_ConfigsDir, "players");
-	if (!dir_exists(playersDir))
-		mkdir(playersDir);
+	formatex(g_PlayersDir, charsmax(g_PlayersDir), "%s/%s", g_ConfigsDir, "players");
+	if (!dir_exists(g_PlayersDir))
+		mkdir(g_PlayersDir);
 
 	GetTopTypeString(NOOB, g_TopType[NOOB], charsmax(g_TopType[]));
 	GetTopTypeString(PRO,  g_TopType[PRO],  charsmax(g_TopType[]));
@@ -1897,59 +1898,26 @@ public client_putinserver(id)
 	if (is_user_bot(id))
 		set_bit(g_bit_is_bot, id);
 
-	g_ShowTimer[id] = get_pcvar_num(pcvar_kz_show_timer);
-	g_ShowKeys[id] = get_pcvar_num(pcvar_kz_show_keys);
-	g_ShowStartMsg[id] = get_pcvar_num(pcvar_kz_show_start_msg);
-	// FIXME: get default value from client, and then fall back to server if client doesn't have the command set
-	g_TimeDecimals[id] = get_pcvar_num(pcvar_kz_time_decimals) ? get_pcvar_num(pcvar_kz_time_decimals) : DEFAULT_TIME_DECIMALS;
-	g_Nightvision[id] = get_pcvar_num(pcvar_kz_nightvision);
-	g_Slopefix[id] = false;
-
-	// Nightvision value 1 in server cvar is "all modes allowed", if that's the case we default it to mode 2 in client,
-	// every other mode in cvar is +1 than client command, so we do -1 to get the correct mode
-	if (g_Nightvision[id] > 1)
-		g_Nightvision[id]--;
-	else if (g_Nightvision[id] == 1)
-		g_Nightvision[id] = 2;
-
-	g_Speedcap[id] = get_pcvar_float(pcvar_kz_speedcap);
-
-	g_ShowSpeed[id] = false;
-	g_ShowDistance[id] = false;
-	g_ShowSpecList[id] = true;
-	g_TpOnCountdown[id] = false;
+	InitPlayerSettings(id);
 
 	g_ConsolePrintNextFrames[id] = 0;
 	g_ReplayFpsMultiplier[id] = 1;
 
 	g_RaceId[id] = 0;
-	g_RunMode[id] = MODE_NORMAL;
 	g_RunModeStarting[id] = MODE_NORMAL;
 	g_RunStartTime[id] = 0.0;
 	g_RunNextCountdown[id] = 0.0;
-	g_RunCountdown[id] = get_pcvar_float(pcvar_kz_noreset_countdown);
 
 	g_SplitTimes[id] = ArrayCreate(1, 3);
 	g_LapTimes[id] = ArrayCreate();
 	g_CurrentLap[id] = 0;
 
 	g_IsKzVoteRunning[id] = false;
-	g_IsKzVoteVisible[id] = true;
-	g_IsKzVoteIgnoring[id] = false;
-	g_KzVoteAlignment[id] = POSITION_RIGHT;
 	g_KzVoteSetting[id][0] = EOS;
 	g_KzVoteValue[id] = KZVOTE_NO;
 	g_KzVoteStartTime[id] = 0.0;
 	g_KzVoteCaller[id] = 0;
 
-	// Set up hud color
-	new rgb[12], r[4], g[4], b[4];
-	get_pcvar_string(pcvar_kz_hud_rgb, rgb, charsmax(rgb));
-	parse(rgb, r, charsmax(r), g, charsmax(g), b, charsmax(b));
-
-	g_HudRGB[id][0] = str_to_num(r);
-	g_HudRGB[id][1] = str_to_num(g);
-	g_HudRGB[id][2] = str_to_num(b);
 
 	g_ControlPoints[id][CP_TYPE_DEFAULT_START] = g_MapDefaultStart;
 
@@ -1989,17 +1957,6 @@ public client_disconnect(id)
 	g_PlayerEndReqs[id] = 0;
 	g_IsBannedFromMatch[id] = false;
 
-	g_ShowTimer[id] = get_pcvar_num(pcvar_kz_show_timer);
-	g_ShowKeys[id] = get_pcvar_num(pcvar_kz_show_keys);
-	g_ShowStartMsg[id] = get_pcvar_num(pcvar_kz_show_start_msg);
-	g_TimeDecimals[id] = get_pcvar_num(pcvar_kz_time_decimals) ? get_pcvar_num(pcvar_kz_time_decimals) : DEFAULT_TIME_DECIMALS;
-	g_Nightvision[id] = get_pcvar_num(pcvar_kz_nightvision);
-	g_Speedcap[id] = get_pcvar_float(pcvar_kz_speedcap);
-	g_ShowSpeed[id] = false;
-	g_ShowDistance[id] = false;
-	g_ShowSpecList[id] = true;
-	g_Slopefix[id] = false;
-	g_TpOnCountdown[id] = false;
 
 	g_RaceId[id] = 0;
 	g_RunMode[id] = MODE_NORMAL;
@@ -2009,9 +1966,6 @@ public client_disconnect(id)
 	g_RunCountdown[id] = get_pcvar_float(pcvar_kz_noreset_countdown);
 
 	g_IsKzVoteRunning[id] = false;
-	g_IsKzVoteVisible[id] = true;
-	g_IsKzVoteIgnoring[id] = false;
-	g_KzVoteAlignment[id] = POSITION_RIGHT;
 	g_KzVoteSetting[id][0] = EOS;
 	g_KzVoteValue[id] = KZVOTE_NO;
 	g_KzVoteStartTime[id] = 0.0;
@@ -2068,6 +2022,71 @@ public client_disconnect(id)
 	g_ControlPoints[id][CP_TYPE_START][CP_VALID] = false;
 
 	clr_bit(g_bit_is_bot, id);
+
+	// This player is gone, so reset settings to defaults
+	InitPlayerSettings(id);
+}
+
+InitPlayerSettings(id)
+{
+	g_ShowTimer[id]    = get_pcvar_num(pcvar_kz_show_timer);
+	g_ShowKeys[id]     = get_pcvar_num(pcvar_kz_show_keys);
+	g_ShowStartMsg[id] = get_pcvar_num(pcvar_kz_show_start_msg);
+	// FIXME: get default value from client, and then fall back to server if client doesn't have the command set
+	g_TimeDecimals[id] = get_pcvar_num(pcvar_kz_time_decimals) ? get_pcvar_num(pcvar_kz_time_decimals) : DEFAULT_TIME_DECIMALS;
+	g_Nightvision[id]  = get_pcvar_num(pcvar_kz_nightvision);
+	g_Slopefix[id]     = false;
+
+	// Nightvision value 1 in server cvar is "all modes allowed", if that's the case we default it to mode 2 in client,
+	// every other mode in cvar is +1 than client command, so we do -1 to get the correct mode
+	if (g_Nightvision[id] > 1)
+		g_Nightvision[id]--;
+	else if (g_Nightvision[id] == 1)
+		g_Nightvision[id] = 2;
+
+	g_Speedcap[id] = get_pcvar_float(pcvar_kz_speedcap);
+
+	g_ShowSpeed[id]                  = false;
+	g_ShowDistance[id]               = false;
+	g_ShowHeightDiff[id]             = false;
+	g_ShowSpecList[id]               = true;
+	g_TpOnCountdown[id]              = true;
+	g_ShowRunStatsOnConsole[id]      = true;
+	g_ShowRunStatsOnHud[id]          = 0;
+	g_RunStatsHudHoldTime[id]        = RUN_STATS_HUD_HOLD_TIME_AT_END;
+	g_RunStatsHudX[id]               = RUN_STATS_HUD_X;
+	g_RunStatsHudY[id]               = RUN_STATS_HUD_Y;
+	g_RunStatsHudDetailLevel[id]     = 1;
+	g_RunStatsConsoleDetailLevel[id] = 2;
+
+	g_RunMode[id]          = MODE_NORMAL;
+	g_RunCountdown[id]     = get_pcvar_float(pcvar_kz_noreset_countdown);
+
+	g_IsKzVoteVisible[id]  = true;
+	g_IsKzVoteIgnoring[id] = false;
+	g_KzVoteAlignment[id]  = POSITION_RIGHT;
+
+	// Set up hud color
+	new rgb[12], r[4], g[4], b[4];
+	get_pcvar_string(pcvar_kz_hud_rgb, rgb, charsmax(rgb));
+	parse(rgb, r, charsmax(r), g, charsmax(g), b, charsmax(b));
+
+	g_HudRGB[id][0] = str_to_num(r);
+	g_HudRGB[id][1] = str_to_num(g);
+	g_HudRGB[id][2] = str_to_num(b);
+}
+
+public ReloadPlayerSettings(taskId)
+{
+	new id = taskId - TASKID_RELOAD_PLAYER_SETTINGS;
+	LoadPlayerSettings(id);
+
+	if (!g_HudRGB[id][0] && !g_HudRGB[id][1] && !g_HudRGB[id][2])
+	{
+		// Still failing to load settings? We're gonna set default values,
+		// because when it fails to load settings it zeroes everything...
+		InitPlayerSettings(id);
+	}
 }
 
 LoadPlayerSettings(id)
@@ -2077,28 +2096,40 @@ LoadPlayerSettings(id)
 	ConvertSteamID32ToNumbers(authid, idNumbers);
 	formatex(playerFileName, charsmax(playerFileName), "%s/players/%s.ini", CONFIGS_SUB_DIR, idNumbers);
 
-	// Map-dependent player settings
-	amx_load_setting_int(g_PlayerMapIniFile, idNumbers, "no_reset", _:g_RunMode[id]);
-	if (g_RunMode[id] == MODE_NORESET)
+	// We build another path because the one we previously built is what amx_settings_api exclusively understands...
+	// and we need to check if the file exists, which doesn't work with the path for amx_settings_api
+	new fullPlayerMapIniFile[256];
+	formatex(fullPlayerMapIniFile, charsmax(fullPlayerMapIniFile), "%s/%s.ini", g_PlayersDir, g_Map);
+	if (file_exists(fullPlayerMapIniFile))
 	{
-		new Float:kztime, isPure, isFirstSpawn, isPaused;
+		// Map-dependent player settings
+		amx_load_setting_int(g_PlayerMapIniFile, idNumbers, "no_reset", _:g_RunMode[id]);
+		if (g_RunMode[id] == MODE_NORESET)
+		{
+			new Float:kztime, isPure, isFirstSpawn, isPaused;
 
-		amx_load_setting_int(  g_PlayerMapIniFile, idNumbers, "run_type",    isPure);
-		amx_load_setting_float(g_PlayerMapIniFile, idNumbers, "run_time",    kztime);
-		amx_load_setting_int(  g_PlayerMapIniFile, idNumbers, "first_spawn", isFirstSpawn);
-		amx_load_setting_int(  g_PlayerMapIniFile, idNumbers, "paused",      isPaused);
+			amx_load_setting_int(  g_PlayerMapIniFile, idNumbers, "run_type",    isPure);
+			amx_load_setting_float(g_PlayerMapIniFile, idNumbers, "run_time",    kztime);
+			amx_load_setting_int(  g_PlayerMapIniFile, idNumbers, "first_spawn", isFirstSpawn);
+			amx_load_setting_int(  g_PlayerMapIniFile, idNumbers, "paused",      isPaused);
 
-		console_print(0, "loading kztime: %.3f", kztime);
+			//console_print(0, "loading kztime: %.3f", kztime);
 
-		g_PlayerTime[id] = get_gametime() - kztime;
+			g_PlayerTime[id] = get_gametime() - kztime;
 
-		if (isPure)			set_bit(g_baIsPureRunning, id);
-		if (isFirstSpawn)	set_bit(g_baIsFirstSpawn, id);
-		if (isPaused)		set_bit(g_baIsPaused, id);
+			if (isPure)			set_bit(g_baIsPureRunning, id);
+			if (isFirstSpawn)	set_bit(g_baIsFirstSpawn, id);
+			if (isPaused)		set_bit(g_baIsPaused, id);
 
-		// If we're in no-reset mode, it means the run was ongoing, so set this right away
-		set_bit(g_baIsClimbing, id);
+			// If we're in no-reset mode, it means the run was ongoing, so set this right away
+			set_bit(g_baIsClimbing, id);
+		}
 	}
+
+	new fullPlayerFileName[256];
+	formatex(fullPlayerFileName, charsmax(fullPlayerFileName), "%s/%s.ini", g_PlayersDir, idNumbers);
+	if (!file_exists(fullPlayerFileName))
+		return;
 
 	// Global player settings
 	new hasLiquidsInvis, hasPlayersInvis;
@@ -5245,7 +5276,7 @@ GetSpectatorList(id, hud[], len, sendTo[])
 
 CheckSettings(id)
 {
-	if (ColorsZeroed(id) &&	g_PrevRunCountdown[id] && !g_RunCountdown[id])
+	if (areColorsZeroed(id) && g_PrevRunCountdown[id] && !g_RunCountdown[id])
 	{
 		// The settings bug occurred, for the moment just gonna restore the important settings and log the incident
 		new name[32];
@@ -5258,13 +5289,17 @@ CheckSettings(id)
 		g_HudRGB[id][1] = g_PrevHudRGB[id][1];
 		g_HudRGB[id][2] = g_PrevHudRGB[id][2];
 		g_RunCountdown[id] = g_PrevRunCountdown[id];
+
+		// Try to load settings again
+		set_task(1.5, "ReloadPlayerSettings", id + TASKID_RELOAD_PLAYER_SETTINGS);
 	}
 }
 
-bool:ColorsZeroed(id)
+bool:areColorsZeroed(id)
 {
 	// We had some color set in the previous frame, and now we don't have any color (R, G, B) set
-	return (g_PrevHudRGB[id][0] || g_PrevHudRGB[id][1] || g_PrevHudRGB[id][2]) && (!g_HudRGB[id][0] && !g_HudRGB[id][0] && !g_HudRGB[id][0]);
+	return (g_PrevHudRGB[id][0] || g_PrevHudRGB[id][1] || g_PrevHudRGB[id][2]) && (!g_HudRGB[id][0] && !g_HudRGB[id][1] && !g_HudRGB[id][2]);
+}
 }
 
 HudStorePressedKeys(id)
