@@ -8956,6 +8956,12 @@ public RunSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime
 	new stats[STATS], rid, uniqueId[32], name[32], cp, tp, Float:kztime, timestamp;
 
 	new Array:arr = g_ArrayStats[topType];
+	if (!arr)
+	{
+		// TODO: check how is this being cleared, it should be defined by this time
+		arr = ArrayCreate(STATS);
+	}
+
 	ArrayClear(arr);
 
 	while (mysql_more_results())
