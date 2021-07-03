@@ -6224,7 +6224,10 @@ public Fw_FmAddToFullPackPost(es, e, ent, host, hostflags, player, pSet)
 	{
 		set_es(es, ES_RenderMode, kRenderTransTexture);
 		set_es(es, ES_RenderAmt, 0);
-		set_es(es, ES_Origin, { 8000.0, -8000.0, -8000.0 } );
+		set_es(es, ES_Origin, { 999999999.0, 999999999.0, 999999999.0 } );
+		// Reverted this change due to a player saying they can't hear their own jumps with the new version,
+		// only happened to that player, but it needs more testing i guess
+		//set_es(es, ES_Origin, { 8000.0, -8000.0, -8000.0 } );
 		return FMRES_IGNORED;
 	}
 
