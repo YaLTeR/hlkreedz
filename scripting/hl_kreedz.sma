@@ -442,7 +442,6 @@ new g_SyncHudTimer;
 new g_SyncHudMessage;
 new g_SyncHudKeys;
 new g_SyncHudHealth;
-new g_SyncHudShowStartMsg;
 new g_SyncHudSpeedometer;
 new g_SyncHudDistance;
 new g_SyncHudHeightDiff;
@@ -890,7 +889,6 @@ public plugin_init()
 	g_SyncHudMessage        = CreateHudSyncObj();
 	g_SyncHudKeys           = CreateHudSyncObj();
 	g_SyncHudHealth         = CreateHudSyncObj();
-	g_SyncHudShowStartMsg   = CreateHudSyncObj();
 	g_SyncHudDistance       = CreateHudSyncObj();
 	g_SyncHudHeightDiff     = CreateHudSyncObj();
 	g_SyncHudSpeedometer    = CreateHudSyncObj();
@@ -2480,7 +2478,6 @@ CmdTimer(id)
 	client_print(id, print_center, "");
 	ClearSyncHud(id, g_SyncHudTimer);
 	ClearSyncHud(id, g_SyncHudKeys);
-	ClearSyncHud(id, g_SyncHudShowStartMsg);
 
 	if (g_ShowTimer[id] < 2)
 		ShowMessage(id, "Timer display position: %s", g_ShowTimer[id]++ < 1 ? "center" : "HUD");
@@ -3117,7 +3114,6 @@ CmdMenuShowStartMsg(id)
 	client_print(id, print_center, "");
 	ClearSyncHud(id, g_SyncHudTimer);
 	ClearSyncHud(id, g_SyncHudKeys);
-	ClearSyncHud(id, g_SyncHudShowStartMsg);
 
 	g_ShowStartMsg[id] = !g_ShowStartMsg[id];
 	ShowMessage(id, "Start message display: %s", g_ShowStartMsg[id] ? "on" : "off");
@@ -4909,7 +4905,6 @@ UpdateHud(Float:currGameTime)
 			g_LastMode[id] = mode;
 			ClearSyncHud(id, g_SyncHudTimer);
 			ClearSyncHud(id, g_SyncHudKeys);
-			ClearSyncHud(id, g_SyncHudShowStartMsg);
 			ClearSyncHud(id, g_SyncHudSpeedometer);
 			ClearSyncHud(id, g_SyncHudDistance);
 			ClearSyncHud(id, g_SyncHudHeightDiff);
@@ -4922,7 +4917,6 @@ UpdateHud(Float:currGameTime)
 			g_LastTarget[id] = targetId;
 			ClearSyncHud(id, g_SyncHudTimer);
 			ClearSyncHud(id, g_SyncHudKeys);
-			ClearSyncHud(id, g_SyncHudShowStartMsg);
 			ClearSyncHud(id, g_SyncHudSpeedometer);
 			ClearSyncHud(id, g_SyncHudDistance);
 			ClearSyncHud(id, g_SyncHudHeightDiff);
@@ -7671,7 +7665,6 @@ public CmdShowStartMsg(id)
 
 	ClearSyncHud(id, g_SyncHudTimer);
 	ClearSyncHud(id, g_SyncHudKeys);
-	ClearSyncHud(id, g_SyncHudShowStartMsg);
 
  	g_ShowStartMsg[id] = str_to_num(arg1);
 
