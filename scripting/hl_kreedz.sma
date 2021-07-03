@@ -676,7 +676,7 @@ public plugin_init()
 
 	pcvar_sv_ag_match_running = get_cvar_pointer("sv_ag_match_running");
 
-	pcvar_kz_denied_sound = register_cvar("kz_denied_sound", "1");
+	pcvar_kz_denied_sound = register_cvar("kz_denied_sound", "0");
 
 	pcvar_sv_items_respawn_time = register_cvar("sv_items_respawn_time", "0");  // 0 = unchanged, n > 0 = n seconds
 
