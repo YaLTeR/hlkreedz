@@ -6929,6 +6929,12 @@ public CmdReady(id)
 		return PLUGIN_HANDLED;
 	}
 
+	if (!CanTeleportNr(id, CP_TYPE_START))
+	{
+		client_print(id, print_chat, "[%s] Cannot /ready yet, you must press the start button first, to set the start point.", PLUGIN_TAG);
+		return PLUGIN_HANDLED;
+	}
+
 	// Set the players readiness
 	new bool:ready;
 	if (id == g_CupPlayer1)
