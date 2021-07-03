@@ -338,6 +338,42 @@ Float:GetDistancePlayerAiming(id)
 	return distance;
 }
 
+Float:GetHeightDiffPlayerAiming(id)
+{
+	new Float:pOrigin[3], Float:aimOrigin[3], Float:aimNormal[3];
+	GetAimingPoint(id, aimOrigin, aimNormal);
+	pev(id, pev_origin, pOrigin);
+
+	new Float:feetZ = (pev(id, pev_flags) & FL_DUCKING) ? -18.0 : -36.0;
+	new Float:heightDiff = floatabs(pOrigin[2] + feetZ - aimOrigin[2]);
+
+	return heightDiff;
+}
+
+GetAimingPoint(id, Float:end[3], Float:normal[3])
+{
+	new Float:origin[3], Float:angles[3], Float:viewOffsets[3];
+	pev(id, pev_origin, origin);
+	pev(id, pev_v_angle, angles);
+	pev(id, pev_view_ofs, viewOffsets);
+
+	new Float:start[3];
+	xs_vec_add(origin, viewOffsets, start);
+	angle_vector(angles, ANGLEVECTOR_FORWARD, angles);
+	xs_vec_mul_scalar(angles, 9999.9, angles);
+	// Store in end a far away (outside the map probably) point where we're aiming
+	xs_vec_add(angles, start, end);
+
+	// Trace a line until that point and get the origin of the point
+	// where the line first collided with some wall or something
+	new tr = create_tr2();
+	engfunc(EngFunc_TraceLine, start, end, IGNORE_MONSTERS | IGNORE_MISSILE, id, tr);
+	get_tr2(tr, TR_vecEndPos, end); // now this is exactly the point where we're aiming
+	get_tr2(tr, TR_vecPlaneNormal, normal);
+
+	free_tr2(tr);
+}
+
 /*
 // You have to pass the numbers of a SteamID in the format X_Y_Z (without STEAM_) and it stores in the result the full SteamID (like STEAM_X:Y:Z)
 ConvertNumbersToSteamID32(numbers[], result[])

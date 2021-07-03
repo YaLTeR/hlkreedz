@@ -380,6 +380,7 @@ new bool:g_Slopefix[MAX_PLAYERS + 1];
 new Float:g_Speedcap[MAX_PLAYERS + 1];
 new bool:g_ShowSpeed[MAX_PLAYERS + 1];
 new bool:g_ShowDistance[MAX_PLAYERS + 1];
+new bool:g_ShowHeightDiff[MAX_PLAYERS + 1];
 new bool:g_ShowSpecList[MAX_PLAYERS + 1];
 new bool:g_TpOnCountdown[MAX_PLAYERS + 1];    // Teleport to start position when agstart or NR countdown starts?
 
@@ -443,6 +444,7 @@ new g_SyncHudHealth;
 new g_SyncHudShowStartMsg;
 new g_SyncHudSpeedometer;
 new g_SyncHudDistance;
+new g_SyncHudHeightDiff;
 new g_SyncHudSpecList;
 new g_SyncHudCupMaps;
 new g_SyncHudKzVote;
@@ -888,6 +890,7 @@ public plugin_init()
 	g_SyncHudHealth         = CreateHudSyncObj();
 	g_SyncHudShowStartMsg   = CreateHudSyncObj();
 	g_SyncHudDistance       = CreateHudSyncObj();
+	g_SyncHudHeightDiff     = CreateHudSyncObj();
 	g_SyncHudSpeedometer    = CreateHudSyncObj();
 	g_SyncHudSpecList       = CreateHudSyncObj();
 	g_SyncHudCupMaps        = CreateHudSyncObj();
@@ -2120,6 +2123,7 @@ LoadPlayerSettings(id)
 	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",        g_Speedcap[id]);
 	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "run_countdown",   g_RunCountdown[id]);
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown", g_TpOnCountdown[id]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "show_height_diff",        g_ShowHeightDiff[id]);
 
 
 	if (hasLiquidsInvis) set_bit(g_bit_waterinvis, id);
@@ -2174,6 +2178,7 @@ SavePlayerSettings(id)
 	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",        g_Speedcap[id]);
 	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "run_countdown",   g_RunCountdown[id]);
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown", g_TpOnCountdown[id]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "show_height_diff",        g_ShowHeightDiff[id]);
 }
 
 ResetPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
@@ -3284,6 +3289,9 @@ public CmdSayHandler(id, level, cid)
 
 	else if (equali(args[1], "distance") || equali(args[1], "measure") || equali(args[1], "ruler"))
 		CmdDistance(id);
+
+	else if (equali(args[1], "height") || equali(args[1], "heightdiff"))
+		CmdHeightDiff(id);
 
 	else if (equali(args[1], "ready"))
 		CmdReady(id);
@@ -4873,6 +4881,7 @@ UpdateHud(Float:currGameTime)
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
 			ClearSyncHud(id, g_SyncHudSpeedometer);
 			ClearSyncHud(id, g_SyncHudDistance);
+			ClearSyncHud(id, g_SyncHudHeightDiff);
 			ClearSyncHud(id, g_SyncHudSpecList);
 			ClearSyncHud(targetId, g_SyncHudSpecList);
 		}
@@ -4885,6 +4894,7 @@ UpdateHud(Float:currGameTime)
 			ClearSyncHud(id, g_SyncHudShowStartMsg);
 			ClearSyncHud(id, g_SyncHudSpeedometer);
 			ClearSyncHud(id, g_SyncHudDistance);
+			ClearSyncHud(id, g_SyncHudHeightDiff);
 			ClearSyncHud(id, g_SyncHudSpecList);
 			ClearSyncHud(targetId, g_SyncHudSpecList);
 		}
@@ -5028,6 +5038,29 @@ UpdateHud(Float:currGameTime)
 					distance = GetDistancePlayerAiming(t);
 
 					ShowSyncHudMsg(id, g_SyncHudDistance, "%.2f", distance);
+				}
+			}
+		}
+
+		if (g_ShowHeightDiff[id])
+		{
+			set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], -1.0, 0.74, 0, 0.0, 999999.0, 0.0, 0.0, -1);
+			new Float:heightDiff;
+
+			if (is_user_alive(id))
+			{
+				heightDiff = GetHeightDiffPlayerAiming(id);
+				ShowSyncHudMsg(id, g_SyncHudHeightDiff, "%.2f", heightDiff);
+			}
+			else
+			{
+				new specmode = pev(id, pev_iuser1);
+				if (specmode == OBS_CHASE_FREE || specmode == OBS_IN_EYE)
+				{
+					new t = pev(id, pev_iuser2);
+					heightDiff = GetHeightDiffPlayerAiming(t);
+
+					ShowSyncHudMsg(id, g_SyncHudHeightDiff, "%.2f", heightDiff);
 				}
 			}
 		}
@@ -7651,6 +7684,15 @@ public CmdDistance(id)
 	ClearSyncHud( id, g_SyncHudDistance );
 	g_ShowDistance[id] = !g_ShowDistance[id];
 	client_print( id, print_chat, "Distance: %s", g_ShowDistance[id] ? "ON" : "OFF" );
+
+	return PLUGIN_HANDLED;
+}
+
+public CmdHeightDiff(id)
+{
+	ClearSyncHud(id, g_SyncHudHeightDiff);
+	g_ShowHeightDiff[id] = !g_ShowHeightDiff[id];
+	ShowMessage(id, "Height difference: %s", g_ShowHeightDiff[id] ? "ON" : "OFF");
 
 	return PLUGIN_HANDLED;
 }
