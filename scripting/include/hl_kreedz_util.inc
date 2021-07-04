@@ -109,6 +109,13 @@ enum _:CUP_MAP
 	MATCH_FORMAT:MAP_PICKER
 }
 
+enum MOVEMENT_STATE
+{
+	MOVEMENT_OTHER,
+	MOVEMENT_JUMPING,
+	MOVEMENT_DUCKTAPPING
+}
+
 /*
 new const g_CupFormatLetters[][] =
 {
@@ -257,31 +264,21 @@ GetNumberArg()
 }
 
 // e.g.: say "/speedcap 499.5" // get the '499.5'
-Float:GetFloatArg(str[]="")
+Float:GetFloatArg(str[]="", pos=0)
 {
 	new cmdArg[64], numberPart[64];
 
 	if (str[0])
 		formatex(cmdArg, charsmax(cmdArg), str);
 	else
-		read_args(cmdArg, charsmax(cmdArg));
-
-	new bool:prevWasDigit = false;
-	for (new i = 0; cmdArg[i]; i++)
 	{
-		if (isdigit(cmdArg[i]))
-		{
-			add(numberPart, charsmax(numberPart), cmdArg[i], 1);
-			prevWasDigit = true;
-		}
-		else if (prevWasDigit) {
-			if (equal(cmdArg[i], "."))
-				add(numberPart, charsmax(numberPart), ".", 1);
-			else
-				break; // e.g.: say "/speedcap 499.5 some text and 123 numbers here" --> get out when parsing the '499.5'
-		}
+		read_args(cmdArg, charsmax(cmdArg));
+		remove_quotes(cmdArg);
+		trim(cmdArg);
 	}
-	return str_to_float(numberPart);
+
+	new _pos = pos;
+	return GetNextFloat(cmdArg, _pos);
 }
 
 // e.g.: say "/pro 1-18" --> get the 1 and 18 in an array of 2 cells

@@ -28,7 +28,8 @@
 //#define _DEBUG    // Enable debug output at server console.
 
 #define MAX_PLAYERS         32
-#define MAX_ENTITIES		2048	// not really 2048, the max is num_edicts i think, and it can go up to 8192?
+#define MAX_ENTITIES        2048  // not really 2048, the max is num_edicts i think, and it can go up to 8192?
+#define PLAYER_USE_RADIUS   64.0
 
 #define OBS_NONE            0
 #define OBS_CHASE_LOCKED    1
@@ -66,6 +67,14 @@
 #define HUD_DEFAULT_DELTA_Y             0.28
 #define HUD_DELTA_SPLIT_OFFSET          0.03
 #define DEFAULT_TIME_DECIMALS           3
+#define RUN_STATS_MIN_FPS_AVG_FRAMES    30
+#define RUN_STATS_SPEED_FRAME_OFFSET    30   // e.g.: take the speed from the last N-th frame
+#define RUN_STATS_SPEED_FRAME_COOLDOWN  200  // we are not gonna check again for a slowdown for the next N frames
+#define RUN_STATS_HUD_HOLD_TIME_AT_END  5.0
+#define RUN_STATS_HUD_MAX_HOLD_TIME     30.0
+#define RUN_STATS_HUD_MIN_HOLD_TIME     0.5
+#define RUN_STATS_HUD_X                 0.75
+#define RUN_STATS_HUD_Y                 -1.0  // centered
 
 #define TASKID_ICON                     5633445
 #define TASKID_WELCOME                  43321
@@ -115,7 +124,8 @@ enum _:REPLAY
 	Float:RP_TIME,
 	Float:RP_ORIGIN[3],
 	Float:RP_ANGLES[3],
-	RP_BUTTONS
+	RP_BUTTONS,
+	Float:RP_SPEED    // horizontal speed
 }
 
 enum _:CP_TYPES
@@ -189,7 +199,7 @@ enum RECORD_STORAGE_TYPE
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.43";
+new const VERSION[] = "0.44";
 //new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the replay format changes
 new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, execut4ble, naz, mxpph";
 
@@ -228,6 +238,20 @@ new const g_RunModeString[][] =
 	"AGStart",
 	"Race",
 	"NR"
+}
+
+new const g_ShowRunStatsOnHudString[][] =
+{
+	"OFF",
+	"ON - Only at run end",
+	"ON - Permanently"
+}
+
+new const g_RunStatsDetailLevelString[][] =
+{
+	"Low",
+	"High",
+	"Full"
 }
 
 new const g_szStarts[][] =
@@ -384,11 +408,20 @@ new bool:g_ShowDistance[MAX_PLAYERS + 1];
 new bool:g_ShowHeightDiff[MAX_PLAYERS + 1];
 new bool:g_ShowSpecList[MAX_PLAYERS + 1];
 new bool:g_TpOnCountdown[MAX_PLAYERS + 1];    // Teleport to start position when agstart or NR countdown starts?
+new bool:g_ShowRunStatsOnConsole[MAX_PLAYERS + 1];
+new g_ShowRunStatsOnHud[MAX_PLAYERS + 1];  // 0 = off, 1 = at the end of the run, 2 = permanent
+new Float:g_RunStatsHudHoldTime[MAX_PLAYERS + 1];
+new Float:g_RunStatsHudX[MAX_PLAYERS + 1];
+new Float:g_RunStatsHudY[MAX_PLAYERS + 1];
+new g_RunStatsConsoleDetailLevel[MAX_PLAYERS + 1];
+new g_RunStatsHudDetailLevel[MAX_PLAYERS + 1];
 
 new bool:g_PrevRunCountdown[MAX_PLAYERS + 1];
 new g_PrevShowTimer[MAX_PLAYERS + 1];
 new g_PrevTimeDecimals[MAX_PLAYERS + 1];
 new g_PrevHudRGB[MAX_PLAYERS + 1][3];
+new Float:g_RunStatsEndHudStartTime[MAX_PLAYERS + 1];
+new bool:g_RunStatsEndHudShown[MAX_PLAYERS + 1];
 
 new g_BotOwner[MAX_PLAYERS + 1];
 new g_BotEntity[MAX_PLAYERS + 1];
@@ -412,7 +445,9 @@ new Float:g_FrameTimeInMsec[MAX_PLAYERS + 1];
 new g_ControlPoints[MAX_PLAYERS + 1][CP_TYPES][CP_DATA];
 new g_CpCounters[MAX_PLAYERS + 1][COUNTERS];
 new g_RunType[MAX_PLAYERS + 1][5];
+new Float:g_PrevVelocity[MAX_PLAYERS + 1][3];
 new Float:g_Velocity[MAX_PLAYERS + 1][3];
+new Float:g_PrevOrigin[MAX_PLAYERS + 1][3];
 new Float:g_Origin[MAX_PLAYERS + 1][3];
 new Float:g_Angles[MAX_PLAYERS + 1][3];
 new Float:g_ViewOfs[MAX_PLAYERS + 1][3];
@@ -426,6 +461,26 @@ new bool:g_hasSlopebugged[MAX_PLAYERS + 1];
 new bool:g_StoppedSlidingRamp[MAX_PLAYERS + 1];
 new g_RampFrameCounter[MAX_PLAYERS + 1];
 new g_HBFrameCounter[MAX_PLAYERS + 1];    // frame counter for healthbooster trigger_multiple
+new MOVEMENT_STATE:g_Movement[MAX_PLAYERS + 1];
+
+// Run stats
+new Float:g_RunAvgSpeed[MAX_PLAYERS + 1]; // horizontal speeds
+new Float:g_RunMaxSpeed[MAX_PLAYERS + 1];
+new Float:g_RunCurrSpeed[MAX_PLAYERS + 1];
+new Float:g_RunAvgFps[MAX_PLAYERS + 1]; // This is effective fps, not the fps_max, but the real fps player has, like the one `net_graph` shows
+new Float:g_RunMinFps[MAX_PLAYERS + 1];
+new Float:g_RunDistance2D[MAX_PLAYERS + 1];
+new Float:g_RunDistance3D[MAX_PLAYERS + 1];
+new g_RunJumps[MAX_PLAYERS + 1];
+new g_RunDucktaps[MAX_PLAYERS + 1];
+new g_RunStrafes[MAX_PLAYERS + 1];
+new g_RunSync[MAX_PLAYERS + 1];
+new g_RunSlowdowns[MAX_PLAYERS + 1];  // times you crash into a wall, turn too much losing speed, tap +back, or have any other significant slowdown
+new g_RunSlowdownLastFrameChecked[MAX_PLAYERS + 1];
+new Float:g_RunLostStartTime[MAX_PLAYERS + 1];  // how many frames passed since you pressed the start button until you started moving
+new Float:g_RunLostEndTime[MAX_PLAYERS + 1];  // how many frames passed since you could press the end button, until you actually pressed it
+new Float:g_RunStartPrestrafeSpeed[MAX_PLAYERS + 1];  // what was the speed you had in the first jump (or ducktap if it came before the first jump)
+new Float:g_RunStartPrestrafeTime[MAX_PLAYERS + 1];  // how much time you spent on the first prestrafe (right after pressing the start button)
 
 new g_MapWeapons[256][WEAPON];    // weapons that are in the map, with their origin and angles
 new g_HideableEntity[MAX_ENTITIES];
@@ -449,6 +504,7 @@ new g_SyncHudSpecList;
 new g_SyncHudCupMaps;
 new g_SyncHudKzVote;
 new g_SyncHudLoading;
+new g_SyncHudRunStats;
 
 new g_MaxPlayers;
 new g_PauseSprite;
@@ -513,6 +569,9 @@ new g_KzVoteSetting[MAX_PLAYERS + 1][32];         // the thing that we're voting
 new KZVOTE_VALUE:g_KzVoteValue[MAX_PLAYERS + 1];  // the actual vote: yes, no, undecided, unknown
 new Float:g_KzVoteStartTime[MAX_PLAYERS + 1];
 new g_KzVoteCaller[MAX_PLAYERS + 1];
+
+new g_EndButton;
+new Float:g_EndButtonOrigin[3];
 
 new pcvar_allow_spectators;
 new pcvar_kz_uniqueid;
@@ -896,6 +955,7 @@ public plugin_init()
 	g_SyncHudCupMaps        = CreateHudSyncObj();
 	g_SyncHudKzVote         = CreateHudSyncObj();
 	g_SyncHudLoading        = CreateHudSyncObj();
+	g_SyncHudRunStats       = CreateHudSyncObj();
 
 	g_ArrayStats[NOOB]   = ArrayCreate(STATS);
 	g_ArrayStats[PRO]    = ArrayCreate(STATS);
@@ -995,6 +1055,7 @@ public plugin_cfg()
 	CheckMapWeapons();
 	CheckTeleportDestinations();
 	CheckHideableEntities();
+	CheckStartEndButtons();
 
 	g_MapEndReqs = TrieCreate();
 	g_UnorderedReqsMaps = TrieCreate();
@@ -1916,6 +1977,26 @@ public client_putinserver(id)
 	g_KzVoteStartTime[id] = 0.0;
 	g_KzVoteCaller[id] = 0;
 
+	g_RunAvgSpeed[id] = 0.0;
+	g_RunMaxSpeed[id] = 0.0;
+	g_RunCurrSpeed[id] = 0.0;
+	g_RunAvgFps[id] = 0.0;
+	g_RunMinFps[id] = 0.0;
+	g_RunDistance2D[id] = 0.0;
+	g_RunDistance3D[id] = 0.0;
+	g_RunJumps[id] = 0;
+	g_RunDucktaps[id] = 0;
+	g_RunStrafes[id] = 0;
+	g_RunSync[id] = 0;
+	g_RunSlowdowns[id] = 0;
+	g_RunSlowdownLastFrameChecked[id] = 0;
+	g_RunLostStartTime[id] = 0.0;
+	g_RunLostEndTime[id] = 0.0;
+	g_RunStartPrestrafeSpeed[id] = 0.0;
+	g_RunStartPrestrafeTime[id] = 0.0;
+
+	g_RunStatsEndHudStartTime[id] = -RUN_STATS_HUD_MAX_HOLD_TIME;
+	g_RunStatsEndHudShown[id] = false;
 
 	g_ControlPoints[id][CP_TYPE_DEFAULT_START] = g_MapDefaultStart;
 
@@ -1955,7 +2036,6 @@ public client_disconnect(id)
 	g_PlayerEndReqs[id] = 0;
 	g_IsBannedFromMatch[id] = false;
 
-
 	g_RaceId[id] = 0;
 	g_RunMode[id] = MODE_NORMAL;
 	g_RunModeStarting[id] = MODE_NORMAL;
@@ -1968,6 +2048,27 @@ public client_disconnect(id)
 	g_KzVoteValue[id] = KZVOTE_NO;
 	g_KzVoteStartTime[id] = 0.0;
 	g_KzVoteCaller[id] = 0;
+
+	g_RunAvgSpeed[id] = 0.0;
+	g_RunMaxSpeed[id] = 0.0;
+	g_RunCurrSpeed[id] = 0.0;
+	g_RunAvgFps[id] = 0.0;
+	g_RunMinFps[id] = 0.0;
+	g_RunDistance2D[id] = 0.0;
+	g_RunDistance3D[id] = 0.0;
+	g_RunJumps[id] = 0;
+	g_RunDucktaps[id] = 0;
+	g_RunStrafes[id] = 0;
+	g_RunSync[id] = 0;
+	g_RunSlowdowns[id] = 0;
+	g_RunSlowdownLastFrameChecked[id] = 0;
+	g_RunLostStartTime[id] = 0.0;
+	g_RunLostEndTime[id] = 0.0;
+	g_RunStartPrestrafeSpeed[id] = 0.0;
+	g_RunStartPrestrafeTime[id] = 0.0;
+
+	g_RunStatsEndHudStartTime[id] = -RUN_STATS_HUD_MAX_HOLD_TIME;
+	g_RunStatsEndHudShown[id] = false;
 
 	ArrayClear(g_SplitTimes[id]);
 	ArrayClear(g_LapTimes[id]);
@@ -2087,6 +2188,8 @@ public ReloadPlayerSettings(taskId)
 	}
 }
 
+// This might lag out the server if it's using HDD or some slow storage
+// TODO: Try to do it non-blocking like the SQL queries, probably needs a new module
 LoadPlayerSettings(id)
 {
 	static authid[32], idNumbers[24], playerFileName[56];
@@ -2132,27 +2235,37 @@ LoadPlayerSettings(id)
 	// Global player settings
 	new hasLiquidsInvis, hasPlayersInvis;
 
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_timer",      g_ShowTimer[id]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_keys",       g_ShowKeys[id]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_start_msg",  g_ShowStartMsg[id]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_speed",      g_ShowSpeed[id]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_distance",   g_ShowDistance[id]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",   g_TimeDecimals[id]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list",  g_ShowSpecList[id]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "hud_color_r",     g_HudRGB[id][0]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "hud_color_g",     g_HudRGB[id][1]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "hud_color_b",     g_HudRGB[id][2]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "kz_vote_visible", g_IsKzVoteVisible[id]);
-	amx_load_setting_int(playerFileName, HUD_SETTINGS, "kz_vote_ignore",  g_IsKzVoteIgnoring[id]);
-
-	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_liquids",   hasLiquidsInvis);
-	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_players",   hasPlayersInvis);
-	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "nightvision",     g_Nightvision[id]);
-	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "slopefix",        g_Slopefix[id]);
-	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",        g_Speedcap[id]);
-	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "run_countdown",   g_RunCountdown[id]);
-	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown", g_TpOnCountdown[id]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "show_timer",              g_ShowTimer[id]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "show_keys",               g_ShowKeys[id]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "show_start_msg",          g_ShowStartMsg[id]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "show_speed",              g_ShowSpeed[id]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "show_distance",           g_ShowDistance[id]);
 	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "show_height_diff",        g_ShowHeightDiff[id]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "time_decimals",           g_TimeDecimals[id]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "show_spec_list",          g_ShowSpecList[id]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "run_stats_con",           g_ShowRunStatsOnConsole[id]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "run_stats_hud",           g_ShowRunStatsOnHud[id]);
+	amx_load_setting_float(playerFileName, HUD_SETTINGS, "run_stats_hud_hold_time", g_RunStatsHudHoldTime[id]);
+	amx_load_setting_float(playerFileName, HUD_SETTINGS, "run_stats_hud_x",         g_RunStatsHudX[id]);
+	amx_load_setting_float(playerFileName, HUD_SETTINGS, "run_stats_hud_y",         g_RunStatsHudY[id]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "run_stats_hud_details",   g_RunStatsHudDetailLevel[id]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "run_stats_con_details",   g_RunStatsConsoleDetailLevel[id]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "hud_color_r",             g_HudRGB[id][0]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "hud_color_g",             g_HudRGB[id][1]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "hud_color_b",             g_HudRGB[id][2]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "kz_vote_visible",         g_IsKzVoteVisible[id]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "kz_vote_ignore",          g_IsKzVoteIgnoring[id]);
+	amx_load_setting_int(  playerFileName, HUD_SETTINGS, "kz_vote_align",           _:g_KzVoteAlignment[id]);
+
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_liquids",      hasLiquidsInvis);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_players",      hasPlayersInvis);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "nightvision",        g_Nightvision[id]);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "slopefix",           g_Slopefix[id]);
+	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",           g_Speedcap[id]);
+	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "run_countdown",      g_RunCountdown[id]);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown",    g_TpOnCountdown[id]);
+
+	// TODO: load run stats, in case we're in a NR run and come back later to finish it
 
 
 	if (hasLiquidsInvis) set_bit(g_bit_waterinvis, id);
@@ -2186,28 +2299,37 @@ SavePlayerSettings(id)
 	}
 
 	// Global player settings
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_timer",      g_ShowTimer[id]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_keys",       g_ShowKeys[id]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_start_msg",  g_ShowStartMsg[id]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_speed",      g_ShowSpeed[id]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_distance",   g_ShowDistance[id]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "time_decimals",   g_TimeDecimals[id]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "show_spec_list",  g_ShowSpecList[id]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "hud_color_r",     g_HudRGB[id][0]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "hud_color_g",     g_HudRGB[id][1]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "hud_color_b",     g_HudRGB[id][2]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "kz_vote_visible", g_IsKzVoteVisible[id]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "kz_vote_ignore",  g_IsKzVoteIgnoring[id]);
-	amx_save_setting_int(playerFileName, HUD_SETTINGS, "kz_vote_align",   _:g_KzVoteAlignment[id]);
-
-	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_liquids",   get_bit(g_bit_waterinvis, id));
-	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_players",   get_bit(g_bit_invis, id));
-	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "nightvision",     g_Nightvision[id]);
-	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "slopefix",        g_Slopefix[id]);
-	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",        g_Speedcap[id]);
-	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "run_countdown",   g_RunCountdown[id]);
-	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown", g_TpOnCountdown[id]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "show_timer",              g_ShowTimer[id]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "show_keys",               g_ShowKeys[id]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "show_start_msg",          g_ShowStartMsg[id]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "show_speed",              g_ShowSpeed[id]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "show_distance",           g_ShowDistance[id]);
 	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "show_height_diff",        g_ShowHeightDiff[id]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "time_decimals",           g_TimeDecimals[id]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "show_spec_list",          g_ShowSpecList[id]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "run_stats_con",           g_ShowRunStatsOnConsole[id]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "run_stats_hud",           g_ShowRunStatsOnHud[id]);
+	amx_save_setting_float(playerFileName, HUD_SETTINGS, "run_stats_hud_hold_time", g_RunStatsHudHoldTime[id]);
+	amx_save_setting_float(playerFileName, HUD_SETTINGS, "run_stats_hud_x",         g_RunStatsHudX[id]);
+	amx_save_setting_float(playerFileName, HUD_SETTINGS, "run_stats_hud_y",         g_RunStatsHudY[id]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "run_stats_hud_details",   g_RunStatsHudDetailLevel[id]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "run_stats_con_details",   g_RunStatsConsoleDetailLevel[id]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "hud_color_r",             g_HudRGB[id][0]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "hud_color_g",             g_HudRGB[id][1]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "hud_color_b",             g_HudRGB[id][2]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "kz_vote_visible",         g_IsKzVoteVisible[id]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "kz_vote_ignore",          g_IsKzVoteIgnoring[id]);
+	amx_save_setting_int(  playerFileName, HUD_SETTINGS, "kz_vote_align",           _:g_KzVoteAlignment[id]);
+
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_liquids",      get_bit(g_bit_waterinvis, id));
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "invis_players",      get_bit(g_bit_invis, id));
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "nightvision",        g_Nightvision[id]);
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "slopefix",           g_Slopefix[id]);
+	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",           g_Speedcap[id]);
+	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "run_countdown",      g_RunCountdown[id]);
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown",    g_TpOnCountdown[id]);
+
+	// TODO: save run stats, in case we're in a NR run and come back later to finish it
 }
 
 ResetPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
@@ -2250,6 +2372,10 @@ InitPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 		// Clear the timer hud
 		client_print(id, print_center, "");
 		ClearSyncHud(id, g_SyncHudTimer);
+		if (g_ShowRunStatsOnHud[id] >= 2)
+		{
+			ClearSyncHud(id, g_SyncHudRunStats);
+		}
 
 		// Clear the timer hud for spectating spectators
 		for (i = 1; i <= g_MaxPlayers; i++)
@@ -2258,6 +2384,11 @@ InitPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 			{
 				client_print(i, print_center, "");
 				ClearSyncHud(i, g_SyncHudTimer);
+
+				if (g_ShowRunStatsOnHud[i] >= 2)
+				{
+					ClearSyncHud(id, g_SyncHudRunStats);
+				}
 			}
 		}
 
@@ -2281,6 +2412,36 @@ InitPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 	// Reset counters
 	for (i = 0; i < COUNTERS; i++)
 		g_CpCounters[id][i] = 0;
+}
+
+InitPlayerVariables(id)
+{
+	g_RunAvgSpeed[id] = 0.0;
+	g_RunMaxSpeed[id] = 0.0;
+	g_RunCurrSpeed[id] = 0.0;
+	g_RunAvgFps[id] = 0.0;
+	g_RunMinFps[id] = 0.0;
+	g_RunDistance2D[id] = 0.0;
+	g_RunDistance3D[id] = 0.0;
+	g_RunJumps[id] = 0;
+	g_RunDucktaps[id] = 0;
+	g_RunStrafes[id] = 0;
+	g_RunSync[id] = 0;
+	g_RunSlowdowns[id] = 0;
+	g_RunSlowdownLastFrameChecked[id] = 0;
+	g_RunLostStartTime[id] = 0.0;
+	g_RunLostEndTime[id] = 0.0;
+	g_RunStartPrestrafeSpeed[id] = 0.0;
+	g_RunStartPrestrafeTime[id] = 0.0;
+
+	if (g_ShowRunStatsOnHud[id] >= 2)
+	{
+		// Reset these so that the end HUD disappears before the hold time is over and you can continue
+		// seeing realtime stats upon doing /start
+		// FIXME: this behaviour is not good for spectators, as their settings dont come into play here
+		g_RunStatsEndHudStartTime[id] = -RUN_STATS_HUD_MAX_HOLD_TIME;
+		g_RunStatsEndHudShown[id] = false;
+	}
 }
 
 public DisplayWelcomeMessage(id)
@@ -2673,7 +2834,8 @@ CmdReplay(id, RUN_TYPE:runType)
 		new i = 0;
 		while (!feof(file))
 		{
-			fread_blocks(file, replay, sizeof(replay) - 1, BLOCK_INT);
+			//fread_blocks(file, replay, sizeof(replay) - 1, BLOCK_INT);
+			fread_blocks(file, replay, sizeof(replay) - 2, BLOCK_INT);
 			fread(file, replay[RP_BUTTONS], BLOCK_SHORT);
 			ArrayPushArray(g_ReplayFrames[id], replay);
 			i++;
@@ -3356,6 +3518,10 @@ public CmdSayHandler(id, level, cid)
 	else if (equali(args[1], "ignorevote") || equali(args[1], "voteignore"))
 		CmdToggleVoteIgnore(id);
 
+	else if (equali(args[1], "runstats_con") || equali(args[1], "runstats_console"))
+		CmdShowRunStatsOnConsole(id);
+
+
 	// The ones below use containi() because they can be passed parameters
 	else if (containi(args[1], "alignvote") == 0)
 		CmdAlignVote(id);
@@ -3387,6 +3553,24 @@ public CmdSayHandler(id, level, cid)
 
 	else if (containi(args[1], "nv") == 0 || containi(args[1], "nightvision") == 0)
 		CmdNightvision(id);
+
+	else if (containi(args[1], "runstats_con_detail") == 0 || containi(args[1], "runstats_console_detail") == 0)
+		CmdRunStatsConsoleDetails(id)
+
+	else if (containi(args[1], "runstats_hud_detail") == 0)
+		CmdRunStatsHudDetails(id);
+
+	else if (containi(args[1], "runstats_hud_time") == 0)
+		CmdRunStatsHudHoldTime(id);
+
+	else if (containi(args[1], "runstats_hud_x") == 0)
+		CmdRunStatsHudX(id);
+
+	else if (containi(args[1], "runstats_hud_y") == 0)
+		CmdRunStatsHudY(id);
+
+	else if (containi(args[1], "runstats_hud") == 0)
+		CmdShowRunStatsOnHud(id);
 
 	else if (containi(args[1], "purepblaps") == 0)
 		ShowTopClimbersPbLaps(id, PURE);
@@ -4092,6 +4276,7 @@ StartClimb(id, bool:isMatch = false)
 		g_CurrentLap[id] = 1;
 
 	CreateCp(id, CP_TYPE_START);
+	InitPlayerVariables(id);
 	StartTimer(id);
 }
 
@@ -4180,6 +4365,61 @@ FinishTimer(id)
 	get_user_name(id, name, charsmax(name));
 	client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s^0 finished in %02d:%0", "(CPs: %d | TPs: %d) %s%s"),
 		PLUGIN_TAG, name, minutes, seconds, g_CpCounters[id][COUNTER_CP], g_CpCounters[id][COUNTER_TP], pureRun, g_RunMode[id] == MODE_NORESET ? " No-Reset" : "");
+
+	g_RunStatsEndHudStartTime[id] = get_gametime();
+	g_RunStatsEndHudShown[id] = false;
+
+	if (g_ShowRunStatsOnConsole[id])
+	{
+		// Tried in a single console_print() call, and it printed like the first hundred chars only
+		console_print(id, "------------------------------------------------");
+		console_print(id, "Stats for your run with time %02d:%09.6f", minutes, seconds);
+		console_print(id, "------------------------------------------------");
+
+		if (g_RunStatsConsoleDetailLevel[id] >= 1)
+		{
+			console_print(id, "Avg speed: %.2f",             g_RunAvgSpeed[id]);
+		}
+
+		console_print(id, "Max speed: %.2f",                 g_RunMaxSpeed[id]);
+		console_print(id, "End speed: %.2f",                 g_RunCurrSpeed[id]);
+
+		if (g_RunStatsConsoleDetailLevel[id] >= 1)
+		{
+			console_print(id, "Avg fps: %.2f",               g_RunAvgFps[id]);
+			console_print(id, "Min fps: %.2f",               g_RunMinFps[id]);
+		}
+		console_print(id, "Distance: %.2f",                  g_RunDistance2D[id]);
+
+		if (g_RunStatsConsoleDetailLevel[id] >= 2)
+		{
+			console_print(id, "Distance 3D: %.2f",           g_RunDistance3D[id]);
+		}
+
+		console_print(id, "Jumps: %d",                       g_RunJumps[id]);
+		console_print(id, "Ducktaps: %d",                    g_RunDucktaps[id]);
+
+		//if (g_RunStatsConsoleDetailLevel[id] >= 2)
+		//{
+		//	console_print(id, "Strafes: %d",                 g_RunStrafes[id]);
+		//}
+
+		//if (g_RunStatsConsoleDetailLevel[id] >= 1)
+		//{
+		//	console_print(id, "Sync: %d",                    g_RunSync[id]);
+		//}
+
+		console_print(id, "Slowdowns: %d",                   g_RunSlowdowns[id]);
+
+		if (g_RunStatsConsoleDetailLevel[id] >= 2)
+		{
+			console_print(id, "Time lost at start: %.4f",    g_RunLostStartTime[id]);
+			console_print(id, "Time lost at end: %.4f",      g_RunLostEndTime[id]);
+			console_print(id, "Start prestrafe speed: %.2f", g_RunStartPrestrafeSpeed[id]);
+			console_print(id, "Start prestrafe time: %.4f",  g_RunStartPrestrafeTime[id]);
+		}
+		console_print(id, "------------------------------------------------");
+	}
 
 	// Bots are not gonna set new records yet, unless some bhop AI is created for fun
 	if (!get_pcvar_num(pcvar_kz_nostat) && !IsBot(id))
@@ -4880,6 +5120,7 @@ UpdateHud(Float:currGameTime)
 				}
 				// TODO: other votes
 
+
 				set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], g_KzVotePosition[_:g_KzVoteAlignment[id]], 0.35, 0, 0.0, 999999.9, 0.0, 0.0, -1);
 				ShowSyncHudMsg(id, g_SyncHudKzVote, voteMsg);
 			}
@@ -4920,6 +5161,7 @@ UpdateHud(Float:currGameTime)
 			ClearSyncHud(id, g_SyncHudHeightDiff);
 			ClearSyncHud(id, g_SyncHudSpecList);
 			ClearSyncHud(targetId, g_SyncHudSpecList);
+			ClearSyncHud(id, g_SyncHudRunStats);
 		}
 		if (g_LastTarget[id] != targetId)
 		{
@@ -4932,6 +5174,7 @@ UpdateHud(Float:currGameTime)
 			ClearSyncHud(id, g_SyncHudHeightDiff);
 			ClearSyncHud(id, g_SyncHudSpecList);
 			ClearSyncHud(targetId, g_SyncHudSpecList);
+			ClearSyncHud(id, g_SyncHudRunStats);
 		}
 
 		// Drawing spectator list
@@ -5098,6 +5341,59 @@ UpdateHud(Float:currGameTime)
 					ShowSyncHudMsg(id, g_SyncHudHeightDiff, "%.2f", heightDiff);
 				}
 			}
+		}
+
+		// Boring code because the approach of broadcasting the update from FinishTimer() failed, and i couldn't see why
+		new bool:shouldUpdateRunStatsHud;
+		if (!g_ShowRunStatsOnHud[id])
+		{
+			// This player doesn't want to see run stats on HUD
+			shouldUpdateRunStatsHud = false;
+		}
+		else if (((g_RunStatsEndHudStartTime[targetId] + g_RunStatsHudHoldTime[id]) > currGameTime))
+		{
+			// We're in the moment to hold the stats HUD for a bit as the run
+			// has just ended and you need some time to see the stats
+			if (!g_RunStatsEndHudShown[targetId])
+			{
+				// Updated end stats haven't been shown yet, so we should show them
+				shouldUpdateRunStatsHud = true;
+
+				g_RunStatsEndHudShown[targetId] = true;
+			}
+			else
+			{
+				// We don't update anything yet, we have to hold the stats on screen due to the run end
+				shouldUpdateRunStatsHud = false;
+			}
+		}
+		else if (g_ShowRunStatsOnHud[id] >= 2)
+		{
+			// Keep updating stats in realtime
+			shouldUpdateRunStatsHud = true;
+		}
+
+		if (shouldUpdateRunStatsHud)
+		{
+			if (g_ShowRunStatsOnHud[id] == 1)
+			{
+				// Player finishing a run while the previous stats HUD is still on screen
+				ClearSyncHud(id, g_SyncHudRunStats);
+			}
+
+			new runStats[768];
+			GetRunStatsHudText(targetId, runStats, charsmax(runStats), g_RunStatsHudDetailLevel[id]);
+			set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], g_RunStatsHudX[id], g_RunStatsHudY[id], _, 0.0, 999999.0, _, 0.5);
+			ShowSyncHudMsg(id, g_SyncHudRunStats, runStats);
+		}
+		else if (
+		    g_ShowRunStatsOnHud[id] == 1
+		&&  (g_RunStatsEndHudStartTime[targetId] + g_RunStatsHudHoldTime[id]) > currGameTime
+		&&  (g_RunStatsEndHudStartTime[targetId] + g_RunStatsHudHoldTime[id] - (HUD_UPDATE_TIME * 2)) < currGameTime
+		)
+		{
+			// Right before the hold time ends, we clear it
+			ClearSyncHud(id, g_SyncHudRunStats);
 		}
 	}
 }
@@ -5304,6 +5600,195 @@ bool:areColorsZeroed(id)
 	// We had some color set in the previous frame, and now we don't have any color (R, G, B) set
 	return (g_PrevHudRGB[id][0] || g_PrevHudRGB[id][1] || g_PrevHudRGB[id][2]) && (!g_HudRGB[id][0] && !g_HudRGB[id][1] && !g_HudRGB[id][2]);
 }
+
+BuildRunStats(id)
+{
+	new frameNumberForSpeed = -1;
+	if (g_RunFrames[id])
+		frameNumberForSpeed = ArraySize(g_RunFrames[id]) - RUN_STATS_SPEED_FRAME_OFFSET - 1;
+
+	// Get some stuff from frames that have already been stored for the replay
+	new prevButtons, Float:prevTime, Float:prevSpeed;
+	if (g_RunFrames[id] && ArraySize(g_RunFrames[id]) > 1)
+	{
+		new frameState[REPLAY];
+		ArrayGetArray(g_RunFrames[id], ArraySize(g_RunFrames[id]) - 2, frameState);
+
+		prevButtons = frameState[RP_BUTTONS];
+		prevTime    = frameState[RP_TIME];
+
+		if (ArraySize(g_RunFrames[id]) > RUN_STATS_SPEED_FRAME_OFFSET)
+		{
+			ArrayGetArray(g_RunFrames[id], frameNumberForSpeed, frameState);
+			prevSpeed = frameState[RP_SPEED];
+		}
+	}
+
+	new flags    = pev(id, pev_flags);
+	new buttons  = pev(id, pev_button);
+	new moveType = pev(id, pev_movetype);
+
+	if (get_bit(g_baIsPureRunning, id) && xs_vec_equal(g_ControlPoints[id][CP_TYPE_START][CP_ORIGIN], g_Origin[id]))
+	{
+		// Not moving yet, we're losing time at the start button!
+		new Float:secondFrameTime, Float:lastFrameTime;
+		if (g_RunFrames[id] && ArraySize(g_RunFrames[id]) > 1)
+		{
+			new frameState[REPLAY];
+			ArrayGetArray(g_RunFrames[id], ArraySize(g_RunFrames[id]) - 1, frameState);
+			lastFrameTime = frameState[RP_TIME];
+
+			ArrayGetArray(g_RunFrames[id], 1, frameState);
+			secondFrameTime = frameState[RP_TIME];
+		}
+		// FIXME: we take the second frame's time because for some reason the first one doesn't work for this purpose,
+		// even if we start with some prespeed it would still say 0.004 seconds lost at the start with 250 fps; so we
+		// gotta investigate why at some point
+		g_RunLostStartTime[id] = lastFrameTime - secondFrameTime;
+
+		// TODO: make this stat available for pro runs that for some reason don't start with prespeed
+	}
+
+	if ((moveType == MOVETYPE_WALK) && (flags & FL_ONGROUND_ALL))
+	{
+		new bool:isInitialPrestrafeDone = false;
+
+		if (!(prevButtons & IN_JUMP) && (buttons & IN_JUMP))
+		{
+			if (g_RunJumps[id] == 0 && g_RunDucktaps[id] == 0)
+				isInitialPrestrafeDone = true;
+
+			g_Movement[id] = MOVEMENT_JUMPING;
+			g_RunJumps[id]++;
+		}
+		else if ((prevButtons & IN_DUCK) && !(buttons & IN_DUCK))
+		{
+			if (g_RunJumps[id] == 0 && g_RunDucktaps[id] == 0)
+			{
+				// Probably an initial countjump
+				isInitialPrestrafeDone = true;
+			}
+
+			g_Movement[id] = MOVEMENT_DUCKTAPPING;
+			g_RunDucktaps[id]++;
+		}
+
+		if (isInitialPrestrafeDone)
+		{
+			// TODO: handle pure starts with prespeed, like in the hl1_bhop maps, with a start trigger instead button
+			g_RunStartPrestrafeSpeed[id] = xs_vec_len_2d(g_Velocity[id]);
+			g_RunStartPrestrafeTime[id]  = get_gametime() - g_PlayerTime[id];
+		}
+	}
+	else
+	{
+		g_Movement[id] = MOVEMENT_OTHER;
+	}
+
+	g_RunDistance2D[id] += xs_vec_distance_2d(g_PrevOrigin[id], g_Origin[id]);
+	g_RunDistance3D[id] += get_distance_f(g_PrevOrigin[id], g_Origin[id]);
+
+	g_RunCurrSpeed[id] = xs_vec_len_2d(g_Velocity[id]);
+
+	if (g_RunMaxSpeed[id] < g_RunCurrSpeed[id])
+		g_RunMaxSpeed[id] = g_RunCurrSpeed[id];
+
+	new Float:kzTime = get_gametime() - g_PlayerTime[id];
+	if (kzTime)
+	{
+		g_RunAvgSpeed[id] = g_RunDistance2D[id] / kzTime;
+
+		if (g_RunFrames[id])
+			g_RunAvgFps[id] = ArraySize(g_RunFrames[id]) / kzTime;
+	}
+
+	// Get the last 30th frame and the last one, to get the average of the last frames
+	// TODO: this won't work if the run is less than 30 frames long, but getting an average of less frames might yield bad results,
+	// lower min fps, because shit happens like getting a frame that is the same time as the previous one which brings down the average
+	// a lot, so the min fps of the first frames (when there aren't 30 frames yet) might never get overwritten afterwards as it would
+	// be hard to have a lower min fps when taking more frames into account. This is only my guess anyways
+	if (g_RunFrames[id] && ArraySize(g_RunFrames[id]) > RUN_STATS_MIN_FPS_AVG_FRAMES)
+	{
+		new frameState[REPLAY];
+		ArrayGetArray(g_RunFrames[id], ArraySize(g_RunFrames[id]) - RUN_STATS_MIN_FPS_AVG_FRAMES - 1, frameState);
+
+		new Float:fpsAvg = 1.0 / ((get_gametime() - frameState[RP_TIME]) / float(RUN_STATS_MIN_FPS_AVG_FRAMES));
+		if (!g_RunMinFps[id] || (g_RunMinFps[id] > fpsAvg))
+			g_RunMinFps[id] = fpsAvg;
+	}
+
+	if (xs_vec_distance(g_Origin[id], g_EndButtonOrigin) <= PLAYER_USE_RADIUS)
+	{
+		g_RunLostEndTime[id] += (get_gametime() - prevTime);
+	}
+
+	if (frameNumberForSpeed > RUN_STATS_SPEED_FRAME_OFFSET)
+	{
+		if (!g_RunSlowdownLastFrameChecked[id]
+			|| frameNumberForSpeed > (g_RunSlowdownLastFrameChecked[id] + RUN_STATS_SPEED_FRAME_COOLDOWN))
+		{
+			new Float:speedLoss = prevSpeed - g_RunCurrSpeed[id];
+
+			if (speedLoss > 0.0)
+			{
+				// Lost some speed, check if it should be considered a slowdown
+				new Float:lossFraction = speedLoss / prevSpeed;
+
+				if (prevSpeed >= 300.0 && (lossFraction >= 0.1 || speedLoss >= 30.0))
+				{
+					g_RunSlowdowns[id]++;
+					g_RunSlowdownLastFrameChecked[id] = frameNumberForSpeed;
+				}
+			}
+		}
+
+	}
+}
+
+GetRunStatsHudText(id, text[], len, detailLevel)
+{
+	if (detailLevel >= 1)
+	{
+		format(text, len, "%sAvg speed: %.2f\n",             text, g_RunAvgSpeed[id]);
+	}
+
+	format(text, len, "%sMax speed: %.2f\n",                 text, g_RunMaxSpeed[id]);
+	format(text, len, "%sEnd speed: %.2f\n",                 text, g_RunCurrSpeed[id]);
+
+	if (detailLevel >= 1)
+	{
+		format(text, len, "%sAvg fps: %.2f\n",               text, g_RunAvgFps[id]);
+		format(text, len, "%sMin fps: %.2f\n",               text, g_RunMinFps[id]);
+	}
+	format(text, len, "%sDistance: %.2f\n",                  text, g_RunDistance2D[id]);
+
+	if (detailLevel >= 2)
+	{
+		format(text, len, "%sDistance 3D: %.2f\n",           text, g_RunDistance3D[id]);
+	}
+
+	format(text, len, "%sJumps: %d\n",                       text, g_RunJumps[id]);
+	format(text, len, "%sDucktaps: %d\n",                    text, g_RunDucktaps[id]);
+
+	//if (detailLevel >= 2)
+	//{
+	//	format(text, len, "%sStrafes: %d\n",                 text, g_RunStrafes[id]);
+	//}
+
+	//if (detailLevel >= 1)
+	//{
+	//	format(text, len, "%sSync: %d\n",                    text, g_RunSync[id]);
+	//}
+
+	format(text, len, "%sSlowdowns: %d\n",                   text, g_RunSlowdowns[id]);
+
+	if (detailLevel >= 1)
+	{
+		format(text, len, "%sTime lost at start: %.4f\n",    text, g_RunLostStartTime[id]);
+		format(text, len, "%sTime lost at end: %.4f\n",      text, g_RunLostEndTime[id]);
+		format(text, len, "%sStart prestrafe speed: %.2f\n", text, g_RunStartPrestrafeSpeed[id]);
+		format(text, len, "%sStart prestrafe time: %.4f\n",  text, g_RunStartPrestrafeTime[id]);
+	}
 }
 
 HudStorePressedKeys(id)
@@ -5876,8 +6361,8 @@ public Fw_FmPlayerPreThinkPost(id)
 	g_PrevHudRGB[id][1] = g_HudRGB[id][1];
 	g_PrevHudRGB[id][2] = g_HudRGB[id][2];
 
-	new Float:prevPos[3];
-	xs_vec_copy(g_Origin[id], prevPos);
+	xs_vec_copy(g_Origin[id],   g_PrevOrigin[id]);
+	xs_vec_copy(g_Velocity[id], g_PrevVelocity[id]);
 
 	pev(id, pev_origin, g_Origin[id]);
 	pev(id, pev_angles, g_Angles[id]);
@@ -5887,6 +6372,12 @@ public Fw_FmPlayerPreThinkPost(id)
 
 	if (!IsBot(id) && g_RecordRun[id])
 		RecordRunFrame(id);
+
+	if (get_bit(g_baIsClimbing, id))
+	{
+		// TODO: test what happens if we do this in StartFrame (depending on server framerate) instead
+		BuildRunStats(id);
+	}
 
 	// Store pressed keys here, cos HUD updating is called not so frequently
 	HudStorePressedKeys(id);
@@ -5898,11 +6389,11 @@ public Fw_FmPlayerPreThinkPost(id)
 		g_Unfreeze[id] = 0;
 	}
 
-	new Float:prevHSpeed = floatsqroot(floatpower(g_Velocity[id][0], 2.0) + floatpower(g_Velocity[id][1], 2.0));
-	new Float:currHSpeed = floatsqroot(floatpower(g_Velocity[id][0], 2.0) + floatpower(g_Velocity[id][1], 2.0));
+	new Float:prevHSpeed = xs_vec_len_2d(g_PrevVelocity[id]);
+	new Float:currHSpeed = xs_vec_len_2d(g_Velocity[id]);
 
-	if ((prevHSpeed > 0.0 && currHSpeed == 0.0 && get_distance_f(g_Origin[id], prevPos) > 50.0)
-		|| get_distance_f(g_Origin[id], prevPos) > 100.0) // Has teleported?
+	if ((prevHSpeed > 0.0 && currHSpeed == 0.0 && get_distance_f(g_Origin[id], g_PrevOrigin[id]) > 50.0)
+		|| get_distance_f(g_Origin[id], g_PrevOrigin[id]) > 100.0) // Has teleported?
 	{
 		g_Unfreeze[id]++;
 	}
@@ -6452,6 +6943,32 @@ CheckHideableEntities()
 	}
 
 	server_print("[%s] The current map has %d entities that can be hidden with /winvis", PLUGIN_TAG, entCount);
+}
+
+// This is for later to be able to check if we could have hit the end button faster
+// TODO: handle the edge case where there are more than 1 end button (haven't seen such a case yet)
+CheckStartEndButtons()
+{
+	new ent, className[32];
+
+	for (ent = g_MaxPlayers + 1; ent < global_get(glb_maxEntities); ent++)
+	{
+		if (!pev_valid(ent))
+			continue;
+
+		pev(ent, pev_classname, className, charsmax(className));
+
+		if (!equali(className, "func_button", 10))
+			continue;
+
+		if (GetEntityButtonType(ent) != BUTTON_FINISH)
+			continue;
+
+		g_EndButton = ent;
+		fm_get_brush_entity_origin(g_EndButton, g_EndButtonOrigin);
+
+		break;
+	}
 }
 
 bool:IsLiquid(ent)
@@ -7813,6 +8330,187 @@ public CmdNightvision(id)
  	return PLUGIN_HANDLED;
 }
 
+CmdShowRunStatsOnConsole(id)
+{
+	g_ShowRunStatsOnConsole[id] = !g_ShowRunStatsOnConsole[id];
+	ShowMessage(id, "Run stats on console: %s", g_ShowRunStatsOnConsole[id] ? "ON" : "OFF");
+
+	return PLUGIN_HANDLED;
+}
+
+CmdShowRunStatsOnHud(id)
+{
+	new level = GetNumberArg();
+
+	if (level > 2)
+		level = 2;
+
+	if (g_ShowRunStatsOnHud[id] == 0 && level == 0)
+	{
+		// We will receive a 0 if they don't type a number, and if it was already 0 it's likely
+		// that they meant to toggle it instead, so we will do that, and if they meant to make sure
+		// that it's off for some reason, well then it won't work as they expected :/
+		level = 1;
+	}
+
+	if (level < 0)
+		level = 0;
+
+	ClearSyncHud(id, g_SyncHudRunStats);
+
+	g_ShowRunStatsOnHud[id] = level;
+
+	ShowMessage(id, "Run stats on HUD: %s", g_ShowRunStatsOnHudString[level]);
+
+	return PLUGIN_HANDLED;
+}
+
+CmdRunStatsHudHoldTime(id)
+{
+	new Float:holdTime = GetFloatArg();
+	new bool:isMsgAlreadyShown = false;
+
+	if (holdTime > RUN_STATS_HUD_MAX_HOLD_TIME)
+	{
+		holdTime = RUN_STATS_HUD_MAX_HOLD_TIME;
+		ShowMessage(id, "Run stats HUD hold time set to %.1f (max. allowed)", holdTime);
+		
+		isMsgAlreadyShown = true;
+	}
+	else if (holdTime < RUN_STATS_HUD_MIN_HOLD_TIME)
+	{
+		holdTime = RUN_STATS_HUD_MIN_HOLD_TIME;
+		ShowMessage(id, "Run stats HUD hold time set to %.1f (min. allowed)", holdTime);
+		
+		isMsgAlreadyShown = true;
+	}
+	g_RunStatsHudHoldTime[id] = holdTime;
+
+	// TODO: if it's showing the run end stats HUD right now, make it show this change
+	ClearSyncHud(id, g_SyncHudRunStats);
+
+	if (!isMsgAlreadyShown)
+		ShowMessage(id, "Run stats HUD hold time set to %.1f", g_RunStatsHudHoldTime[id]);
+
+	return PLUGIN_HANDLED;
+}
+
+CmdRunStatsConsoleDetails(id)
+{
+	new level = GetNumberArg();
+
+	if (level > 2)
+		level = 2;
+
+	if (g_RunStatsConsoleDetailLevel[id] == 0 && level == 0)
+	{
+		// We will receive a 0 if they don't type a number, and if it was already 0 it's likely
+		// that they meant to toggle it instead, so we will do that, and if they meant to make sure
+		// that it's off for some reason, well then it won't work as they expected :/
+		level = 2;
+	}
+
+	if (level < 0)
+		level = 0;
+
+	g_RunStatsConsoleDetailLevel[id] = level;
+
+	ShowMessage(id, "Run stats console detail level: %s", g_RunStatsDetailLevelString[level]);
+
+	return PLUGIN_HANDLED;
+}
+
+CmdRunStatsHudDetails(id)
+{
+	new level = GetNumberArg();
+
+	if (level > 2)
+		level = 2;
+
+	if (g_RunStatsHudDetailLevel[id] == 0 && level == 0)
+	{
+		// We will receive a 0 if they don't type a number, and if it was already 0 it's likely
+		// that they meant to toggle it instead, so we will do that, and if they meant to make sure
+		// that it's off for some reason, well then it won't work as they expected :/
+		level = 2;
+	}
+
+	if (level < 0)
+		level = 0;
+
+	// TODO: if it's showing the run end stats HUD right now, make it show this change
+	ClearSyncHud(id, g_SyncHudRunStats);
+
+	g_RunStatsHudDetailLevel[id] = level;
+
+	ShowMessage(id, "Run stats HUD detail level: %s", g_RunStatsDetailLevelString[level]);
+
+	return PLUGIN_HANDLED;
+}
+
+CmdRunStatsHudX(id)
+{
+	new Float:x = GetFloatArg();
+	new bool:isMsgAlreadyShown = false;
+
+	if (x > 1.0)
+	{
+		x = 1.0;
+		ShowMessage(id, "Run stats HUD X set to %.1f (max. allowed)", x);
+		
+		isMsgAlreadyShown = true;
+	}
+	else if (x < 0.0 && x != -1.0)
+	{
+		// -1.0 means centered, so we allow that value
+		x = 0.0;
+		ShowMessage(id, "Run stats HUD X set to %.1f (min. allowed)", x);
+		
+		isMsgAlreadyShown = true;
+	}
+	g_RunStatsHudX[id] = x;
+
+	// TODO: if it's showing the run end stats HUD right now, make it show this change
+	ClearSyncHud(id, g_SyncHudRunStats);
+
+	if (!isMsgAlreadyShown)
+		ShowMessage(id, "Run stats HUD X set to %.1f", g_RunStatsHudX[id]);
+
+	return PLUGIN_HANDLED;
+}
+
+CmdRunStatsHudY(id)
+{
+	new Float:y = GetFloatArg();
+	new bool:isMsgAlreadyShown = false;
+
+	if (y > 1.0)
+	{
+		y = 1.0;
+		ShowMessage(id, "Run stats HUD Y set to %.1f (max. allowed)", y);
+		
+		isMsgAlreadyShown = true;
+	}
+	else if (y < 0.0 && y != -1.0)
+	{
+		// -1.0 means centered, so we allow that value
+		y = 0.0;
+		ShowMessage(id, "Run stats HUD Y set to %.1f (min. allowed)", y);
+		
+		isMsgAlreadyShown = true;
+	}
+	g_RunStatsHudY[id] = y;
+
+	// TODO: if it's showing the run end stats HUD right now, make it show this change
+	ClearSyncHud(id, g_SyncHudRunStats);
+
+	if (!isMsgAlreadyShown)
+		ShowMessage(id, "Run stats HUD Y set to %.1f", g_RunStatsHudY[id]);
+
+	return PLUGIN_HANDLED;
+}
+
+
 // TODO: refactor to use AMX_SETTINGS_API
 LoadMapSettings()
 {
@@ -8752,10 +9450,11 @@ RecordRunFrame(id)
 	}
 
 	new frameState[REPLAY];
-	frameState[RP_TIME] = get_gametime();
-	frameState[RP_ORIGIN] = g_Origin[id];
-	frameState[RP_ANGLES] = g_Angles[id];
+	frameState[RP_TIME]    = get_gametime();
+	frameState[RP_ORIGIN]  = g_Origin[id];
+	frameState[RP_ANGLES]  = g_Angles[id];
 	frameState[RP_BUTTONS] = pev(id, pev_button);
+	frameState[RP_SPEED]   = xs_vec_len_2d(g_Velocity[id]);
 	ArrayPushArray(g_RunFrames[id], frameState);
 	//console_print(id, "[%.3f] recording run...", frameState[RP_TIME]);
 
@@ -8778,8 +9477,10 @@ SaveRecordedRun(id, RUN_TYPE:topType)
 	for (new i; i < ArraySize(g_RunFrames[id]); i++)
 	{
 		ArrayGetArray(g_RunFrames[id], i, frameState);
-		fwrite_blocks(g_RecordRun[id], frameState, sizeof(frameState) - 1, BLOCK_INT); // gametime, origin and angles
+		//fwrite_blocks(g_RecordRun[id], frameState, sizeof(frameState) - 1, BLOCK_INT); // gametime, origin and angles
+		fwrite_blocks(g_RecordRun[id], frameState, sizeof(frameState) - 2, BLOCK_INT); // gametime, origin and angles
 		fwrite(g_RecordRun[id], frameState[RP_BUTTONS], BLOCK_SHORT); // buttons
+		// TODO: write the replay version and speed (RP_SPEED), simplify angles to 1 number and process with anglemod
 	}
 	fclose(g_RecordRun[id]);
 	//console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
@@ -8805,7 +9506,7 @@ SaveRecordedRunCup(id, RUN_TYPE:topType)
 	for (new i; i < ArraySize(g_RunFrames[id]); i++)
 	{
 		ArrayGetArray(g_RunFrames[id], i, frameState);
-		fwrite_blocks(g_RecordRun[id], frameState, sizeof(frameState) - 1, BLOCK_INT); // gametime, origin and angles
+		fwrite_blocks(g_RecordRun[id], frameState, sizeof(frameState) - 2, BLOCK_INT); // gametime, origin and angles
 		fwrite(g_RecordRun[id], frameState[RP_BUTTONS], BLOCK_SHORT); // buttons
 	}
 	fclose(g_RecordRun[id]);
