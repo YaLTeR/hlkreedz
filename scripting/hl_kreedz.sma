@@ -416,7 +416,7 @@ new Float:g_RunStatsHudY[MAX_PLAYERS + 1];
 new g_RunStatsConsoleDetailLevel[MAX_PLAYERS + 1];
 new g_RunStatsHudDetailLevel[MAX_PLAYERS + 1];
 
-new bool:g_PrevRunCountdown[MAX_PLAYERS + 1];
+new Float:g_PrevRunCountdown[MAX_PLAYERS + 1];
 new g_PrevShowTimer[MAX_PLAYERS + 1];
 new g_PrevTimeDecimals[MAX_PLAYERS + 1];
 new g_PrevHudRGB[MAX_PLAYERS + 1][3];
