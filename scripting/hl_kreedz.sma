@@ -8056,10 +8056,15 @@ ResetCupMapStates(id)
 	}
 	TrieIterDestroy(ti);
 
+	new msg[96];
+	formatex(msg, charsmax(msg), "[%s] All the %d maps have been reset to IDLE state.", PLUGIN_TAG, i);
 	if (id)
-		client_print(id, print_chat, "[%s] All the %d maps have been reset to IDLE state.", PLUGIN_TAG, i);
+	{
+		client_print(id, print_chat, msg);
+		console_print(id, msg);
+	}
 	else
-		server_print("[%s] All the %d maps have been reset to IDLE state.", PLUGIN_TAG, i);
+		server_print(msg);
 }
 
 // Clears the cached cup data, including the map states
@@ -8104,6 +8109,16 @@ ClearCup(id)
 	g_CupReady1 = false;
 	g_CupReady2 = false;
 	ResetCupMapStates(id);
+
+	new msg[96];
+	formatex(msg, charsmax(msg), "[%s] Players, scores and readiness states have been cleared.", PLUGIN_TAG);
+	if (id)
+	{
+		client_print(id, print_chat, msg);
+		console_print(id, msg);
+	}
+	else
+		server_print(msg);
 }
 
 // Writes to a file the map pool in its current state
