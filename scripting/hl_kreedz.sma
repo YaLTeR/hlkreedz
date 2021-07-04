@@ -7764,7 +7764,7 @@ public CmdCupHandler(id, level, cid)
 	return PLUGIN_HANDLED;
 }
 
-boolean:ProcessCupFormat(id, cupFormat[])
+bool:ProcessCupFormat(id, cupFormat[])
 {
 	new i;
 	while (cupFormat[i])
