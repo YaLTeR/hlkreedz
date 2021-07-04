@@ -2559,10 +2559,16 @@ CmdReplayNoob(id)
 
 CmdReplay(id, RUN_TYPE:runType)
 {
+	new maxReplays = get_pcvar_num(pcvar_kz_max_concurrent_replays);
+	if (maxReplays <= 0)
+	{
+		client_print(id, print_chat, "[%s] Sorry, this server doesn't allow replaying records :(", PLUGIN_TAG);
+		return PLUGIN_HANDLED;
+	}
+
 	static authid[32], replayFile[256], idNumbers[24], stats[STATS], time[32];
 	new args[32], cmd[15], replayRank, replayArg[33], Regex:pattern;
 	new minutes, Float:seconds;
-	new maxReplays = get_pcvar_num(pcvar_kz_max_concurrent_replays);
 	new Float:setupTime = get_pcvar_float(pcvar_kz_replay_setup_time);
 
 	read_args(args, charsmax(args));
