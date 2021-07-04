@@ -3321,7 +3321,7 @@ public CmdSayHandler(id, level, cid)
 	else if (equali(args[1], "speed"))
 		CmdSpeed(id);
 
-	else if (equali(args[1], "distance") || equali(args[1], "measure") || equali(args[1], "ruler"))
+	else if (equali(args[1], "dist") || equali(args[1], "distance") || equali(args[1], "measure") || equali(args[1], "ruler"))
 		CmdDistance(id);
 
 	else if (equali(args[1], "height") || equali(args[1], "heightdiff"))
@@ -3341,10 +3341,10 @@ public CmdSayHandler(id, level, cid)
 	else if (equali(args[1], "tpcountdown"))
 		CmdSetTpOnCountdown(id);
 
-	else if (equali(args[1], "yes"))
+	else if (equali(args[1], "y") || equali(args[1], "yes"))
 		CmdVote(id, KZVOTE_YES);
 
-	else if (equali(args[1], "no"))
+	else if (equali(args[1], "n") || equali(args[1], "no"))
 		CmdVote(id, KZVOTE_NO);
 
 	//else if (equali(args[1], "idk") || equali(args[1], "undecided"))
@@ -3424,8 +3424,11 @@ public CmdSayHandler(id, level, cid)
 	else if (containi(args[1], "countdown") == 0)
 		CmdSetCountdown(id);
 
-	else if (containi(args[1], "hudcolor") == 0 || containi(args[1], "hudcolour") == 0)
+	else if (containi(args[1], "hudcolor") == 0 || containi(args[1], "hudcolour") == 0
+		|| containi(args[1], "hud_color") == 0 || containi(args[1], "hud_colour") == 0)
+	{
 		CmdHudColor(id);
+	}
 /*
 	else if (containi(args[1], "pov") == 0)
 	{
