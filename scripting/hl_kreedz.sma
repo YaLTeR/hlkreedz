@@ -2927,7 +2927,7 @@ public npc_think(id)
 
 		entity_set_float(id, EV_FL_nextthink, get_gametime() + replayNext[RP_TIME] - replay[RP_TIME]);
 
-		new Float:botCurrHSpeed = floatsqroot(floatpower(botVelocity[0], 2.0) + floatpower(botVelocity[1], 2.0));
+		new Float:botCurrHSpeed = xs_vec_len_2d(botVelocity);
 		new Float:botCurrPos[3];
 		xs_vec_copy(replay[RP_ORIGIN], botCurrPos);
 
@@ -3786,7 +3786,7 @@ Float:GetPlayerSpeed(id)
 {
 	new Float:velocity[3];
 	pev(id, pev_velocity, velocity);
-	return floatsqroot(floatpower(velocity[0], 2.0) + floatpower(velocity[1], 2.0));
+	return xs_vec_len_2d(velocity);
 }
 
 
@@ -5039,14 +5039,14 @@ UpdateHud(Float:currGameTime)
 		{
 			set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], -1.0, 0.7, 0, 0.0, 999999.0, 0.0, 0.0, -1);
 			if (is_user_alive(id))
-				ShowSyncHudMsg(id, g_SyncHudSpeedometer, "%.2f", floatsqroot(g_Velocity[id][0] * g_Velocity[id][0] + g_Velocity[id][1] * g_Velocity[id][1]));
+				ShowSyncHudMsg(id, g_SyncHudSpeedometer, "%.2f", xs_vec_len_2d(g_Velocity[id]));
 			else
 			{
 				new specmode = pev(id, pev_iuser1);
 				if (specmode == OBS_CHASE_FREE || specmode == OBS_IN_EYE)
 				{
 					new t = pev(id, pev_iuser2);
-					ShowSyncHudMsg(id, g_SyncHudSpeedometer, "%.2f", floatsqroot(g_Velocity[t][0] * g_Velocity[t][0] + g_Velocity[t][1] * g_Velocity[t][1]));
+					ShowSyncHudMsg(id, g_SyncHudSpeedometer, "%.2f", xs_vec_len_2d(g_Velocity[t]));
 				}
 			}
 		}
@@ -6038,7 +6038,7 @@ CheckHealthBoost(id)
 {
 	if (!get_pcvar_num(pcvar_kz_pure_allow_healthboost))
 	{
-		new Float:startSpeed = floatsqroot(floatpower(g_Velocity[id][0], 2.0) + floatpower(g_Velocity[id][1], 2.0));
+		new Float:startSpeed = xs_vec_len_2d(g_Velocity[id]);
 		new Float:endSpeed = GetPlayerSpeed(id);
 		if (endSpeed > (startSpeed * 1.5) && endSpeed >= 2000.0)
 		{
@@ -6074,12 +6074,12 @@ public Fw_FmPlayerPostThinkPre(id)
 
 	new Float:currVelocity[3];
 	pev(id, pev_velocity, currVelocity);
-	new Float:endSpeed = floatsqroot(floatpower(currVelocity[0], 2.0) + floatpower(currVelocity[1], 2.0));
+	new Float:endSpeed = xs_vec_len_2d(currVelocity);
 	if (g_Slopefix[id])
 	{
 		new Float:currOrigin[3], Float:futureOrigin[3], Float:futureVelocity[3];
 		pev(id, pev_origin, currOrigin);
-		new Float:startSpeed = floatsqroot(floatpower(g_Velocity[id][0], 2.0) + floatpower(g_Velocity[id][1], 2.0));
+		new Float:startSpeed = xs_vec_len_2d(g_Velocity[id]);
 
 		new Float:svGravity = get_cvar_float("sv_gravity");
 		new Float:pGravity;
@@ -6434,7 +6434,7 @@ CheckTeleportDestinations()
 
 CheckHideableEntities()
 {
-	new ent, className[32], entCount;
+	new ent, entCount;
 
 	for (ent = g_MaxPlayers + 1; ent < global_get(glb_maxEntities); ent++)
 	{
@@ -7716,18 +7716,18 @@ public CmdTimeDecimals(id)
 
 public CmdSpeed(id)
 {
-	ClearSyncHud( id, g_SyncHudSpeedometer );
+	ClearSyncHud(id, g_SyncHudSpeedometer);
 	g_ShowSpeed[id] = !g_ShowSpeed[id];
-	client_print( id, print_chat, "Speed: %s", g_ShowSpeed[id] ? "ON" : "OFF" );
+	ShowMessage(id, "Speed: %s", g_ShowSpeed[id] ? "ON" : "OFF");
 
 	return PLUGIN_HANDLED;
 }
 
 public CmdDistance(id)
 {
-	ClearSyncHud( id, g_SyncHudDistance );
+	ClearSyncHud(id, g_SyncHudDistance);
 	g_ShowDistance[id] = !g_ShowDistance[id];
-	client_print( id, print_chat, "Distance: %s", g_ShowDistance[id] ? "ON" : "OFF" );
+	ShowMessage(id, "Distance: %s", g_ShowDistance[id] ? "ON" : "OFF");
 
 	return PLUGIN_HANDLED;
 }
