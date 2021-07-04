@@ -2829,12 +2829,13 @@ SpawnDummyBot(id)
 
 ConfigureBot(id) {
 	set_user_info(id, "model",				"robo");
-	set_user_info(id, "rate",				"3500.000000");
-	set_user_info(id, "cl_updaterate",		"30");
+	set_user_info(id, "team",				"robo");
+	set_user_info(id, "rate",				"100000.000000");
+	set_user_info(id, "cl_updaterate",		"102");
 	set_user_info(id, "cl_lw",				"0");
 	set_user_info(id, "cl_lc",				"0");
 	set_user_info(id, "tracker",			"0");
-	set_user_info(id, "cl_dlmax",			"128");
+	set_user_info(id, "cl_dlmax",			"1024");
 	set_user_info(id, "lefthand",			"1");
 	set_user_info(id, "friends",			"0");
 	set_user_info(id, "dm",					"0");
