@@ -91,31 +91,6 @@
 #define TASKID_CUP_START_MATCH          6357015
 #define TASKID_CUP_CHANGE_MAP           5357015
 
-// HL1 campaign
-// TODO: Refactor this if possible to make it generic
-#define REQ_AM_BTN_SUIT             (1<<0)
-#define REQ_AM_TAKE_SUIT            (1<<1)
-
-//#define REQ_UC1_PASS_CHECK1		(1<<0)
-#define REQ_UC1_TAKE_CROWBAR        (1<<0)
-#define REQ_UC1_TAKE_GLOCK          (1<<1)
-
-#define REQ_UC2_BTN_WATER           (1<<0)
-#define REQ_UC2_BTN_LIFT            (1<<1)
-
-#define REQ_OCWGH_BTN_ELECTRICITY   (1<<0)
-#define REQ_OCWGH_TAKE_NADES        (1<<1)
-#define REQ_OCWGH_BTN_SILO_DOOR     (1<<2)
-
-#define REQ_BP1_LIFT_DOOR           (1<<0)
-#define REQ_BP1_TAKE_HEALTH         (1<<1)
-#define REQ_BP1_TAKE_BATTERIES      (1<<2)
-#define REQ_BP1_LIFT                (1<<3)
-
-//#define REQ_BP2_BTN_BUCKET        (1<<0)
-#define REQ_BP2_BTN_ELECTRO2        (1<<0)
-#define REQ_BP2_BTN_ELECTRO1        (1<<1)
-
 #define TE_EXPLOSION                3
 
 enum _:REPLAY
@@ -199,7 +174,7 @@ enum RECORD_STORAGE_TYPE
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.44";
+new const VERSION[] = "0.45";
 //new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the replay format changes
 new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, execut4ble, naz, mxpph";
 
@@ -257,21 +232,13 @@ new const g_RunStatsDetailLevelString[][] =
 new const g_szStarts[][] =
 {
 	"hlkz_start", "counter_start", "clockstartbutton", "firsttimerelay", "but_start", "counter_start_button",
-	"multi_start", "timer_startbutton", "start_timer_emi", "gogogo",
-
-	// For the HL1 campaign maps
-	// TODO: Refactor this not to be hardcoded here
-	"am_start", "uc1_start", "uc2_start", "ocwgh_start", "bp1_start", "bp2_start"
+	"multi_start", "timer_startbutton", "start_timer_emi", "gogogo"
 };
 
 new const g_szStops[][] =
 {
 	"hlkz_finish", "counter_off", "clockstopbutton", "clockstop", "but_stop", "counter_stop_button",
-	"multi_stop", "stop_counter", "m_counter_end_emi",
-
-	// For the HL1 campaign maps
-	// TODO: Refactor this not to be hardcoded here
-	"am_end", "uc1_end", "uc2_end", "ocwgh_end", "bp1_end", "bp2_end"
+	"multi_stop", "stop_counter", "m_counter_end_emi"
 };
 
 new const g_ItemNames[][] =
@@ -553,12 +520,12 @@ new MATCH_FORMAT:g_CupFormat[MAX_MATCH_MAPS + 1];    // ABBAABD, etc.
 
 new bool:g_isAnyBoostWeaponInMap;
 
-// HL1 campaign stuff
-new bool:g_isHL1Campaign;
-new g_PlayerEndReqs[MAX_PLAYERS + 1]; // conditions that have to be met to be allowed to end the timer, like pressing a button in the way, etc.
-new Trie:g_MapEndReqs;
-new Trie:g_UnorderedReqsMaps;
-new g_MapEndTotalReq;
+// Run requirements
+new g_PlayerRunReqs[MAX_PLAYERS + 1]; // conditions that have to be met to be allowed to end the timer, like pressing a button in the way, etc.
+new Trie:g_RunReqs;
+new g_RunTotalReq;
+new Array:g_SortedRunReqIndexes; // ascending order
+new Trie:g_FulfilledRunReqs[MAX_PLAYERS + 1];
 
 // There will be only 1 vote at max showing at a time for a player, and the votes might be directed at specific players, not all of them, e.g.: races
 new bool:g_IsKzVoteRunning[MAX_PLAYERS + 1];      // if there's a vote running for this player (may not be for all; directed at specific players)
@@ -658,6 +625,10 @@ public plugin_precache()
 
 	// Splits stuff
 	g_Splits = TrieCreate();
+
+	// Map requirements to finish a run
+	// Requirement = a trigger or something you have to activate or go through
+	g_RunReqs = TrieCreate();
 }
 
 public plugin_init()
@@ -1057,11 +1028,9 @@ public plugin_cfg()
 	CheckHideableEntities();
 	CheckStartEndButtons();
 
-	g_MapEndReqs = TrieCreate();
-	g_UnorderedReqsMaps = TrieCreate();
-	SetMapEndReqs();
-	if (TrieGetSize(g_MapEndReqs))
-		g_isHL1Campaign = true;
+	g_RunTotalReq = TrieGetSize(g_RunReqs);
+	if (g_RunTotalReq)
+		PrepareRunReqs();
 
 	if (get_pcvar_num(pcvar_kz_stop_moving_platforms))
 	{
@@ -1089,6 +1058,7 @@ public plugin_end()
 	ArrayDestroy(g_NoResetLeaderboard);
 	ArrayDestroy(g_AgAllowedGamemodes);
 	ArrayDestroy(g_OrderedSplits);
+	ArrayDestroy(g_SortedRunReqIndexes);
 
 	TrieDestroy(g_DbPlayerId);
 	TrieDestroy(g_CupMapPool);
@@ -1967,6 +1937,9 @@ public client_putinserver(id)
 	g_RunStartTime[id] = 0.0;
 	g_RunNextCountdown[id] = 0.0;
 
+	if (!g_FulfilledRunReqs[id])
+		g_FulfilledRunReqs[id] = TrieCreate();
+	
 	g_SplitTimes[id] = ArrayCreate(1, 3);
 	g_LapTimes[id] = ArrayCreate();
 	g_CurrentLap[id] = 0;
@@ -2033,8 +2006,8 @@ public client_disconnect(id)
 	clr_bit(g_baIsPureRunning, id);
 
 	g_SolidState[id] = -1;
-	g_PlayerEndReqs[id] = 0;
 	g_IsBannedFromMatch[id] = false;
+	g_PlayerRunReqs[id] = 0;
 
 	g_RaceId[id] = 0;
 	g_RunMode[id] = MODE_NORMAL;
@@ -2361,7 +2334,20 @@ InitPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 	g_RunStartTimestamp[id] = 0;
 	g_PlayerTime[id] = 0.0;
 	g_PlayerTimePause[id] = 0.0;
-	g_PlayerEndReqs[id] = 0;
+	g_PlayerRunReqs[id] = 0;
+	TrieClear(g_FulfilledRunReqs[id]);
+	// Init the trie with all entity requirements to false
+	new TrieIter:ti = TrieIterCreate(g_RunReqs);
+	while (!TrieIterEnded(ti))
+	{
+		new entId[6];
+		TrieIterGetKey(ti, entId, charsmax(entId));
+
+		TrieSetCell(g_FulfilledRunReqs[id], entId, false);
+
+		TrieIterNext(ti);
+	}
+	TrieIterDestroy(ti);
 
 	ArrayClear(g_SplitTimes[id]);
 	ArrayClear(g_LapTimes[id]);
@@ -4299,8 +4285,7 @@ FinishClimb(id)
 		ShowMessage(id, "It's not allowed to finish the map while on countdown");
 		canFinish = false;
 	}
-	//console_print(id, "Your reqs: %d, map reqs: %d", g_PlayerEndReqs[id], g_MapEndTotalReq);
-	if (g_isHL1Campaign && g_PlayerEndReqs[id] != g_MapEndTotalReq)
+	if (g_RunTotalReq && g_PlayerRunReqs[id] != g_RunTotalReq)
 	{
 		ShowMessage(id, "You don't meet the requirements to finish. Press the required buttons or pass through the required places first");
 		canFinish = false;
@@ -4963,7 +4948,7 @@ public Fw_HamUseButtonPre(ent, id)
 		{
 			SplitTime(id, ent);
 		}
-		case BUTTON_NOT: CheckEndReqs(ent, id);
+		case BUTTON_NOT: CheckRunReqs(ent, id);
 	}
 
 	return HAM_IGNORED;
@@ -5035,37 +5020,35 @@ BUTTON_TYPE:GetButtonTypeFromName(name[])
 	return BUTTON_NOT;
 }
 
-CheckEndReqs(ent, id)
+CheckRunReqs(ent, id)
 {
-	new name[32];
-	pev(ent, pev_targetname, name, charsmax(name));
+	new entId[6];
+	num_to_str(ent, entId, charsmax(entId));
 
-	if (!name[0])
-		pev(ent, pev_target, name, charsmax(name));
+	new nextReqNumber = g_PlayerRunReqs[id];
+	if (nextReqNumber == g_RunTotalReq)
+		return; // already fulfilled every requirement
 
-	//console_print(id, "checking reqs for %s", name);
+	if (!TrieKeyExists(g_RunReqs, entId))
+		return; // this is not a requirement
 
-	if (TrieKeyExists(g_MapEndReqs, name))
-	{
-		// This entity is a requirement for being able to end the timer
-		new reqBits;
-		TrieGetCell(g_MapEndReqs, name, reqBits);
+	new nextReqIdx = ArrayGetCell(g_SortedRunReqIndexes, nextReqNumber);
+	new entReqIdx;
+	TrieGetCell(g_RunReqs, entId, entReqIdx);
 
-		//console_print(id, "%s is registered in HLKZ", name);
+	if (entReqIdx != nextReqIdx)
+		return; // this is not the next requirement in the run
 
-		if (reqBits - 1 == g_PlayerEndReqs[id] || TrieKeyExists(g_UnorderedReqsMaps, g_Map))
-		{
-			// Add its bits to the player's bit field for end requirements,
-			// but only if it they have met all the previous requirements
-			//console_print(id, "updating reqs, current = %d", g_PlayerEndReqs[id]);
-			g_PlayerEndReqs[id] |= reqBits;
+	new hasPlayerFulfilledReq = false;
+	TrieGetCell(g_FulfilledRunReqs[id], entId, hasPlayerFulfilledReq);
+	if (hasPlayerFulfilledReq)
+		return; // you already completed this requirement
 
-			new reqNum = floatround(floatlog(float(reqBits), 2.0)) + 1;
-			ShowMessage(id, "Requirement #%d completed", reqNum);
-		}
+	// Requirement fulfilled
+	g_PlayerRunReqs[id]++;
+	TrieSetCell(g_FulfilledRunReqs[id], entId, true);
 
-		//console_print(id, "req %s has been met; your reqs:: %d", name, g_PlayerEndReqs[id]);
-	}
+	ShowMessage(id, "Requirement #%d completed", g_PlayerRunReqs[id]);
 }
 
 
@@ -5235,14 +5218,9 @@ UpdateHud(Float:currGameTime)
 			else
 				g_RunType[targetId] = "Pro";
 
-			new completedReqs = g_PlayerEndReqs[targetId];
-			new totalReqs = g_MapEndTotalReq;
-			completedReqs = GetNumberOfBitsSet(completedReqs);
-			totalReqs = GetNumberOfBitsSet(totalReqs);
-
 			new reqsText[16];
-			if (totalReqs)
-				formatex(reqsText, charsmax(reqsText), " | Reqs: %d/%d", completedReqs, totalReqs);
+			if (g_RunTotalReq)
+				formatex(reqsText, charsmax(reqsText), " | Reqs: %d/%d", g_PlayerRunReqs[targetId], g_RunTotalReq);
 
 			new lapsText[17];
 			if (g_RunLaps)
@@ -6091,7 +6069,14 @@ public Fw_FmKeyValuePre(ent, kvd)
 	if (equali(className, "trigger_multiple"))
 	{
 		GetSplitsFromMap(ent, kvd);
+		GetRequirementsFromMap(ent, kvd);
 	}
+	else if (equali(className, "func_button"))
+	{
+		GetRequirementsFromMap(ent, kvd);
+	}
+	// TODO: review if there are more entities to account for regarding requirements,
+	// and maybe refactor this if it gets too big. Can we just check in 
 
 	return FMRES_IGNORED;
 }
@@ -6155,6 +6140,28 @@ GetSplitsFromMap(ent, kvd)
 	//server_print("[GetSplits] trieKey: %s | key: %s | value: %s", trieKey, key, value);
 
 	TrieSetArray(g_Splits, trieKey, split, sizeof(split));
+}
+
+GetRequirementsFromMap(ent, kvd)
+{
+	new key[32], value[32], split[SPLIT];
+	get_kvd(kvd, KV_KeyName, key, charsmax(key));
+	get_kvd(kvd, KV_Value, value, charsmax(value));
+
+	if (equal(key, "requirement_id"))
+	{
+		// We want to save it with the `targetname` instead of entity id, but that keyvalue will come
+		// either after or before this `requirement_id`, so we'll replace these stringified entity
+		// ids later when all of these entity keyvalues have been processed
+		new entId[6];
+		new reqIdx = str_to_num(value);
+
+		num_to_str(ent, entId, charsmax(entId));
+		TrieSetCell(g_RunReqs, entId, reqIdx);
+
+		server_print("Ent %d has a requirement id %d", ent, reqIdx);
+	}
+
 }
 
 public Fw_FmClientKillPre(id)
@@ -6998,59 +7005,36 @@ bool:IsLiquid(ent)
 	return false;
 }
 
-// FIXME: code smell, take these from some cfg file(s) instead
-// Sets the bitfield for each run ending requirement depending on the map
-SetMapEndReqs()
+PrepareRunReqs()
 {
-	if (equali(g_Map, "hl1_bhop_am", 11))
+	// Build a sorted array with all the requirement indexes
+	g_SortedRunReqIndexes = ArrayCreate(1, 5);
+
+	new TrieIter:ti = TrieIterCreate(g_RunReqs);
+	while (!TrieIterEnded(ti))
 	{
-		TrieSetCell(g_MapEndReqs, "am_btn_suit", REQ_AM_BTN_SUIT);
-		TrieSetCell(g_MapEndReqs, "am_take_suit", REQ_AM_TAKE_SUIT);
+		new reqIdx;
+		TrieIterGetCell(ti, reqIdx);
 
-		g_MapEndTotalReq = REQ_AM_BTN_SUIT | REQ_AM_TAKE_SUIT;
+		ArrayPushCell(g_SortedRunReqIndexes, reqIdx)
+
+		TrieIterNext(ti);
 	}
-	else if (equali(g_Map, "hl1_bhop_uc1", 12))
-	{
-		TrieSetCell(g_MapEndReqs, "uc1_take_crowbar", REQ_UC1_TAKE_CROWBAR);
-		TrieSetCell(g_MapEndReqs, "uc1_take_glock", REQ_UC1_TAKE_GLOCK);
+	TrieIterDestroy(ti);
 
-		g_MapEndTotalReq = REQ_UC1_TAKE_CROWBAR | REQ_UC1_TAKE_GLOCK;
-	}
-	else if (equali(g_Map, "hl1_bhop_uc2", 12))
-	{
-		TrieSetCell(g_MapEndReqs, "uc2_btn_water", REQ_UC2_BTN_WATER);
-		TrieSetCell(g_MapEndReqs, "uc2_btn_lift", REQ_UC2_BTN_LIFT);
+	ArraySortEx(g_SortedRunReqIndexes, "SortReqsAscending");
+}
 
-		g_MapEndTotalReq = REQ_UC2_BTN_WATER | REQ_UC2_BTN_LIFT;
-	}
-	else if (equali(g_Map, "hl1_bhop_ocwgh", 14))
-	{
-		TrieSetCell(g_MapEndReqs, "ocwgh_btn_electricity", REQ_OCWGH_BTN_ELECTRICITY);
-		TrieSetCell(g_MapEndReqs, "ocwgh_take_nades", REQ_OCWGH_TAKE_NADES);
-		TrieSetCell(g_MapEndReqs, "ocwgh_btn_silo_door", REQ_OCWGH_BTN_SILO_DOOR);
+public SortReqsAscending(Array: array, elem1, elem2, const data[], data_size)
+{
+	if (elem1 < elem2)
+		return -1;
 
-		g_MapEndTotalReq = REQ_OCWGH_BTN_ELECTRICITY | REQ_OCWGH_TAKE_NADES | REQ_OCWGH_BTN_SILO_DOOR;
-	}
-	else if (equali(g_Map, "hl1_bhop_bp1", 12))
-	{
-		TrieSetCell(g_MapEndReqs, "bp1_btn_lift_door", REQ_BP1_LIFT_DOOR);
-		TrieSetCell(g_MapEndReqs, "bp1_take_health", REQ_BP1_TAKE_HEALTH);
-		TrieSetCell(g_MapEndReqs, "bp1_take_batteries", REQ_BP1_TAKE_BATTERIES);
-		TrieSetCell(g_MapEndReqs, "bp1_btn_lift", REQ_BP1_LIFT);
+	else if (elem1 > elem2)
+		return 1;
 
-		g_MapEndTotalReq = REQ_BP1_LIFT_DOOR | REQ_BP1_TAKE_HEALTH | REQ_BP1_TAKE_BATTERIES | REQ_BP1_LIFT;
-	}
-	else if (equali(g_Map, "hl1_bhop_bp2", 12))
-	{
-		//TrieSetCell(g_MapEndReqs, "bp2_btn_bucket", REQ_BP2_BTN_BUCKET);
-		TrieSetCell(g_MapEndReqs, "bp2_btn_electro2", REQ_BP2_BTN_ELECTRO2);
-		TrieSetCell(g_MapEndReqs, "bp2_btn_electro1", REQ_BP2_BTN_ELECTRO1);
-
-		g_MapEndTotalReq = /*REQ_BP2_BTN_BUCKET |*/ REQ_BP2_BTN_ELECTRO2 | REQ_BP2_BTN_ELECTRO1;
-
-		TrieSetCell(g_UnorderedReqsMaps, g_Map, true);
-	}
-	server_print("[%s] Map requirements bitfield value: %d", PLUGIN_TAG, g_MapEndTotalReq);
+	else
+		return 0;
 }
 
 public CmdSetStartHandler(id, level, cid)
