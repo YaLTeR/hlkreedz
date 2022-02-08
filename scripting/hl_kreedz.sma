@@ -344,6 +344,7 @@ new Array:g_GoldLaps[MAX_PLAYERS + 1][RUN_TYPE];      // Best individual lap tim
 new Array:g_PbSplits[MAX_PLAYERS + 1][RUN_TYPE];      // Split times of PB run
 new Array:g_PbLaps[MAX_PLAYERS + 1][RUN_TYPE];        // Lap times of PB run
 new bool:g_PbSplitsUpToDate[MAX_PLAYERS + 1];         // To decide whether to retrieve split/lap times again
+new bool:g_IsUsingSplits[MAX_PLAYERS + 1];
 
 // Splits stuff
 new Trie:g_Splits;                       // split id -> SPLIT struct
@@ -1182,6 +1183,8 @@ public InitPlayerSplits(taskId)
 	g_PbSplits[id][PURE] = ArrayCreate(1, 15);
 	g_PbSplits[id][PRO] = ArrayCreate(1, 15);
 	g_PbSplits[id][NOOB] = ArrayCreate(1, 15);
+
+	g_IsUsingSplits[id] = true;
 
 	// Allocate the number of cells that we're gonna use throughout runs in this map,
 	// so we can straight up do ArrayGetCell()/ArraySetCell() later without having
@@ -2047,7 +2050,7 @@ public client_disconnect(id)
 	ArrayClear(g_LapTimes[id]);
 	g_CurrentLap[id] = 0;
 
-	if (!IsBot(id))
+	if (!IsBot(id) && g_IsUsingSplits[id])
 	{
 		ArrayClear(Array:g_GoldLaps[id][PURE]);
 		ArrayClear(Array:g_GoldLaps[id][PRO]);
@@ -2064,6 +2067,8 @@ public client_disconnect(id)
 		ArrayClear(Array:g_PbSplits[id][PURE]);
 		ArrayClear(Array:g_PbSplits[id][PRO]);
 		ArrayClear(Array:g_PbSplits[id][NOOB]);
+
+		g_IsUsingSplits[id] = false;
 
 		// TODO clear No-Reset gold laps too when they're implemented
 	}
