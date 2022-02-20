@@ -5658,7 +5658,7 @@ BuildRunStats(id)
 		// TODO: make this stat available for pro runs that for some reason don't start with prespeed
 	}
 
-	if ((moveType == MOVETYPE_WALK) && (flags & FL_ONGROUND_ALL))
+	if ((moveType == MOVETYPE_WALK) && (g_PrevFlags[id] & FL_ONGROUND_ALL && !(flags & FL_ONGROUND_ALL)))
 	{
 		new bool:isInitialPrestrafeDone = false;
 
@@ -6439,15 +6439,6 @@ public Fw_FmPlayerPreThinkPost(id)
 	pev(id, pev_velocity, g_Velocity[id]);
 	//console_print(id, "sequence: %d, pev_gaitsequence: %d", pev(id, pev_sequence), pev(id, pev_gaitsequence));
 
-	if (!IsBot(id) && g_RecordRun[id])
-		RecordRunFrame(id);
-
-	if (get_bit(g_baIsClimbing, id))
-	{
-		// TODO: test what happens if we do this in StartFrame (depending on server framerate) instead
-		BuildRunStats(id);
-	}
-
 	// Store pressed keys here, cos HUD updating is called not so frequently
 	HudStorePressedKeys(id);
 
@@ -6720,14 +6711,29 @@ public Fw_FmPlayerPostThinkPre(id)
 		CheckHealthBoost(id);
 
 	if (g_Speedcap[id] && endSpeed > g_Speedcap[id])
+
+	// TODO: refactor, same code in StartClimb(), but sometimes it doesn't work there...
+	// e.g.: in kz_cargo, or hl1_bhop_oar_beta with normal /start, not custom or practice cp
+	if (get_bit(g_baIsClimbing, id))
 	{
-		new Float:m = (endSpeed / g_Speedcap[id]) * 1.000001;
-		new Float:cappedVelocity[3];
-		cappedVelocity[0] = currVelocity[0] / m;
-		cappedVelocity[1] = currVelocity[1] / m;
-		cappedVelocity[2] = currVelocity[2];
-		set_pev(id, pev_velocity, cappedVelocity);
+		if (!g_RecordRun[id] && get_pcvar_num(pcvar_kz_autorecord) && !IsBot(id))
+		{
+			g_RecordRun[id] = 1;
+			g_RunFrames[id] = ArrayCreate(REPLAY);
+		}
+
+		if (g_RunFrames[id] && ArraySize(g_RunFrames[id]) == 2)
+			server_print("[%s] Started recording player #%d's run", PLUGIN_TAG, get_user_userid(id));
+
+		if (!IsBot(id) && g_RecordRun[id])
+			RecordRunFrame(id);
+
+		g_RunFrameCount[id]++;
+
+		BuildRunStats(id);
 	}
+
+	g_PrevFlags[id] = pev(id, pev_flags);
 
 	if (!g_RestoreSolidStates)
 		return;
@@ -9548,8 +9554,6 @@ SaveRecordedRun(id, RUN_TYPE:topType)
 	}
 	fclose(g_RecordRun[id]);
 	server_print("[%s] Saved %d frames to replay file", PLUGIN_TAG, ArraySize(g_RunFrames[id]));
-	g_RecordRun[id] = 0;
-	ArrayClear(g_RunFrames[id]);
 }
 
 SaveRecordedRunCup(id, RUN_TYPE:topType)
@@ -9573,8 +9577,6 @@ SaveRecordedRunCup(id, RUN_TYPE:topType)
 	}
 	fclose(g_RecordRun[id]);
 	server_print("[%s] Saved %d frames to cup replay file", PLUGIN_TAG, ArraySize(g_RunFrames[id]));
-	g_RecordRun[id] = 0;
-	ArrayClear(g_RunFrames[id]);
 }
 
 // Returns the entity that is linked to a bot
