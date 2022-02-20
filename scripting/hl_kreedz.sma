@@ -3918,7 +3918,10 @@ Teleport(id, cp)
 		set_pev(id, pev_angles, g_ControlPoints[id][cp][CP_ANGLES]);
 		set_pev(id, pev_v_angle, g_ControlPoints[id][cp][CP_ANGLES]);
 		set_pev(id, pev_view_ofs, g_ControlPoints[id][cp][CP_VIEWOFS]);
-		set_pev(id, pev_velocity, /*g_ControlPoints[id][cp][CP_VELOCITY]*/ Float:{ 0.0, 0.0, 0.0 });
+		if (g_usesStartingZone && (cp == CP_TYPE_START || cp == CP_TYPE_CUSTOM_START))
+			set_pev(id, pev_velocity, g_ControlPoints[id][cp][CP_VELOCITY]);
+		else
+			set_pev(id, pev_velocity, Float:{ 0.0, 0.0, 0.0 });
 		set_pev(id, pev_fixangle, true);
 		set_pev(id, pev_health, g_ControlPoints[id][cp][CP_HEALTH]);
 		set_pev(id, pev_armorvalue, g_ControlPoints[id][cp][CP_ARMOR]);
