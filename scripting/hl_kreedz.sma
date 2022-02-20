@@ -2413,7 +2413,15 @@ InitPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 
 	// Reset checkpoints
 	for (i = 0; i < CP_TYPE_CUSTOM_START; i++)
+	{
+		if (i == CP_TYPE_PRACTICE || i == CP_TYPE_PRACTICE_OLD)
+		{
+			// TODO: test if we can safely do the same with CP_TYPE_CURRENT and CP_TYPE_OLD
+			continue;
+		}
+
 		g_ControlPoints[id][i][CP_VALID] = false;
+	}
 
 	// Reset counters
 	for (i = 0; i < COUNTERS; i++)
