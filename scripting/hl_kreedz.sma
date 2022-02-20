@@ -76,6 +76,9 @@
 #define RUN_STATS_HUD_X                 0.75
 #define RUN_STATS_HUD_Y                 -1.0  // centered
 
+// https://github.com/ValveSoftware/halflife/blob/c7240b965743a53a29491dd49320c88eecf6257b/dlls/triggers.cpp#L1013
+#define TRIGGER_HURT_DAMAGE_TIME        0.5
+
 #define TASKID_ICON                     5633445
 #define TASKID_WELCOME                  43321
 #define TASKID_KICK_REPLAYBOT           9572626
@@ -454,6 +457,10 @@ new Float:g_RunStartPrestrafeTime[MAX_PLAYERS + 1];  // how much time you spent 
 
 new g_MapWeapons[256][WEAPON];    // weapons that are in the map, with their origin and angles
 new g_HideableEntity[MAX_ENTITIES];
+
+// These are for a fix for players receiving too much damage from trigger_hurt
+new Array:g_DamagedByEntity[MAX_PLAYERS + 1];
+new Array:g_DamageTimeEntity[MAX_PLAYERS + 1];
 
 new g_HudRGB[MAX_PLAYERS + 1][3];
 new colorRed[COLOR], colorGreen[COLOR], colorBlue[COLOR],
@@ -1980,6 +1987,9 @@ public client_putinserver(id)
 
 	g_ReplayFrames[id] = ArrayCreate(REPLAY);
 
+	g_DamagedByEntity[id] = ArrayCreate();
+	g_DamageTimeEntity[id] = ArrayCreate();
+
 	// Link this player to the cup player
 	new uniqueId[32];
 	GetUserUniqueId(id, uniqueId, charsmax(uniqueId));
@@ -2092,6 +2102,9 @@ public client_disconnect(id)
 	}
 	ArrayClear(g_ReplayFrames[id]);
 	g_ReplayFramesIdx[id] = 0;
+
+	ArrayClear(g_DamagedByEntity[id]);
+	ArrayClear(g_DamageTimeEntity[id]);
 
 	g_UniqueId[id][0] = EOS;
 
@@ -5970,6 +5983,37 @@ public Fw_HamTakeDamagePlayerPre(victim, inflictor, aggressor, Float:damage, dam
 			}
 
 			return HAM_SUPERCEDE;
+		}
+	}
+
+	if (IsPlayer(victim) && pev_valid(aggressor) && !IsPlayer(aggressor))
+	{
+		new classNameAggressor[32];
+		pev(aggressor, pev_classname, classNameAggressor, charsmax(classNameAggressor));
+
+		if (equal(classNameAggressor, "trigger_hurt"))
+		{
+			new idx = ArrayFindValue(g_DamagedByEntity[victim], aggressor);
+			if (idx != -1)
+			{
+				if (Float:ArrayGetCell(g_DamageTimeEntity[victim], idx) > get_gametime())
+				{
+					// We have already been damaged by this entity less than 0.5 seconds ago, so ignore this damage...
+					// Case: players receiving 100 damage from a 10 damage trigger_hurt, in a few frames...
+					return HAM_SUPERCEDE;
+				}
+				else
+				{
+					// Update the damage time, cannot deal any more damage until then
+					ArraySetCell(g_DamageTimeEntity[victim], idx, get_gametime() + TRIGGER_HURT_DAMAGE_TIME);
+				}
+			}
+			else
+			{
+				// First time we get damage from this entity, so register it
+				ArrayPushCell(g_DamagedByEntity[victim], aggressor);
+				ArrayPushCell(g_DamageTimeEntity[victim], get_gametime() + TRIGGER_HURT_DAMAGE_TIME);
+			}
 		}
 	}
 
