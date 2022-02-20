@@ -2893,7 +2893,8 @@ SpawnBot(id)
 			set_bit(g_bit_is_bot, bot);
 
 			entity_set_float(bot, EV_FL_takedamage, 1.0);
-			entity_set_float(bot, EV_FL_health, 100.0);
+			// TODO: use the AG cvar for starting health?
+			entity_set_float(bot, EV_FL_health, 200.0);
 
 			entity_set_byte(bot, EV_BYTE_controller1, 125);
 			entity_set_byte(bot, EV_BYTE_controller2, 125);
