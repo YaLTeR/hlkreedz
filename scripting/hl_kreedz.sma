@@ -407,6 +407,8 @@ new g_ReplayFpsMultiplier[MAX_PLAYERS + 1]; // atm not gonna implement custom fp
 //new Float:g_ArtificialFrames[MAX_PLAYERS + 1][MAX_FPS_MULTIPLIER]; // when will the calculated extra frames happen
 new Float:g_LastFrameTime[MAX_PLAYERS + 1];
 
+new g_LastSpawnedBot;
+
 new g_FrameTime[MAX_PLAYERS + 1][2];
 new Float:g_FrameTimeInMsec[MAX_PLAYERS + 1];
 
@@ -2903,9 +2905,24 @@ SpawnBot(id)
 			g_Unfreeze[bot] = 0;
 			//console_print(1, "player %d spawned the bot %d", id, bot);
 
+			g_LastSpawnedBot = bot;
+
 			// TODO: countdown hud; 2 seconds to start the replay, so there's time to switch to spectator
 			entity_set_float(ent, EV_FL_nextthink, get_gametime() + get_pcvar_float(pcvar_kz_replay_setup_time));
 			engfunc(EngFunc_RunPlayerMove, bot, replay[RP_ANGLES], 0.0, 0.0, 0.0, replay[RP_BUTTONS], 0, 4);
+
+			if (pev(id, pev_iuser1) != OBS_NONE)
+			{
+				// Owner is in spec mode. Make them watch this new replaybot
+				set_pev(id, pev_iuser1, OBS_IN_EYE);
+				set_pev(id, pev_iuser2, bot);
+
+				new payLoad[2];
+				payLoad[0] = id;
+				payLoad[1] = bot;
+
+				RestoreSpecCam(payLoad, TASKID_CAM_UNFREEZE);
+			}
 		}
 		else
 			client_print(id, print_chat, "[%s] Sorry, couldn't create the bot", PLUGIN_TAG);
@@ -3133,23 +3150,13 @@ public UnfreezeSpecCam(bot)
 				GetColorlessName(bot, botName, charsmax(botName));
 				GetColorlessName(spec, specName, charsmax(specName));
 
-				new Float:origin[3], Float:botOrigin[3];
-				new Float:angles[3], Float:botAngles[3];
-				pev(spec, pev_origin, origin);
+				new Float:botOrigin[3], Float:botAngles[3];
 				pev(bot, pev_origin, botOrigin);
-				pev(spec, pev_v_angle, angles);
 				pev(bot, pev_v_angle, botAngles);
-				//console_print(spec, "Spec %s angles: (%.2f, %.2f, %.2f)", specName, angles[0], angles[1], angles[2]);
-				//console_print(spec, "Bot %s angles: (%.2f, %.2f, %.2f)", botName, botAngles[0], botAngles[1], botAngles[2]);
 
-				//console_print(spec, "Changing spec %s's origin and angles to the ones of bot %s", specName, botName);
 				set_pev(spec, pev_origin, botOrigin);
 				set_pev(spec, pev_angles, botAngles);
 				set_pev(spec, pev_v_angle, botAngles);
-
-				//console_print(spec, "Executing +attack;wait;-attack on spectator %s watching bot %s)", specName, botName);
-				//client_cmd(spec, "+attack; wait; -attack;");
-				//client_cmd(spec, "+attack2; wait; -attack2;");
 
 				new payLoad[2];
 				payLoad[0] = spec;
@@ -3177,30 +3184,16 @@ public RestoreSpecCam(payLoad[], taskId)
 		new botName[33], specName[33];
 		GetColorlessName(bot, botName, charsmax(botName));
 		GetColorlessName(spec, specName, charsmax(specName));
-		//console_print(spec, "Executing +attack2;wait;-attack2 on spectator %s watching bot %s)", specName, botName);
-		//client_cmd(spec, "+attack2; wait; -attack2");
-		//set_pev(spec, pev_iuser2, bot);
 
-		new Float:origin[3], Float:botOrigin[3];
-		new Float:angles[3], Float:botAngles[3];
-		pev(spec, pev_origin, origin);
+		new Float:botOrigin[3], Float:botAngles[3];
 		pev(bot, pev_origin, botOrigin);
-		pev(spec, pev_v_angle, angles);
 		pev(bot, pev_v_angle, botAngles);
-		//console_print(spec, "Spec %s o(%.2f, %.2f, %.2f), a(%.2f, %.2f, %.2f)", specName, origin[0], origin[1], origin[2], angles[0], angles[1], angles[2]);
-		//console_print(spec, "Bot %s  o(%.2f, %.2f, %.2f), a(%.2f, %.2f, %.2f)", botName, botOrigin[0], botOrigin[1], botOrigin[2], botAngles[0], botAngles[1], botAngles[2]);
 
-		//client_cmd(spec, "+attack; wait; -attack;");
-		//client_cmd(spec, "+attack2; wait; -attack2;");
 		set_pev(spec, pev_iuser2, bot);
 
-		//console_print(spec, "Changing spec %s's origin and angles to the ones of bot %s", specName, botName);
 		set_pev(spec, pev_origin, botOrigin);
 		set_pev(spec, pev_angles, botAngles);
 		set_pev(spec, pev_v_angle, botAngles);
-		pev(spec, pev_origin, origin);
-		pev(spec, pev_v_angle, angles);
-		//console_print(spec, "Spec %s o(%.2f, %.2f, %.2f), a(%.2f, %.2f, %.2f)", specName, origin[0], origin[1], origin[2], angles[0], angles[1], angles[2]);
 	}
 }
 
@@ -4153,6 +4146,25 @@ ClientCommandSpectatePost(id)
 
 			// Pause timer, but don't froze and no pause sprite
 			PauseTimer(id, true);
+
+			new bot = GetOwnersBot(id);
+			if (!bot && g_ReplayNum > 0)
+				bot = g_LastSpawnedBot;
+
+			if (bot && is_user_alive(bot) && pev(bot, pev_iuser1) == OBS_NONE)
+			{
+				// Spec your bot or the last spawned one, if you didn't want to (very unlikely),
+				// then it doesn't really matter cos you probably would have to spend a few
+				// clicks switching to the desired target either way
+				set_pev(id, pev_iuser1, OBS_IN_EYE);
+				set_pev(id, pev_iuser2, bot);
+
+				new payLoad[2];
+				payLoad[0] = id;
+				payLoad[1] = bot;
+
+				RestoreSpecCam(payLoad, TASKID_CAM_UNFREEZE);
+			}
 		}
 	}
 	else if (bNotInSpec)
