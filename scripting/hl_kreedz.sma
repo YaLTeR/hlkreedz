@@ -75,6 +75,8 @@
 #define RUN_STATS_HUD_MIN_HOLD_TIME     0.5
 #define RUN_STATS_HUD_X                 0.75
 #define RUN_STATS_HUD_Y                 -1.0  // centered
+#define START_ZONE_ALLOWED_PRESPEED     540.0
+#define START_BUTTON_ALLOWED_PRESPEED   50.0
 
 // https://github.com/ValveSoftware/halflife/blob/c7240b965743a53a29491dd49320c88eecf6257b/dlls/triggers.cpp#L1013
 #define TRIGGER_HURT_DAMAGE_TIME        0.5
@@ -177,7 +179,7 @@ enum RECORD_STORAGE_TYPE
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.45";
+new const VERSION[] = "0.46";
 //new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the replay format changes
 new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, execut4ble, naz, mxpph";
 
@@ -373,7 +375,8 @@ new g_ShowStartMsg[MAX_PLAYERS + 1];
 new g_TimeDecimals[MAX_PLAYERS + 1];
 new g_Nightvision[MAX_PLAYERS + 1];
 new bool:g_Slopefix[MAX_PLAYERS + 1];
-new Float:g_Speedcap[MAX_PLAYERS + 1];
+new Float:g_Speedcap[MAX_PLAYERS + 1]; // Float indicating your actual cap
+new g_Prespeedcap[MAX_PLAYERS + 1]; // 0 = OFF, 1 = cap applied at the start line only, 2 = cap applied everytime when not in a run
 new bool:g_ShowSpeed[MAX_PLAYERS + 1];
 new bool:g_ShowDistance[MAX_PLAYERS + 1];
 new bool:g_ShowHeightDiff[MAX_PLAYERS + 1];
@@ -410,6 +413,7 @@ new g_ReplayFpsMultiplier[MAX_PLAYERS + 1]; // atm not gonna implement custom fp
 //new Float:g_ArtificialFrames[MAX_PLAYERS + 1][MAX_FPS_MULTIPLIER]; // when will the calculated extra frames happen
 new Float:g_LastFrameTime[MAX_PLAYERS + 1];
 
+new g_RunFrameCount[MAX_PLAYERS + 1];
 new g_LastSpawnedBot;
 
 new g_FrameTime[MAX_PLAYERS + 1][2];
@@ -435,6 +439,7 @@ new bool:g_StoppedSlidingRamp[MAX_PLAYERS + 1];
 new g_RampFrameCounter[MAX_PLAYERS + 1];
 new g_HBFrameCounter[MAX_PLAYERS + 1];    // frame counter for healthbooster trigger_multiple
 new MOVEMENT_STATE:g_Movement[MAX_PLAYERS + 1];
+new g_PrevFlags[MAX_PLAYERS + 1];
 
 // Run stats
 new Float:g_RunAvgSpeed[MAX_PLAYERS + 1]; // horizontal speeds
@@ -530,6 +535,8 @@ new MATCH_FORMAT:g_CupFormat[MAX_MATCH_MAPS + 1];    // ABBAABD, etc.
 
 new bool:g_isAnyBoostWeaponInMap;
 
+new bool:g_usesStartingZone;
+
 // Run requirements
 new g_PlayerRunReqs[MAX_PLAYERS + 1]; // conditions that have to be met to be allowed to end the timer, like pressing a button in the way, etc.
 new Trie:g_RunReqs;
@@ -571,6 +578,7 @@ new pcvar_kz_nostat;
 new pcvar_kz_top_records;
 new pcvar_kz_top_records_max;
 new pcvar_kz_pure_max_start_speed;
+new pcvar_kz_pure_limit_zone_speed;
 new pcvar_kz_pure_allow_healthboost;
 new pcvar_kz_remove_func_friction;
 new pcvar_kz_nightvision;
@@ -693,7 +701,10 @@ public plugin_init()
 	pcvar_kz_top_records_max = register_cvar("kz_top_records_max", "25");  // show max. 25 records even if player requests 100
 
 	// Maximum speed when starting the timer to be considered a pure run
-	pcvar_kz_pure_max_start_speed = register_cvar("kz_pure_max_start_speed", "50");
+	new defaultMaxStartSpeed[11];
+	float_to_str(START_BUTTON_ALLOWED_PRESPEED, defaultMaxStartSpeed, charsmax(defaultMaxStartSpeed));
+	pcvar_kz_pure_max_start_speed = register_cvar("kz_pure_max_start_speed", defaultMaxStartSpeed);
+	pcvar_kz_pure_limit_zone_speed = register_cvar("kz_pure_limit_zone_speed", "1");
 
 	pcvar_kz_pure_allow_healthboost = register_cvar("kz_pure_allow_healthboost", "0");
 	pcvar_kz_remove_func_friction = register_cvar("kz_remove_func_friction", "0");
@@ -1036,7 +1047,7 @@ public plugin_cfg()
 	CheckMapWeapons();
 	CheckTeleportDestinations();
 	CheckHideableEntities();
-	CheckStartEndButtons();
+	CheckStartEnd();
 
 	g_RunTotalReq = TrieGetSize(g_RunReqs);
 	if (g_RunTotalReq)
@@ -2103,6 +2114,8 @@ public client_disconnect(id)
 	ArrayClear(g_ReplayFrames[id]);
 	g_ReplayFramesIdx[id] = 0;
 
+	g_RunFrameCount[id] = 0;
+
 	ArrayClear(g_DamagedByEntity[id]);
 	ArrayClear(g_DamageTimeEntity[id]);
 
@@ -2137,6 +2150,7 @@ InitPlayerSettings(id)
 		g_Nightvision[id] = 2;
 
 	g_Speedcap[id] = get_pcvar_float(pcvar_kz_speedcap);
+	g_Prespeedcap[id] = 1;
 
 	g_ShowSpeed[id]                  = false;
 	g_ShowDistance[id]               = false;
@@ -2255,6 +2269,7 @@ LoadPlayerSettings(id)
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "nightvision",        g_Nightvision[id]);
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "slopefix",           g_Slopefix[id]);
 	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",           g_Speedcap[id]);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "prespeedcap",        g_Prespeedcap[id]);
 	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "run_countdown",      g_RunCountdown[id]);
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown",    g_TpOnCountdown[id]);
 
@@ -2319,6 +2334,7 @@ SavePlayerSettings(id)
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "nightvision",        g_Nightvision[id]);
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "slopefix",           g_Slopefix[id]);
 	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "speedcap",           g_Speedcap[id]);
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "prespeedcap",        g_Prespeedcap[id]);
 	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "run_countdown",      g_RunCountdown[id]);
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown",    g_TpOnCountdown[id]);
 
@@ -2372,6 +2388,8 @@ InitPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 	ArrayClear(g_SplitTimes[id]);
 	ArrayClear(g_LapTimes[id]);
 	g_CurrentLap[id] = 0;
+
+	g_RunFrameCount[id] = 0;
 
 	if (!onDisconnect)
 	{
@@ -3554,6 +3572,9 @@ public CmdSayHandler(id, level, cid)
 	else if (containi(args[1], "speedcap") == 0)
 		CmdSpeedcap(id);
 
+	else if (containi(args[1], "prespeedcap") == 0)
+		CmdPreSpeedcap(id);
+
 	else if (containi(args[1], "dec") == 0)
 		CmdTimeDecimals(id);
 
@@ -4301,6 +4322,13 @@ StartClimb(id, bool:isMatch = false)
 
 	CreateCp(id, CP_TYPE_START);
 	InitPlayerVariables(id);
+
+	set_bit(g_baIsClimbing, id);
+	g_RunFrameCount[id] = 1;
+
+	CheckSpeedcap(id, true);
+	CheckStartSpeed(id);
+
 	StartTimer(id);
 }
 
@@ -4346,16 +4374,40 @@ FinishClimb(id)
 	InitPlayer(id);
 }
 
-StartTimer(id)
+Float:GetStartSpeed(id)
 {
 	new Float:velocity[3];
 	pev(id, pev_velocity, velocity);
-	new Float:speed = vector_length(velocity);
 
-	set_bit(g_baIsClimbing, id);
+	new Float:speed;
+	if (g_usesStartingZone)
+	{
+		// For start zones we just take into account horizontal speed
+		speed = xs_vec_len_2d(velocity);
+	}
+	else
+	{
+		// Account for vertical speed too. Important because in some maps you can
+		// fall down on the button slope and take advantage of its boost, pressing
+		// the button before getting the horizontal boost. So by accounting for the
+		// vertical speed we can avoid that exploit
+		speed = vector_length(velocity);
+	}
+
+	return speed;
+}
+
+// Check prespeed to decide whether it's Pure or not
+CheckStartSpeed(id)
+{
+	new Float:speed = GetStartSpeed(id);
+
 	if (speed <= get_pcvar_float(pcvar_kz_pure_max_start_speed))
 		set_bit(g_baIsPureRunning, id);
+}
 
+StartTimer(id)
+{
 	g_RunStartTimestamp[id] = get_systime();
 	g_PlayerTime[id] = get_gametime();
 
@@ -4367,7 +4419,10 @@ StartTimer(id)
 		else if (g_RunMode[id] == MODE_AGSTART || g_RunMode[id] == MODE_RACE)
 			formatex(msg, charsmax(msg), "Race started!");
 		else
+		{
+			new Float:speed = GetStartSpeed(id);
 			formatex(msg, charsmax(msg), "Timer started with speed %5.2fu/s", speed);
+		}
 
 		ShowMessage(id, msg);
 	}
@@ -4551,6 +4606,8 @@ FinishTimer(id)
 		g_RecordRun[id] = 0;
 		ArrayClear(g_RunFrames[id]);
 	}
+
+	g_RunFrameCount[id] = 0;
 }
 
 RUN_TYPE:GetTopType(id)
@@ -5716,8 +5773,8 @@ BuildRunStats(id)
 	{
 		g_RunAvgSpeed[id] = g_RunDistance2D[id] / kzTime;
 
-		if (g_RunFrames[id])
-			g_RunAvgFps[id] = ArraySize(g_RunFrames[id]) / kzTime;
+		if (g_RunFrameCount[id])
+			g_RunAvgFps[id] = g_RunFrameCount[id] / kzTime;
 	}
 
 	// Get the last 30th frame and the last one, to get the average of the last frames
@@ -5727,6 +5784,7 @@ BuildRunStats(id)
 	// be hard to have a lower min fps when taking more frames into account. This is only my guess anyways
 	if (g_RunFrames[id] && ArraySize(g_RunFrames[id]) > RUN_STATS_MIN_FPS_AVG_FRAMES)
 	{
+		// FIXME: this feature only works if demo recording is ON... so it won't show for bots?
 		new frameState[REPLAY];
 		ArrayGetArray(g_RunFrames[id], ArraySize(g_RunFrames[id]) - RUN_STATS_MIN_FPS_AVG_FRAMES - 1, frameState);
 
@@ -6469,6 +6527,9 @@ public Fw_FmPlayerPreThinkPost(id)
 	else if (g_Unfreeze[id])
 		g_Unfreeze[id]++;
 
+	CheckSpeedcap(id);
+
+
 	if (IsHltv(id) || !get_pcvar_num(pcvar_kz_semiclip) || pev(id, pev_iuser1))
 		return;
 
@@ -6620,6 +6681,52 @@ CheckHealthBoost(id)
 	}
 }
 
+CheckSpeedcap(id, bool:isAtStart = false)
+{
+	new Float:currVelocity[3];
+	pev(id, pev_velocity, currVelocity);
+	new Float:endSpeed = xs_vec_len_2d(currVelocity);
+
+	new Float:speedcap = g_Speedcap[id];
+
+	new Float:allowedSpeedcap = get_pcvar_float(pcvar_kz_speedcap);
+	if (allowedSpeedcap && speedcap > allowedSpeedcap)
+		speedcap = allowedSpeedcap;
+
+	if (g_usesStartingZone && g_RunFrameCount[id] <= 2 && get_pcvar_num(pcvar_kz_pure_limit_zone_speed))
+	{
+		if ((isAtStart && g_Prespeedcap[id] > 0) || (!isAtStart && g_Prespeedcap[id] == 2))
+		{
+			// We're before the starting zone or inside it, and we have to limit the speed you have before starting the run
+			new Float:prespeedcap = get_pcvar_float(pcvar_kz_pure_max_start_speed);
+
+			if (prespeedcap != 0.0 && prespeedcap < 300.0)
+			{
+				// Probably missing config for this map, so set a reasonable prespeed limit
+				prespeedcap = START_ZONE_ALLOWED_PRESPEED;
+				set_pcvar_float(pcvar_kz_pure_max_start_speed, prespeedcap);
+				server_print("[%s] Setting kz_pure_max_start_speed to %.1f due to missing or too low prespeed limit for a start zone", PLUGIN_TAG, prespeedcap);
+			}
+
+			if (prespeedcap != 0.0 && (speedcap == 0.0 || prespeedcap < speedcap))
+			{
+				// The cap for prespeed is lower than your speedcap, so use this as the cap, whichever is more restrictive
+				speedcap = prespeedcap;
+			}
+		}
+	}
+
+	if (speedcap && endSpeed > speedcap)
+	{
+		new Float:m = (endSpeed / speedcap) * 1.000001;
+		new Float:cappedVelocity[3];
+		cappedVelocity[0] = currVelocity[0] / m;
+		cappedVelocity[1] = currVelocity[1] / m;
+		cappedVelocity[2] = currVelocity[2];
+		set_pev(id, pev_velocity, cappedVelocity);
+	}
+}
+
 public Fw_FmPlayerTouchHealthBooster(hb, id)
 {
 	if (is_user_alive(id))
@@ -6719,7 +6826,7 @@ public Fw_FmPlayerPostThinkPre(id)
 	if (g_HBFrameCounter[id] > 0)
 		CheckHealthBoost(id);
 
-	if (g_Speedcap[id] && endSpeed > g_Speedcap[id])
+	CheckSpeedcap(id);
 
 	// TODO: refactor, same code in StartClimb(), but sometimes it doesn't work there...
 	// e.g.: in kz_cargo, or hl1_bhop_oar_beta with normal /start, not custom or practice cp
@@ -7029,9 +7136,7 @@ CheckHideableEntities()
 	server_print("[%s] The current map has %d entities that can be hidden with /winvis", PLUGIN_TAG, entCount);
 }
 
-// This is for later to be able to check if we could have hit the end button faster
-// TODO: handle the edge case where there are more than 1 end button (haven't seen such a case yet)
-CheckStartEndButtons()
+CheckStartEnd()
 {
 	new ent, className[32];
 
@@ -7042,17 +7147,31 @@ CheckStartEndButtons()
 
 		pev(ent, pev_classname, className, charsmax(className));
 
-		if (!equali(className, "func_button", 10))
-			continue;
+		if (equali(className, "func_button"))
+		{
+			if (GetEntityButtonType(ent) != BUTTON_FINISH)
+				continue;
 
-		if (GetEntityButtonType(ent) != BUTTON_FINISH)
-			continue;
+			// Store the origin so that we can check later if we could have hit the end button faster
+			g_EndButton = ent;
+			fm_get_brush_entity_origin(g_EndButton, g_EndButtonOrigin);
+			// TODO: handle edge case of more than one end button
 
-		g_EndButton = ent;
-		fm_get_brush_entity_origin(g_EndButton, g_EndButtonOrigin);
+		}
+		else if (equali(className, "trigger_multiple"))
+		{
+			if (GetEntityButtonType(ent) != BUTTON_START)
+				continue;
 
-		break;
+			g_usesStartingZone = true;
+			// TODO: handle edge case of also having a start button
+			// TODO: handle start split? (GetEntityButtonType(ent) = BUTTON_SPLIT)
+			
+		}
 	}
+
+	if (g_usesStartingZone)
+		server_print("[%s] The current map has a starting zone", PLUGIN_TAG);
 }
 
 bool:IsLiquid(ent)
@@ -8357,6 +8476,43 @@ public CmdSpeedcap(id)
 
 	return PLUGIN_HANDLED;
 }
+
+public CmdPreSpeedcap(id)
+{
+	new level = GetNumberArg();
+
+	if (level > 2)
+		level = 2;
+
+	if (g_Prespeedcap[id] == 0 && level == 0)
+	{
+		// We will receive a 0 if they don't type a number, and if it was already 0 it's likely
+		// that they meant to toggle it instead, so we will do that, and if they meant to make sure
+		// that it's off for some reason, well then it won't work as they expected :/
+		level = 1;
+	}
+
+	if (level < 0)
+		level = 0;
+
+	if (level > 0 && g_usesStartingZone && !get_pcvar_float(pcvar_kz_pure_limit_zone_speed))
+	{
+		g_Prespeedcap[id] = 0;
+		ShowMessage(id, "You're not allowed to enable the prespeed cap. Start zone prespeed cap: OFF");
+		return PLUGIN_HANDLED;
+	}
+	g_Prespeedcap[id] = level;
+
+	if (g_Prespeedcap[id] == 0)
+		ShowMessage(id, "Prespeed cap: OFF");
+	else if (g_Prespeedcap[id] == 1)
+		ShowMessage(id, "Prespeed cap: ON, only at the start zone");
+	else if (g_Prespeedcap[id] == 2)
+		ShowMessage(id, "Prespeed cap: always ON");
+
+	return PLUGIN_HANDLED;
+}
+
 /*
 public SetPOV(id)
 {
