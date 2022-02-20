@@ -2173,10 +2173,10 @@ public ReloadPlayerSettings(taskId)
 	new id = taskId - TASKID_RELOAD_PLAYER_SETTINGS;
 	LoadPlayerSettings(id);
 
-	if (!g_HudRGB[id][0] && !g_HudRGB[id][1] && !g_HudRGB[id][2])
+	if (areColorsZeroed(id))
 	{
-		// Still failing to load settings? We're gonna set default values,
-		// because when it fails to load settings it zeroes everything...
+		// Still failing to load settings? Then the settings file is already corrupted...
+		// At this point we do some damage control, at least we're gonna set default values
 		InitPlayerSettings(id);
 	}
 }
@@ -5584,7 +5584,7 @@ GetSpectatorList(id, hud[], len, sendTo[])
 
 CheckSettings(id)
 {
-	if (areColorsZeroed(id) && g_PrevRunCountdown[id] && !g_RunCountdown[id])
+	if (areColorsZeroed(id))
 	{
 		// The settings bug occurred, for the moment just gonna restore the important settings and log the incident
 		new name[32];
@@ -5605,8 +5605,10 @@ CheckSettings(id)
 
 bool:areColorsZeroed(id)
 {
-	// We had some color set in the previous frame, and now we don't have any color (R, G, B) set
-	return (g_PrevHudRGB[id][0] || g_PrevHudRGB[id][1] || g_PrevHudRGB[id][2]) && (!g_HudRGB[id][0] && !g_HudRGB[id][1] && !g_HudRGB[id][2]);
+	// If all of the colors have been reset, it means the bug with settings happened...
+	// because within the plugin we don't let players to set RGB 0 0 0, as the hud becomes
+	// invisible, but we do let them set something that is ALMOST invisible
+	return !g_HudRGB[id][0] && !g_HudRGB[id][1] && !g_HudRGB[id][2];
 }
 
 BuildRunStats(id)
