@@ -4279,7 +4279,6 @@ StartClimb(id, bool:isMatch = false)
 	{
 		g_RecordRun[id] = 1;
 		g_RunFrames[id] = ArrayCreate(REPLAY);
-		//console_print(id, "started recording");
 		RecordRunFrame(id);
 	}
 
@@ -4539,7 +4538,7 @@ FinishTimer(id)
 	if (g_RecordRun[id])
 	{
 		// By this point any worthy run should have been saved already
-		//console_print(id, "clearing recorded run with %d frames from memory", ArraySize(g_RunFrames[id]));
+		server_print("[%s] Clearing recorded run for player #%d with %d frames from memory", PLUGIN_TAG, get_user_userid(id), ArraySize(g_RunFrames[id]));
 		g_RecordRun[id] = 0;
 		ArrayClear(g_RunFrames[id]);
 	}
@@ -9184,11 +9183,14 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	}
 
 	if (storageType == STORE_IN_FILE || storageType == STORE_IN_FILE_AND_DB)
+	{
+		server_print("[%s] Saving records file", PLUGIN_TAG);
 		SaveRecordsFile(topType);
+	}
 
 	if (g_RecordRun[id])
 	{
-		//console_print(id, "stopped recording");
+		server_print("[%s] Stopped recording player #%d", PLUGIN_TAG, get_user_userid(id));
 		SaveRecordedRun(id, topType);
 	}
 
@@ -9531,7 +9533,7 @@ SaveRecordedRun(id, RUN_TYPE:topType)
 	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, g_TopType[topType]);
 
 	g_RecordRun[id] = fopen(replayFile, "wb");
-	//console_print(id, "saving run to: '%s'", replayFile);
+	server_print("[%s] Saving run to: '%s'", PLUGIN_TAG, replayFile);
 
 	//fwrite(g_RecordRun[id], DEMO_VERSION, BLOCK_SHORT); // version
 
@@ -9545,9 +9547,7 @@ SaveRecordedRun(id, RUN_TYPE:topType)
 		// TODO: write the replay version and speed (RP_SPEED), simplify angles to 1 number and process with anglemod
 	}
 	fclose(g_RecordRun[id]);
-	//console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
-
-	//console_print(id, "clearing recorded run with %d frames from memory", ArraySize(g_RunFrames[id]));
+	server_print("[%s] Saved %d frames to replay file", PLUGIN_TAG, ArraySize(g_RunFrames[id]));
 	g_RecordRun[id] = 0;
 	ArrayClear(g_RunFrames[id]);
 }
@@ -9562,7 +9562,7 @@ SaveRecordedRunCup(id, RUN_TYPE:topType)
 		g_ReplaysDir, g_Map, idNumbers, g_TopType[topType], ArraySize(g_RunFrames[id]));
 
 	g_RecordRun[id] = fopen(replayFile, "wb");
-	//console_print(id, "saving cup run to: '%s'", replayFile);
+	server_print("[%s] Saving cup run to: '%s'", PLUGIN_TAG, replayFile);
 
 	new frameState[REPLAY];
 	for (new i; i < ArraySize(g_RunFrames[id]); i++)
@@ -9572,9 +9572,7 @@ SaveRecordedRunCup(id, RUN_TYPE:topType)
 		fwrite(g_RecordRun[id], frameState[RP_BUTTONS], BLOCK_SHORT); // buttons
 	}
 	fclose(g_RecordRun[id]);
-	//console_print(id, "saved %d frames to replay file", ArraySize(g_RunFrames[id]));
-
-	//console_print(id, "clearing recorded run with %d frames from memory", ArraySize(g_RunFrames[id]));
+	server_print("[%s] Saved %d frames to cup replay file", PLUGIN_TAG, ArraySize(g_RunFrames[id]));
 	g_RecordRun[id] = 0;
 	ArrayClear(g_RunFrames[id]);
 }
