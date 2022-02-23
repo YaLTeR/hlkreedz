@@ -5027,6 +5027,16 @@ public Fw_HamUseButtonPre(ent, id)
 	if (!IsPlayer(id))
 		return HAM_IGNORED;
 
+	if (pev(id, pev_flags) & FL_SPECTATOR)
+	{
+		// Players in AG are set in an observer mode when joining a server,
+		// and they are able to press buttons, and then they will spawn as they
+		// have just pressed one of the keys that makes you spawn. So we check
+		// if they're in that state here. Could also check if they have spawned,
+		// but this will do it for now
+		return HAM_IGNORED;
+	}
+
 	new BUTTON_TYPE:type = GetEntityButtonType(ent);
 	switch (type)
 	{
