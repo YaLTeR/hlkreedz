@@ -4104,7 +4104,8 @@ public CmdTimelimitVoteHandler(id)
 
 	//server_print("timeleft: %.2f, timelimit: %.2f, proposed timelimit: %.2f", timeleft, timelimit, proposedTimelimit);
 
-	if (proposedTimelimit && (proposedTimelimit < (timelimit - timeleft + MIN_TIMELEFT_ALLOWED_NORESET)))
+	if (IsAnyActiveNR() && proposedTimelimit && (proposedTimelimit < timelimit)
+		&& (proposedTimelimit < (timelimit - timeleft + MIN_TIMELEFT_ALLOWED_NORESET)))
 	{
 		client_print(id, print_chat, "[%s] Sorry, there are No-Reset runs ongoing and they might run out of time with your proposed timelimit", PLUGIN_TAG);
 		return PLUGIN_HANDLED;
@@ -6409,7 +6410,8 @@ public Fw_MsgVote(id)
 		new Float:timeleft  = get_cvar_float("mp_timeleft") / 60.0; // mp_timeleft comes in seconds
 		new Float:timelimit = get_cvar_float("mp_timelimit"); // minutes
 
-		if (proposedTimelimit && (proposedTimelimit < (timelimit - timeleft + MIN_TIMELEFT_ALLOWED_NORESET)))
+		if (IsAnyActiveNR() && proposedTimelimit && (proposedTimelimit < timelimit)
+			&& (proposedTimelimit < (timelimit - timeleft + MIN_TIMELEFT_ALLOWED_NORESET)))
 		{
 			g_AgInterruptingVoteRunning = true;
 		}
@@ -8946,6 +8948,17 @@ CreateGlobalHealer()
 	engfunc(EngFunc_SetSize, ent, Float:{-8192.0, -8192.0, -8192.0}, Float:{8192.0, 8192.0, 8192.0});
 	set_pev(ent, pev_spawnflags, SF_TRIGGER_HURT_CLIENTONLYTOUCH);
 	set_pev(ent, pev_dmg, -1.0 * health);
+}
+
+bool:IsAnyActiveNR()
+{
+	for (new i = 1; i <= g_MaxPlayers; i++)
+	{
+		if (g_RunMode[i] == MODE_NORESET)
+			return true;
+	}
+
+	return false;
 }
 
 
