@@ -1181,6 +1181,9 @@ public InitPlayerSplits(taskId)
 {
 	new id = taskId - TASKID_INIT_PLAYER_GOLDS;
 
+	if (!pev_valid(id) || !IsPlayer(id))
+		return;
+
 	if (!g_MapId)
 	{
 		// Ugly way
@@ -2130,6 +2133,14 @@ public client_disconnect(id)
 
 	// This player is gone, so reset settings to defaults
 	InitPlayerSettings(id);
+
+	// Cancel tasks that might be running and could potentially affect another player
+	// that joins immediately after and takes this leaving player's id
+	remove_task(id + TASKID_WELCOME);
+	remove_task(id + TASKID_POST_WELCOME);
+	remove_task(id + TASKID_RELOAD_PLAYER_SETTINGS);
+	remove_task(id + TASKID_ICON);
+	remove_task(id + TASKID_INIT_PLAYER_GOLDS);
 }
 
 InitPlayerSettings(id)
@@ -2185,6 +2196,10 @@ InitPlayerSettings(id)
 public ReloadPlayerSettings(taskId)
 {
 	new id = taskId - TASKID_RELOAD_PLAYER_SETTINGS;
+
+	if (!pev_valid(id) || !IsPlayer(id))
+		return;
+
 	LoadPlayerSettings(id);
 
 	if (areColorsZeroed(id))
@@ -2479,6 +2494,10 @@ InitPlayerVariables(id)
 public DisplayWelcomeMessage(id)
 {
 	id -= TASKID_WELCOME;
+
+	if (!pev_valid(id) || !IsPlayer(id))
+		return;
+
 	client_print(id, print_chat, "[%s] Welcome to %s", PLUGIN_TAG, PLUGIN);
 	client_print(id, print_chat, "[%s] Visit sourceruns.org & www.aghl.ru", PLUGIN_TAG);
 	client_print(id, print_chat, "[%s] You can say /kzhelp to see available commands", PLUGIN_TAG);
@@ -3173,7 +3192,7 @@ public npc_think(id)
 	}
 }
 
-public UnfreezeSpecCam(bot)
+public UnfreezeSpecCam(target)
 {
 	for (new spec = 1; spec <= g_MaxPlayers; spec++)
 	{
@@ -3183,16 +3202,16 @@ public UnfreezeSpecCam(bot)
 			if (is_user_alive(spec))
 				continue;
 
-			if (pev(spec, pev_iuser2) == bot)
+			if (pev(spec, pev_iuser2) == target)
 			{
-				// This spectator is watching the frozen bot (not really, what is frozen is the cam, the bot is moving)
+				// This spectator is watching the frozen target (not really, what is frozen is the cam, the target is moving)
 				new botName[33], specName[33];
-				GetColorlessName(bot, botName, charsmax(botName));
+				GetColorlessName(target, botName, charsmax(botName));
 				GetColorlessName(spec, specName, charsmax(specName));
 
 				new Float:botOrigin[3], Float:botAngles[3];
-				pev(bot, pev_origin, botOrigin);
-				pev(bot, pev_v_angle, botAngles);
+				pev(target, pev_origin, botOrigin);
+				pev(target, pev_v_angle, botAngles);
 
 				set_pev(spec, pev_origin, botOrigin);
 				set_pev(spec, pev_angles, botAngles);
@@ -3200,8 +3219,8 @@ public UnfreezeSpecCam(bot)
 
 				new payLoad[2];
 				payLoad[0] = spec;
-				payLoad[1] = bot;
-				new taskId = spec * 32;
+				payLoad[1] = target;
+				new taskId = spec * 36;
 				set_task(0.03, "RestoreSpecCam", TASKID_CAM_UNFREEZE + taskId    , payLoad, sizeof(payLoad));
 				set_task(0.12, "RestoreSpecCam", TASKID_CAM_UNFREEZE + taskId + 1, payLoad, sizeof(payLoad));
 				//set_task(0.20, "RestoreSpecCam", TASKID_CAM_UNFREEZE + taskId + 2, payLoad, sizeof(payLoad));
@@ -3215,21 +3234,25 @@ public UnfreezeSpecCam(bot)
 public RestoreSpecCam(payLoad[], taskId)
 {
 	new spec = payLoad[0];
-	new bot = payLoad[1];
+	new target = payLoad[1];
+
+	if (!pev_valid(spec) || !pev_valid(target) || !IsPlayer(spec) || !IsPlayer(target))
+		return;
+
 	// Checking if the spectator continues spectating, otherwise if unspecs during
 	// the time this task is executed it will be teleported to the runner position
 	if (pev(spec, pev_iuser1))
 	{
-		// This spectator is watching the frozen bot (not really, what is frozen is the cam, the bot is moving)
+		// This spectator is watching the frozen target (not really, what is frozen is the cam, the target is moving)
 		new botName[33], specName[33];
-		GetColorlessName(bot, botName, charsmax(botName));
+		GetColorlessName(target, botName, charsmax(botName));
 		GetColorlessName(spec, specName, charsmax(specName));
 
 		new Float:botOrigin[3], Float:botAngles[3];
-		pev(bot, pev_origin, botOrigin);
-		pev(bot, pev_v_angle, botAngles);
+		pev(target, pev_origin, botOrigin);
+		pev(target, pev_v_angle, botAngles);
 
-		set_pev(spec, pev_iuser2, bot);
+		set_pev(spec, pev_iuser2, target);
 
 		set_pev(spec, pev_origin, botOrigin);
 		set_pev(spec, pev_angles, botAngles);
@@ -5007,7 +5030,8 @@ UnfreezePlayer(id)
 public ShowPauseIcon(id)
 {
 	id -= TASKID_ICON;
-	if (!IsPlayer(id))
+
+	if (!pev_valid(id) || !IsPlayer(id))
 		return;
 
 	new Float:origin[3];
@@ -5025,7 +5049,7 @@ public ShowPauseIcon(id)
 
 public Fw_HamUseButtonPre(ent, id)
 {
-	if (!IsPlayer(id))
+	if (!pev_valid(id) || !IsPlayer(id))
 		return HAM_IGNORED;
 
 	if (pev(id, pev_flags) & FL_SPECTATOR)
