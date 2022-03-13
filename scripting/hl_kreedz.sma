@@ -793,6 +793,7 @@ public plugin_init()
 	register_clcmd("kz_map_delete",     "CmdMapDeleteHandler",  ADMIN_CFG, "- removes a map from the map pool");
 	register_clcmd("kz_map_remove",     "CmdMapDeleteHandler",  ADMIN_CFG, "- removes a map from the map pool");
 	register_clcmd("kz_map_state",      "CmdMapStateHandler",   ADMIN_CFG, "- modifies the state of a map in the pool");
+	register_clcmd("kz_map_winner",     "CmdMapWinnerHandler",  ADMIN_CFG, "- set the winner of the current cup map.");
 	register_clcmd("kz_map_pool_show",  "CmdMapsShowHandler",   ADMIN_CFG, "- shows the maps and their states on the screen");
 	register_clcmd("kz_map_pool_clear", "CmdMapsClearHandler",  ADMIN_CFG, "- clears the map pool (leaves it empty)");
 	register_clcmd("kz_cup_forceready", "CmdCupForceReady",     ADMIN_CFG, "- forces a player to ready.");
@@ -4861,28 +4862,6 @@ FinishTimer(id)
 			// Do stuff for the cup
 
 			g_DisableSpec = false;
-			// Update scores
-			if (id == g_CupPlayer1)
-				g_CupScore1++;
-			else
-				g_CupScore2++;
-
-			new cupMap[CUP_MAP];
-			TrieGetArray(g_CupMapPool, g_Map, cupMap, sizeof(cupMap));
-
-			// Update map state
-			cupMap[MAP_STATE_] = MAP_PLAYED;
-			TrieSetArray(g_CupMapPool, cupMap[MAP_NAME], cupMap, sizeof(cupMap));
-
-			// Save the changes to file, because we're gonna change the map in a while
-			// and this info has to be taken again from the file right after changing
-			WriteCupMapPoolFile(0);
-			WriteCupFile(0);
-			CmdMapsShowHandler(0); // TODO: maybe this should show who won each map instead of just [PLAYED]
-
-			// Commented out because this shouldn't happen, and if it does it has to be fixed in a better way
-			//if (!topType)
-			//	topType = PURE;
 
 			// Save replays of both participants, for the one that didn't reach the button too
 			if (g_RecordRun[g_CupPlayer1])
@@ -4891,43 +4870,7 @@ FinishTimer(id)
 			if (g_RecordRun[g_CupPlayer2])
 				SaveRecordedRunCup(g_CupPlayer2, topType);
 
-			new playerName[32];
-			GetColorlessName(id, playerName, charsmax(playerName));
-			if (playerName[0])
-				client_print(0, print_chat, "[%s] Player %s has won in this map! Congrats!", PLUGIN_TAG, playerName);
-			else
-				client_print(0, print_chat, "[%s] The unnamed player has won this map! Congrats!", PLUGIN_TAG);
-
-			new name1[32], name2[32];
-			GetColorlessName(g_CupPlayer1, name1, charsmax(name1));
-			GetColorlessName(g_CupPlayer2, name2, charsmax(name2));
-			client_print(0, print_chat, "[%s] Score: %s %d - %d %s", PLUGIN_TAG, name1, g_CupScore1, g_CupScore2, name2);
-
-			new diffScore = abs(g_CupScore1 - g_CupScore2);
-			// At this point this very map has already been marked as PLAYED, so won't be counted as remaining
-			new remainingMapsCount = CountCupMaps(MAP_PICKED) + CountCupMaps(MAP_DECIDER);
-			new bool:hasWonMatch = diffScore > remainingMapsCount;
-
-			if (hasWonMatch)
-			{
-				// The match winner must be the one who won this map,
-				// unless you can somehow score negative if that makes sense (?)
-				client_print(0, print_chat, "[%s] %s has won overall the match, no more maps to be played. Congrats!", PLUGIN_TAG, playerName);
-
-				ClearCup(0);
-				WriteCupMapPoolFile(0);
-				WriteCupFile(0);
-			}
-			else
-			{
-				new map[32];
-				GetNextCupMapToPlay(map, charsmax(map));
-
-				new Float:timeToChange = get_pcvar_float(pcvar_kz_cup_map_change_delay);
-				client_print(0, print_chat, "[%s] The next map to be played is %s. Changing the map in %.1f seconds...", PLUGIN_TAG, map, timeToChange);
-
-				set_task(timeToChange, "CupChangeMap", TASKID_CUP_CHANGE_MAP, map, charsmax(map));
-			}
+			SetCupMapWinner(id);
 		}
 
 		LaunchRecordFireworks();
@@ -8196,6 +8139,64 @@ bool:IsCupPlayer(id) {
 	return id == g_CupPlayer1 || id == g_CupPlayer2;
 }
 
+SetCupMapWinner(id)
+{
+	if (id == g_CupPlayer1)
+		g_CupScore1++;
+	else if (id == g_CupPlayer2)
+		g_CupScore2++;
+
+	new cupMap[CUP_MAP];
+	TrieGetArray(g_CupMapPool, g_Map, cupMap, sizeof(cupMap));
+
+	// Update map state
+	cupMap[MAP_STATE_] = MAP_PLAYED;
+	TrieSetArray(g_CupMapPool, cupMap[MAP_NAME], cupMap, sizeof(cupMap));
+
+	// Save the changes to file, because we're gonna change the map in a while
+	// and this info has to be taken again from the file right after changing
+	WriteCupMapPoolFile(0);
+	WriteCupFile(0);
+	CmdMapsShowHandler(0); // TODO: maybe this should show who won each map instead of just [PLAYED]
+
+	// Commented out because this shouldn't happen, and if it does it has to be fixed in a better way
+	//if (!topType)
+	//	topType = PURE;
+
+	new playerName[32];
+	GetColorlessName(id, playerName, charsmax(playerName));
+	client_print(0, print_chat, "[%s] Player %s has won in this map! Congrats!", PLUGIN_TAG, playerName);
+
+	new name1[32], name2[32];
+	GetColorlessName(g_CupPlayer1, name1, charsmax(name1));
+	GetColorlessName(g_CupPlayer2, name2, charsmax(name2));
+	client_print(0, print_chat, "[%s] Score: %s %d - %d %s", PLUGIN_TAG, name1, g_CupScore1, g_CupScore2, name2);
+
+	new diffScore = abs(g_CupScore1 - g_CupScore2);
+	// At this point this very map has already been marked as PLAYED, so won't be counted as remaining
+	new remainingMapsCount = CountCupMaps(MAP_PICKED) + CountCupMaps(MAP_DECIDER);
+	new bool:hasWonMatch = diffScore > remainingMapsCount;
+
+	if (hasWonMatch)
+	{
+		// The match winner must be the one who won this map,
+		// unless you can somehow score negative if that makes sense (?)
+		client_print(0, print_chat, "[%s] %s has won overall the match, no more maps to be played. Congrats!", PLUGIN_TAG, playerName);
+
+		ClearCup(0);
+	}
+	else
+	{
+		new map[32];
+		GetNextCupMapToPlay(map, charsmax(map));
+
+		new Float:timeToChange = get_pcvar_float(pcvar_kz_cup_map_change_delay);
+		client_print(0, print_chat, "[%s] The next map to be played is %s. Changing the map in %.1f seconds...", PLUGIN_TAG, map, timeToChange);
+
+		set_task(timeToChange, "CupChangeMap", TASKID_CUP_CHANGE_MAP, map, charsmax(map));
+	}
+}
+
 public CupForceSpectators(taskId)
 {
 	new players[MAX_PLAYERS], playersNum;
@@ -8582,6 +8583,35 @@ public CmdMapStateHandler(id, level, cid)
 			client_print(id, print_chat, "[%s] Sorry, the specified map is not in the pool.", PLUGIN_TAG);
 
 		WriteCupMapPoolFile(id);
+	}
+
+	return PLUGIN_HANDLED;
+}
+
+// Let an admin set the winner in case something goes wrong
+public CmdMapWinnerHandler(id, level, cid)
+{
+	if (cmd_access(id, level, cid, 1))
+	{
+		if (!IsCupMap())
+		{
+			client_print(id, print_chat, "[%s] Sorry, cannot set the winner of the current map as it's not in the pool for the cup.", PLUGIN_TAG);
+			return PLUGIN_HANDLED;
+		}
+		new userid[32], score[8];
+		read_argv(1, userid, charsmax(userid));
+
+		trim(userid);
+
+		new player = cmd_target(id, userid, CMDTARGET_ALLOW_SELF | CMDTARGET_NO_BOTS);
+
+		if (!player || !IsCupPlayer(player))
+		{
+			client_print(id, print_chat, "[%s] Sorry, the specified player does not exist or is not a cup player.", PLUGIN_TAG);
+			return PLUGIN_HANDLED;
+		}
+
+		SetCupMapWinner(player);
 	}
 
 	return PLUGIN_HANDLED;
