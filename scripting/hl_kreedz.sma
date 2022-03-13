@@ -178,6 +178,16 @@ enum RECORD_STORAGE_TYPE
 	STORE_IN_FILE_AND_DB
 }
 
+enum _:CUP_REPLAY_ITEM
+{
+	CUP_REPLAY_ITEM_FILENAME[128],
+	CUP_REPLAY_ITEM_ID[32],
+	CUP_REPLAY_ITEM_TOP[32],
+	CUP_REPLAY_ITEM_DATE[64],
+	CUP_REPLAY_ITEM_TIMESTAMP
+}
+
+
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
 new const VERSION[] = "0.46";
@@ -1941,6 +1951,186 @@ public ActionKzMenu(id, key)
 	return PLUGIN_HANDLED;
 }
 
+public ShowCupReplayMenu(id)
+{
+	if (!is_user_connected(id))
+		return PLUGIN_CONTINUE;
+
+	DestroyMenus(id);
+
+	// TODO: sort replays by date descending
+	new Array:cupReplays = GetCupReplays();
+	ArraySortEx(cupReplays, "SortReplaysByDateDescending");
+
+	new totalCupReplays = ArraySize(cupReplays);
+
+	new menuHeader[32];
+	formatex(menuHeader, charsmax(menuHeader), "Cup replays - Total: %d", totalCupReplays);
+	new menu = menu_create(menuHeader, "HandleCupReplaysMenu");
+
+	new cupReplay[CUP_REPLAY_ITEM];
+	for (new i = 0; i < totalCupReplays; i++)
+	{
+		ArrayGetArray(cupReplays, i, cupReplay);
+
+		new itemText[64];
+		formatex(itemText, charsmax(itemText), "%s @ %s", cupReplay[CUP_REPLAY_ITEM_ID], cupReplay[CUP_REPLAY_ITEM_DATE]);
+		menu_additem(menu, itemText, cupReplay);
+	}
+
+	menu_setprop(menu, MPROP_NOCOLORS, false);
+	menu_setprop(menu, MPROP_EXIT,     MEXIT_FORCE);
+
+	menu_display(id, menu);
+
+	return PLUGIN_HANDLED;
+}
+
+public SortReplaysByDateDescending(Array: array, elem1[], elem2[], const data[], data_size)
+{
+	if (elem1[CUP_REPLAY_ITEM_TIMESTAMP] < elem2[CUP_REPLAY_ITEM_TIMESTAMP])
+		return 1;
+
+	else if (elem1[CUP_REPLAY_ITEM_TIMESTAMP] > elem2[CUP_REPLAY_ITEM_TIMESTAMP])
+		return -1;
+
+	else
+		return 0;
+}
+
+Array:GetCupReplays()
+{
+	new Array:result = ArrayCreate(CUP_REPLAY_ITEM);
+
+	new fileName[128];
+	new dirHandle = open_dir(g_ReplaysDir, fileName, charsmax(fileName));
+
+	if (!dirHandle)
+		return result;
+
+	while (next_file(dirHandle, fileName, charsmax(fileName)))
+	{
+		// We only want the ones starting with "cup"
+		if (!equal(fileName, "cup", 3))
+			continue;
+
+		new cupReplayItem[CUP_REPLAY_ITEM];
+		copy(cupReplayItem[CUP_REPLAY_ITEM_FILENAME], charsmax(cupReplayItem[CUP_REPLAY_ITEM_FILENAME]), fileName);
+
+		// Remove the last ".dat" part
+		new nameLen = strlen(fileName);
+		fileName[nameLen - 4] = EOS;
+
+		// Remove the first "cup_" part too
+		new replayName[128];
+		formatex(replayName, charsmax(replayName), fileName[4]);
+
+		// We only want the ones corresponding to the current map
+		new mapNameLen = strlen(g_Map);
+		if (!equal(replayName, g_Map, mapNameLen))
+			continue;
+
+		// And remove the map part from the name, together with the "_" separator
+		new cutReplayName[128];
+		formatex(cutReplayName, charsmax(cutReplayName), replayName[mapNameLen + 1]);
+
+		server_print("cup replay name: %s", cutReplayName);
+
+		// Parse the name format, separated by "_": g_ReplaysDir, g_Map, idNumbers, topType, timestamp
+		// e.g.: 0_0_71125161_pure_1600000000
+		new Array:nameParts = ArrayCreate(64, 5);
+
+		new buffer[33];
+		new isSplit = strtok2(cutReplayName, buffer, charsmax(buffer), cutReplayName, charsmax(cutReplayName), '_', 1); // trim just in case
+		while (isSplit > -1)
+		{
+			ArrayPushString(nameParts, buffer);
+
+			buffer[0] = EOS; // clear the string just in case
+			isSplit = strtok2(cutReplayName, buffer, charsmax(buffer), cutReplayName, charsmax(cutReplayName), '_', 1);
+		}
+		ArrayPushString(nameParts, buffer); // push the last one
+
+		// TODO: get the player name too somehow
+		new steamIDFirstDigit[2], steamIDSecondDigit[2], steamIDRest[32], top[32], timestamp[32];
+		new steamID[32];
+
+		new partsCount = ArraySize(nameParts);
+		if (partsCount == 5)
+		{
+			// Case: normal Steam ID x:y:zzzzzzzz
+			ArrayGetString(nameParts, 0, steamIDFirstDigit, charsmax(steamIDFirstDigit));
+			ArrayGetString(nameParts, 1, steamIDSecondDigit, charsmax(steamIDSecondDigit));
+			ArrayGetString(nameParts, 2, steamIDRest, charsmax(steamIDRest));
+			ArrayGetString(nameParts, 3, top, charsmax(top));
+			ArrayGetString(nameParts, 4, timestamp, charsmax(timestamp));
+
+			formatex(steamID, charsmax(steamID), "STEAM_%s:%s:%s", steamIDFirstDigit, steamIDSecondDigit, steamIDRest);
+		}
+		else if (partsCount > 2)
+		{
+			// Case: Steam ID LAN shows as something weird like "I___AN" in the filename
+			for (new i; i < (partsCount - 2); i++)
+			{
+				new idPart[32];
+				ArrayGetString(nameParts, i, idPart, charsmax(idPart));
+
+				format(steamID, charsmax(steamID), "%s_%s", steamID, idPart);
+			}
+			ArrayGetString(nameParts, partsCount - 2, top, charsmax(top));
+			ArrayGetString(nameParts, partsCount - 1, timestamp, charsmax(timestamp));
+		}
+		else
+		{
+			// Unhandled ID
+			copy(steamID, charsmax(steamID), "Unknown");
+		}
+		copy(cupReplayItem[CUP_REPLAY_ITEM_ID], charsmax(cupReplayItem[CUP_REPLAY_ITEM_ID]), steamID);
+
+		copy(cupReplayItem[CUP_REPLAY_ITEM_TOP], charsmax(cupReplayItem[CUP_REPLAY_ITEM_ID]), top);
+
+		new date[64];
+		new timestampNumber = str_to_num(timestamp);
+		if (timestampNumber < (250 * 15 * 60))
+		{
+			// The name format is old, it's the number of frames instead of the timestamp
+			copy(date, charsmax(date), "Unknown old date");
+		}
+		else
+		{
+			format_time(date, charsmax(date), "%d %B %Y %H:%M:%S", timestampNumber);
+		}
+		copy(cupReplayItem[CUP_REPLAY_ITEM_DATE], charsmax(cupReplayItem[CUP_REPLAY_ITEM_DATE]), date);
+		cupReplayItem[CUP_REPLAY_ITEM_TIMESTAMP] = timestampNumber;
+
+		ArrayPushArray(result, cupReplayItem);
+	}
+
+    return result;
+}
+
+public HandleCupReplaysMenu(id, menu, item)
+{
+	if (item == MENU_EXIT)
+	{
+		menu_destroy(menu);
+		return PLUGIN_HANDLED;
+	}
+
+	new cupReplay[CUP_REPLAY_ITEM];
+	menu_item_getinfo(menu, item, _, cupReplay, sizeof(cupReplay));
+	if (!cupReplay[CUP_REPLAY_ITEM_FILENAME][0])
+	{
+		ShowCupReplayMenu(id);
+		return PLUGIN_HANDLED;
+	}
+
+	new replayFilePath[256];
+	formatex(replayFilePath, charsmax(replayFilePath), "%s/%s", g_ReplaysDir, cupReplay[CUP_REPLAY_ITEM_FILENAME]);
+	RunReplayFile(id, replayFilePath);
+
+	return PLUGIN_HANDLED;
+}
 
 
 
@@ -2360,7 +2550,7 @@ SavePlayerSettings(id)
 	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "run_countdown",      g_RunCountdown[id]);
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown",    g_TpOnCountdown[id]);
 
-	// TODO: save run stats, in case we're in a NR run and come back later to finish it
+	// TODO: save run stats and position, in case we're in a NR run and come back later to finish it
 }
 
 ResetPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
@@ -2841,7 +3031,6 @@ CmdReplay(id, RUN_TYPE:runType)
 	static authid[32], replayFile[256], idNumbers[24], stats[STATS], time[32];
 	new args[32], cmd[15], replayRank, replayArg[33], Regex:pattern;
 	new minutes, Float:seconds;
-	new Float:setupTime = get_pcvar_float(pcvar_kz_replay_setup_time);
 
 	read_args(args, charsmax(args));
 	remove_quotes(args);
@@ -2901,36 +3090,57 @@ CmdReplay(id, RUN_TYPE:runType)
 		client_print(id, print_chat, "%s", replayFailedMsg);
 		return PLUGIN_HANDLED;
 	}
-	else
+
+	if (file)
+		fclose(file);
+
+	// TODO: refactor these replayingMsg params
+	RunReplayFile(id, replayFile, replayingMsg, charsmax(replayingMsg));
+
+	return PLUGIN_HANDLED;
+}
+
+RunReplayFile(id, replayFileName[], replayingMsg[] = "", lenMsg = 0)
+{
+	new file = fopen(replayFileName, "rb");
+	if (!file)
 	{
-		new bool:canceled = false;
-		if (g_ReplayFramesIdx[id])
-		{
-			new bot = GetOwnersBot(id);
-			//console_print(1, "CmdReplay :: removing bot %d", bot);
-			FinishReplay(id);
-			KickReplayBot(bot + TASKID_KICK_REPLAYBOT);
-			canceled = true;
-		}
-
-		if (g_ReplayNum >= maxReplays)
-		{
-			client_print(id, print_chat, "[%s] Sorry, there are too many replays running! Please, wait until one of the %d replays finish", PLUGIN_TAG, g_ReplayNum);
-			fclose(file);
-			return PLUGIN_HANDLED;
-		}
-		else if (GetOwnersBot(id))
-		{
-			client_print(id, print_chat, "[%s] Your previous bot is still setting up. Please, wait %.1f seconds to start a new replay", PLUGIN_TAG, setupTime);
-			fclose(file);
-			return PLUGIN_HANDLED;
-		}
-
-		if (canceled)
-			client_print(id, print_chat, "[%s] Your previous replay has been canceled. Initializing the replay you've just requested...", PLUGIN_TAG);
-
-		client_print(id, print_chat, "%s", replayingMsg);
+		client_print(id, print_chat, "[%s] Sorry, that replay is not available.", PLUGIN_TAG);
+		server_print("[%s] Replay not found: %s.", PLUGIN_TAG, replayFileName);
+		return;
 	}
+	new Float:setupTime = get_pcvar_float(pcvar_kz_replay_setup_time);
+	new bool:canceled = false;
+
+	if (g_ReplayFramesIdx[id])
+	{
+		new bot = GetOwnersBot(id);
+		//console_print(1, "CmdReplay :: removing bot %d", bot);
+		FinishReplay(id);
+		KickReplayBot(bot + TASKID_KICK_REPLAYBOT);
+		canceled = true;
+	}
+
+	if (g_ReplayNum >= get_pcvar_num(pcvar_kz_max_concurrent_replays))
+	{
+		client_print(id, print_chat, "[%s] Sorry, there are too many replays running! Please, wait until one of the %d replays finish", PLUGIN_TAG, g_ReplayNum);
+		fclose(file);
+		return;
+	}
+	else if (GetOwnersBot(id))
+	{
+		client_print(id, print_chat, "[%s] Your previous bot is still setting up. Please, wait %.1f seconds to start a new replay", PLUGIN_TAG, setupTime);
+		fclose(file);
+		return;
+	}
+
+	if (canceled)
+		client_print(id, print_chat, "[%s] Your previous replay has been canceled. Initializing the replay you've just requested...", PLUGIN_TAG);
+
+	if (!lenMsg)
+		copy(replayingMsg, lenMsg, "Starting replay...");
+
+	client_print(id, print_chat, "%s", replayingMsg);
 
 	if (!g_ReplayFramesIdx[id])
 	{
@@ -2962,8 +3172,6 @@ CmdReplay(id, RUN_TYPE:runType)
 		client_print(id, print_chat, "[%s] Your bot will start running at %.2f fps (on average) in %.1f seconds", PLUGIN_TAG, demoFramerate, setupTime);
 		//console_print(1, "replayft=%.3f, replay0t=%.2f, i=%d, mult=%d", replay[RP_TIME], replay0[RP_TIME], i, g_ReplayFpsMultiplier[id]);
 	}
-
-	return PLUGIN_HANDLED;
 }
 
 SpawnBot(id)
@@ -3580,6 +3788,16 @@ public CmdSayHandler(id, level, cid)
 
 	else if (equali(args[1], "kzmenu") || equali(args[1], "menu") || equali(args[1], "kz"))
 		DisplayKzMenu(id, 0);
+
+	else if (equali(args[1], "rpmenu") || equali(args[1], "replaymenu") || equali(args[1], "replaysmenu"))
+	{
+		if (is_user_admin(id))
+		{
+			// TODO: show a menu where you can choose to replay pure, pro, noob, or cup replays,
+			// and in the future custom replays (replays of tricks, of the last run attempt, etc.)
+			ShowCupReplayMenu(id);
+		}
+	}
 
 	else if (equali(args[1], "kzhelp") || equali(args[1], "help") || equali(args[1], "h"))
 		CmdHelp(id);

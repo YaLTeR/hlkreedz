@@ -529,3 +529,11 @@ CreateColor(color[], name[], red, green, blue)
 	add(color[COLOR_NAME], COLOR_NAME, name);
 }
 
+DestroyMenus(id)
+{
+	new menu, newmenu;
+	player_menu_info(id, menu, newmenu);
+
+	if (newmenu != -1)
+		menu_destroy(newmenu);
+}
