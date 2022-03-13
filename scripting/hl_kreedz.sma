@@ -54,9 +54,9 @@
 #define MAX_RACE_ID                     65535
 #define MAX_FPS_MULTIPLIER              4	// for replaying demos at a max. fps of 250*MAX_FPS_MULTIPLIER
 #define MIN_COUNTDOWN                   1.0
-#define AG_COUNTDOWN                    10.0
+#define AG_COUNTDOWN                    10.0 // TODO: account for sv_ag_countdown in AG 6.7
 #define MAX_COUNTDOWN                   30.0
-#define MATCH_START_CHECK_SECOND        1
+#define MATCH_START_CHECK_SECOND        2
 #define HUD_UPDATE_TIME                 0.05
 #define MIN_TIMELEFT_ALLOWED_NORESET    5.0
 #define HUD_SPLIT_HOLDTIME              2.0
@@ -368,6 +368,8 @@ new Float:g_RunStartTime[MAX_PLAYERS + 1];
 new Float:g_RunNextCountdown[MAX_PLAYERS + 1];
 new Float:g_RunCountdown[MAX_PLAYERS + 1];
 new bool:g_IsBannedFromMatch[MAX_PLAYERS + 1];
+
+new bool:g_IsValidStart[MAX_PLAYERS + 1];
 
 // Player preferences/settings
 new g_ShowTimer[MAX_PLAYERS + 1];
@@ -2041,6 +2043,8 @@ public client_disconnect(id)
 	g_IsBannedFromMatch[id] = false;
 	g_PlayerRunReqs[id] = 0;
 
+	g_IsValidStart[id] = false;
+
 	g_RaceId[id] = 0;
 	g_RunMode[id] = MODE_NORMAL;
 	g_RunModeStarting[id] = MODE_NORMAL;
@@ -2375,7 +2379,7 @@ ResetPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 	}
 }
 
-InitPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
+InitPlayer(id, bool:onDisconnectOrAgstart = false, bool:onlyTimer = false)
 {
 	new i;
 
@@ -2384,6 +2388,8 @@ InitPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 	clr_bit(g_baIsAgFrozen, id);
 	clr_bit(g_baIsPaused, id);
 	clr_bit(g_baIsPureRunning, id);
+
+	g_RunMode[id] = MODE_NORMAL;
 
 	g_RunStartTimestamp[id] = 0;
 	g_PlayerTime[id] = 0.0;
@@ -2409,7 +2415,7 @@ InitPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 
 	g_RunFrameCount[id] = 0;
 
-	if (!onDisconnect)
+	if (!onDisconnectOrAgstart)
 	{
 		// Clear the timer hud
 		client_print(id, print_center, "");
@@ -2613,6 +2619,9 @@ CmdStart(id)
 		return;
 	}
 
+	// Reset the start validation. It's set to true when going through the start zone
+	g_IsValidStart[id] = false;
+
 	if (CanTeleport(id, CP_TYPE_CUSTOM_START, false))
 	{
 		ResetPlayer(id, false, true);
@@ -2638,6 +2647,9 @@ CmdStart(id)
 
 	ResetPlayer(id, false, true);
 	StartClimb(id);
+
+	// Not a custom start, so we know that it goes through the start zone or button, therefore it's valid
+	g_IsValidStart[id] = true;
 }
 
 CmdStartNr(id)
@@ -2657,8 +2669,13 @@ CmdStartNr(id)
 		g_PlayerTime[id] -= 60;
 	}
 
+	// Reset the start validation. It's set to true when going through the start zone
+	g_IsValidStart[id] = false;
+
 	// The teleport is enough, we're not gonna reset their timer
-	if (CanTeleportNr(id, CP_TYPE_START))
+	if (CanTeleportNr(id, CP_TYPE_CUSTOM_START) && g_usesStartingZone)
+		Teleport(id, CP_TYPE_CUSTOM_START);
+	else if (CanTeleportNr(id, CP_TYPE_START))
 		Teleport(id, CP_TYPE_START);
 	else if (CanTeleportNr(id, CP_TYPE_DEFAULT_START))
 		Teleport(id, CP_TYPE_DEFAULT_START);
@@ -3841,7 +3858,8 @@ bool:CanCreateCp(id, bool:showMessages = true, bool:practiceMode = false)
 
 bool:CanTeleport(id, cp, bool:showMessages = true)
 {
-	if ((g_RunMode[id] != MODE_NORMAL || g_RunModeStarting[id] != MODE_NORMAL) && cp != CP_TYPE_START && cp != CP_TYPE_DEFAULT_START)
+	if ((g_RunMode[id] != MODE_NORMAL || g_RunModeStarting[id] != MODE_NORMAL)
+		&& cp != CP_TYPE_START && cp != CP_TYPE_CUSTOM_START && cp != CP_TYPE_DEFAULT_START)
 	{
 		// If a NR is during countdown or already started, cannot TP to any other than start or default one,
 		// no custom TP, no practice TP, no normal TP, no old TP to unstuck
@@ -4035,7 +4053,9 @@ TeleportAfterRespawn(id)
 		// g_bMatchRunning isn't updated by this point yet.
 		if (get_pcvar_num(pcvar_sv_ag_match_running) == 1 || g_RunMode[id] != MODE_NORMAL || g_RunModeStarting[id] != MODE_NORMAL)
 		{
-			if (CanTeleport(id, CP_TYPE_START, false))
+			if (CanTeleport(id, CP_TYPE_CUSTOM_START, false) && g_usesStartingZone)
+				Teleport(id, CP_TYPE_CUSTOM_START);
+			else if (CanTeleport(id, CP_TYPE_START, false))
 				Teleport(id, CP_TYPE_START);
 			else if (CanTeleport(id, CP_TYPE_DEFAULT_START, false))
 				Teleport(id, CP_TYPE_DEFAULT_START);
@@ -4048,6 +4068,8 @@ TeleportAfterRespawn(id)
 			Teleport(id, CP_TYPE_CURRENT);
 		else if (CanTeleport(id, CP_TYPE_START, false))
 			Teleport(id, CP_TYPE_START);
+		else if (CanTeleport(id, CP_TYPE_CUSTOM_START, false) && g_usesStartingZone)
+			Teleport(id, CP_TYPE_CUSTOM_START);
 		else if (CanTeleport(id, CP_TYPE_DEFAULT_START, false))
 			Teleport(id, CP_TYPE_DEFAULT_START);
 	}
@@ -4351,6 +4373,22 @@ bool:CanReset(id, bool:showMessages = true)
 	return true;
 }
 
+ResetRecording(id)
+{
+	if (g_RecordRun[id])
+	{
+		g_RecordRun[id] = 0;
+		ArrayClear(g_RunFrames[id]);
+	}
+
+	if (get_pcvar_num(pcvar_kz_autorecord) && !IsBot(id))
+	{
+		g_RecordRun[id] = 1;
+		g_RunFrames[id] = ArrayCreate(REPLAY);
+		RecordRunFrame(id);
+	}
+}
+
 StartClimb(id, bool:isMatch = false)
 {
 	if (g_CheatCommandsGuard[id])
@@ -4362,30 +4400,41 @@ StartClimb(id, bool:isMatch = false)
 		ShowMessage(id, "Using timer while cheating is prohibited");
 		return;
 	}
+
 	if (!isMatch && g_PlayerTime[id] && g_RunMode[id] != MODE_NORMAL)
 	{
 		ShowMessage(id, "A match is running, start is disabled");
 		return;
 	}
 
-	if (g_RecordRun[id])
-	{
-		//console_print(id, "clearing recorded run with %d frames from memory", ArraySize(g_RunFrames[id]));
-		g_RecordRun[id] = 0;
-		ArrayClear(g_RunFrames[id]);
-	}
-
-	if (get_pcvar_num(pcvar_kz_autorecord) && !IsBot(id))
-	{
-		g_RecordRun[id] = 1;
-		g_RunFrames[id] = ArrayCreate(REPLAY);
-		RecordRunFrame(id);
-	}
+	ResetRecording(id);
 
 	if (isMatch)
 		ResetPlayer(id);
 	else
 		InitPlayer(id);
+
+	if (g_RunLaps)
+		g_CurrentLap[id] = 1;
+
+	CreateCp(id, CP_TYPE_START);
+	InitPlayerVariables(id);
+
+	set_bit(g_baIsClimbing, id);
+	g_RunFrameCount[id] = 1;
+
+	CheckSpeedcap(id, true);
+	CheckStartSpeed(id);
+
+	StartTimer(id);
+}
+
+// TODO: refactor this and StartClimb
+AgstartClimb(id)
+{
+	ResetRecording(id);
+
+	ResetPlayer(id, true);
 
 	if (g_RunLaps)
 		g_CurrentLap[id] = 1;
@@ -4411,25 +4460,59 @@ FinishClimb(id)
 		ShowMessage(id, "Using timer while cheating is prohibited");
 		canFinish = false;
 	}
-	if (!get_bit(g_baIsClimbing, id))
+	if (canFinish && !get_bit(g_baIsClimbing, id))
 	{
 		ShowMessage(id, "You must press the start button first");
 		canFinish = false;
 	}
-	if (g_RunStartTime[id])
+	if (canFinish && g_RunStartTime[id])
 	{
 		ShowMessage(id, "It's not allowed to finish the map while on countdown");
 		canFinish = false;
 	}
-	if (g_RunTotalReq && g_PlayerRunReqs[id] != g_RunTotalReq)
+	if (canFinish && g_RunTotalReq && g_PlayerRunReqs[id] != g_RunTotalReq)
 	{
 		ShowMessage(id, "You don't meet the requirements to finish. Press the required buttons or pass through the required places first");
 		canFinish = false;
 	}
-	if (g_RunLaps && ArraySize(g_SplitTimes[id]) != ArraySize(g_OrderedSplits))
+	if (canFinish && g_RunLaps && ArraySize(g_SplitTimes[id]) != ArraySize(g_OrderedSplits))
 	{
 		ShowMessage(id, "Can't finish. Make sure you have passed through all splits");
 		canFinish = false;
+	}
+	if (canFinish && g_usesStartingZone && !g_IsValidStart[id])
+	{
+		// TODO: show this message halfway through the run, but without resetting the player
+		ShowMessage(id, "Invalid run: didn't touch/press start? (might be due to lag)");
+
+		// Just in case somehow this goes wrong during a cup, we print the exact run time
+		// to help admins judge together with replays or VOD
+		new name[32], minutes, Float:seconds, pureRun[12];
+		new Float:kztime = get_gametime() - g_PlayerTime[id];
+		new RUN_TYPE:topType = GetTopType(id);
+
+		minutes = floatround(kztime, floatround_floor) / 60;
+		seconds = kztime - (60 * minutes);
+		pureRun = get_bit(g_baIsPureRunning, id) ? " (Pure Run)" : "";
+
+		get_user_name(id, name, charsmax(name));
+		client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s^0 would have finished in %02d:%0", "%s%s, but had a seemingly wrong custom start"),
+			PLUGIN_TAG, name, minutes, seconds, pureRun, g_RunMode[id] == MODE_NORESET ? " No-Reset" : "");
+
+		if (IsCupMap() && IsCupPlayer(id))
+		{
+			// Save the replay as we probably need to see what was that custom start
+			SaveRecordedRunCup(id, topType);
+
+			// TODO: ugly, refactor
+			if (id == g_CupPlayer1)
+				g_CupReady1 = false;
+			else if (id == g_CupPlayer2)
+				g_CupReady2 = false;
+		}
+		ResetPlayer(id);
+
+		return;
 	}
 
 	if (!canFinish)
@@ -4439,6 +4522,8 @@ FinishClimb(id)
 
 		return;
 	}
+
+	g_IsValidStart[id] = false;
 
 	FinishTimer(id);
 	InitPlayer(id);
@@ -4664,11 +4749,6 @@ FinishTimer(id)
 		// Same behaviour as in agstart: the first one to finish also ends the runs of the rest of runners
 		CancelRaces(g_RaceId[id]);
 	}
-
-	clr_bit(g_baIsClimbing, id);
-	clr_bit(g_baIsPureRunning, id);
-
-	g_RunMode[id] = MODE_NORMAL;
 
 	if (g_RecordRun[id])
 	{
@@ -5110,7 +5190,19 @@ public Fw_HamUseButtonPre(ent, id)
 	new BUTTON_TYPE:type = GetEntityButtonType(ent);
 	switch (type)
 	{
-		case BUTTON_START: StartClimb(id);
+		case BUTTON_START:
+		{
+			// Player has gone through the start zone. We need this validation for custom starts
+			// because in agstart or NR you can now start at the custom start position, and the
+			// timer starts automatically. We're enabling the use of custom starts because a cup
+			// may have standstill start among the rules, so in that case in maps with start zones
+			// it's a bit of a hassle to start without prespeed, so we allow using custom starts
+			// and this validation is needed so that you don't place a custom start position close
+			// to the end or something
+			g_IsValidStart[id] = true;
+
+			StartClimb(id);
+		}
 		case BUTTON_FINISH:
 		{
 			new Float:origin[3];
@@ -5581,8 +5673,7 @@ HudShowRun(id, Float:currGameTime)
 		{
 			// Start the no-reset run or race
 			StopCountdown(id);
-			g_RunMode[id] = g_RunModeStarting[id];
-			g_RunModeStarting[id] = MODE_NORMAL;
+			new RUN_MODE:runMode = g_RunModeStarting[id];
 			g_RunStartTime[id] = 0.0;
 
 			strip_user_weapons(id);
@@ -5590,6 +5681,11 @@ HudShowRun(id, Float:currGameTime)
 			amxclient_cmd(id, "fullupdate");
 
 			StartClimb(id, true);
+
+			g_RunMode[id] = runMode;
+			g_RunModeStarting[id] = MODE_NORMAL;
+
+			server_print("[%s] Starting a race in mode %s", PLUGIN_TAG, g_RunModeString[_:g_RunMode[id]]);
 		}
 		else if (g_RunNextCountdown[id] && g_RunNextCountdown[id] < currGameTime)
 		{
@@ -5644,11 +5740,14 @@ RunCountdown(id, Float:currGameTime, Float:runStartTime, Float:totalCountdownTim
 
 	if (countdownNumber == conditionsCheckSecond)
 	{
-		if (CanTeleport(id, CP_TYPE_START, false) || CanTeleport(id, CP_TYPE_DEFAULT_START, false))
+		if (CanTeleport(id, CP_TYPE_START, false) || CanTeleport(id, CP_TYPE_DEFAULT_START, false)
+			|| (CanTeleport(id, CP_TYPE_CUSTOM_START) && g_usesStartingZone))
 		{
 			if (g_TpOnCountdown[id])
 			{
-				if (CanTeleport(id, CP_TYPE_START, false))
+				if (CanTeleport(id, CP_TYPE_CUSTOM_START, false) && g_usesStartingZone)
+					Teleport(id, CP_TYPE_CUSTOM_START);
+				else if (CanTeleport(id, CP_TYPE_START, false))
 					Teleport(id, CP_TYPE_START);
 				else if (CanTeleport(id, CP_TYPE_DEFAULT_START, false))
 					Teleport(id, CP_TYPE_DEFAULT_START);
@@ -6428,13 +6527,11 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 
 		if (is_user_alive(i) && pev(i, pev_iuser1) == OBS_NONE)
 		{
-			// TODO: refactor the lines below, because they're repeated in StartClimb() too
-			InitPlayer(i, true);
+			server_print("[%s] Starting match (agstart)", PLUGIN_TAG);
 
-			if (g_RunLaps)
-				g_CurrentLap[i] = 1;
+			g_IsValidStart[i] = false;
 
-			StartTimer(i);
+			AgstartClimb(i);
 
 			if (get_pcvar_num(pcvar_kz_noreset_agstart))
 				g_RunMode[i] = MODE_NORESET; // TODO: maybe it's better to keep it as MODE_AGSTART and take into account the cvar elsewhere
@@ -7441,6 +7538,8 @@ CmdStartNoReset(id)
 
 	FreezePlayer(id);
 
+	g_IsValidStart[id] = false;
+
 	g_RaceId[id] = 0;
 	g_RunMode[id] = MODE_NORMAL; // will be set to MODE_NORESET later, right after countdown
 	g_RunModeStarting[id] = MODE_NORESET;
@@ -7753,7 +7852,15 @@ public CmdReady(id)
 		return PLUGIN_HANDLED;
 	}
 
-	if (!CanTeleportNr(id, CP_TYPE_START))
+	if (g_usesStartingZone)
+	{
+		if (!CanTeleportNr(id, CP_TYPE_CUSTOM_START))
+		{
+			client_print(id, print_chat, "[%s] Cannot /ready yet, you must set a custom start position first (through KZ menu or saying /ss).", PLUGIN_TAG);
+			return PLUGIN_HANDLED;
+		}
+	}
+	else if (!CanTeleportNr(id, CP_TYPE_START))
 	{
 		client_print(id, print_chat, "[%s] Cannot /ready yet, you must press the start button first, to set the start point.", PLUGIN_TAG);
 		return PLUGIN_HANDLED;
@@ -7829,7 +7936,8 @@ public CheckAgstartConditions(taskId)
 		else
 			g_RunModeStarting[id] = MODE_AGSTART;
 
-		if (CanTeleport(id, CP_TYPE_START, false) || CanTeleport(id, CP_TYPE_DEFAULT_START, false))
+		if (CanTeleport(id, CP_TYPE_START, false) || CanTeleport(id, CP_TYPE_DEFAULT_START, false)
+			|| (CanTeleport(id, CP_TYPE_CUSTOM_START, false) && g_usesStartingZone))
 		{
 			// Might be entering here again after banning from match
 			// If they can teleport then it's fine, remove the ban
@@ -7837,7 +7945,9 @@ public CheckAgstartConditions(taskId)
 
 			if (g_TpOnCountdown[id])
 			{
-				if (CanTeleport(id, CP_TYPE_START, false))
+				if (CanTeleport(id, CP_TYPE_CUSTOM_START, false) && g_usesStartingZone)
+					Teleport(id, CP_TYPE_CUSTOM_START);
+				else if (CanTeleport(id, CP_TYPE_START, false))
 					Teleport(id, CP_TYPE_START);
 				else if (CanTeleport(id, CP_TYPE_DEFAULT_START, false))
 					Teleport(id, CP_TYPE_DEFAULT_START);
