@@ -83,6 +83,7 @@
 
 #define TASKID_ICON                     5633445
 #define TASKID_WELCOME                  43321
+#define TASKID_POST_WELCOME             5332178
 #define TASKID_KICK_REPLAYBOT           9572626
 #define TASKID_CAM_UNFREEZE             1622952
 #define TASKID_CONFIGURE_DB             2037262
@@ -518,6 +519,7 @@ new Float:g_LastHealth;
 new bool:g_RestoreSolidStates;
 new bool:g_IsAgClient;
 new bool:g_IsAgServer;
+new bool:g_bMatchStarting;
 new bool:g_bMatchRunning;
 new bool:g_DisableSpec;
 
@@ -796,7 +798,8 @@ public plugin_init()
 	register_clcmd("say_team", "CmdSayHandler");
 	register_clcmd("spectate", "CmdSpectateHandler");
 
-	register_clcmd("jointeam", "CmdJointeamHandler");
+	register_clcmd("jointeam",   "CmdJointeamHandler");
+	register_clcmd("changeteam", "CmdJointeamHandler");
 
 	if (g_IsAgServer)
 	{
@@ -2507,8 +2510,48 @@ public DisplayWelcomeMessage(id)
 
 	if (get_pcvar_num(pcvar_kz_spawn_mainmenu))
 		DisplayKzMenu(id, 0);
+
+	new isInObserverMode = (pev(id, pev_flags) & FL_SPECTATOR) && pev(id, pev_iuser1) == OBS_NONE;
+	if (isInObserverMode && g_DisableSpec && (g_bMatchStarting || g_bMatchRunning))
+	{
+		ExecuteHamB(Ham_Spawn, id);
+
+		set_task(0.2, "PostWelcome", id + TASKID_POST_WELCOME);
+	}
 }
 
+public PostWelcome(id)
+{
+	id -= TASKID_POST_WELCOME;
+
+	if (!pev_valid(id) || !IsPlayer(id))
+		return;
+
+	//server_cmd("agforcespectator #%d", get_user_userid(id));
+
+	if (g_CupPlayer1 || g_CupPlayer2)
+		set_pev(id, pev_iuser1, OBS_IN_EYE);
+	else
+		set_pev(id, pev_iuser1, OBS_ROAMING);
+
+	if (g_CupPlayer1)
+		set_pev(id, pev_iuser2, g_CupPlayer1);
+	else if (g_CupPlayer2)
+		set_pev(id, pev_iuser2, g_CupPlayer2);
+
+	new target = pev(id, pev_iuser2);
+	if (IsPlayer(target))
+	{
+		new payLoad[2];
+		payLoad[0] = id;
+		payLoad[1] = target;
+
+		// These weird ids are so that there's no task collision
+		new taskId = id * 36;
+		set_task(0.03, "RestoreSpecCam", TASKID_CAM_UNFREEZE + taskId + 2, payLoad, sizeof(payLoad));
+		set_task(0.12, "RestoreSpecCam", TASKID_CAM_UNFREEZE + taskId + 3, payLoad, sizeof(payLoad));
+	}
+}
 
 
 //*******************************************************
@@ -4038,12 +4081,6 @@ Float:GetPlayerSpeed(id)
 
 bool:CanSpectate(id, bool:showMessages = true)
 {
-	if (g_DisableSpec)
-	{
-		if (showMessages) ShowMessage(id, "Spectator mode is disabled during agstart countdown start");
-		return false;
-	}
-
 	if (pcvar_allow_spectators && !get_pcvar_num(pcvar_allow_spectators))
 	{
 		if (showMessages) ShowMessage(id, "Spectator mode is disabled");
@@ -4156,6 +4193,12 @@ public Fw_FmClientCommandPost(id)
 ClientCommandSpectatePre(id)
 {
 	g_SpectatePreSpecMode = pev(id, pev_iuser1);
+
+	if (g_DisableSpec)
+	{
+		ShowMessage(id, "Spectator mode is disabled during cup races");
+		return PLUGIN_HANDLED;
+	}
 
 	if (g_SpectatePreSpecMode == OBS_NONE)
 	{
@@ -4542,6 +4585,7 @@ FinishTimer(id)
 		{
 			// Do stuff for the cup
 
+			g_DisableSpec = false;
 			// Update scores
 			if (id == g_CupPlayer1)
 				g_CupScore1++;
@@ -4955,6 +4999,7 @@ CancelRaces(runId)
 
 StopMatch()
 {
+	g_bMatchStarting = false;
 	g_bMatchRunning = false;
 
 	g_CupReady1 = false;
@@ -6355,6 +6400,9 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 	static count, sound;
 	count = get_msg_arg_int(1);
 	sound = get_msg_arg_int(2);
+
+	g_bMatchStarting = true;
+
 	if (count != -1 || sound != 0)
 	{
 		if (get_pcvar_num(pcvar_kz_noreset_agstart))
@@ -6362,9 +6410,6 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 			new conditionsCheckSecond = floatround(AG_COUNTDOWN, floatround_tozero) - MATCH_START_CHECK_SECOND;
 			if (count == conditionsCheckSecond)
 			{
-				// We don't want players to spec in the little timeframe between the countdown start and the match check
-				g_DisableSpec = true;
-
 				// Not doing the call instantly, because it crashes the server with this error message:
 				// "New message started when msg '98' has not been sent yet"
 				set_task(0.000001, "CheckAgstartConditions", TASKID_MATCH_START_CHECK);
@@ -6374,6 +6419,7 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 	}
 
 	// Start the timer, disable pause/reset/start button/commands
+	g_bMatchStarting = false;
 	g_bMatchRunning = true;
 	for (new i = 1; i <= g_MaxPlayers; i++)
 	{
@@ -7748,6 +7794,9 @@ public CmdReady(id)
 
 	if (g_CupReady1 && g_CupReady2)
 	{
+		// Players that won't be playing the match will be forced into spectators and no one will be able to change spec mode
+		g_DisableSpec = true;
+
 		client_print(0, print_chat, "[%s] Starting in 5 seconds... non-participants will now be switched to spectator mode.", PLUGIN_TAG);
 		set_task(1.5,  "CupForceSpectators", TASKID_CUP_FORCE_SPECTATORS);
 		set_task(4.5,  "CupForceSpectators", TASKID_CUP_FORCE_SPECTATORS + 1);
@@ -7766,8 +7815,6 @@ public CmdReady(id)
  */
 public CheckAgstartConditions(taskId)
 {
-	g_DisableSpec = false;
-
 	new players[MAX_PLAYERS], playersNum, switchedPlayers = 0;
 	get_players_ex(players, playersNum, GetPlayers_ExcludeBots);
 	for (new i = 0; i < playersNum; i++)
