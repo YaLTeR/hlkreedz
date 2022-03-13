@@ -77,6 +77,7 @@
 #define RUN_STATS_HUD_Y                 -1.0  // centered
 #define START_ZONE_ALLOWED_PRESPEED     540.0
 #define START_BUTTON_ALLOWED_PRESPEED   50.0
+#define MAX_MAP_INSERTIONS_AT_ONCE      7
 
 // https://github.com/ValveSoftware/halflife/blob/c7240b965743a53a29491dd49320c88eecf6257b/dlls/triggers.cpp#L1013
 #define TRIGGER_HURT_DAMAGE_TIME        0.5
@@ -190,7 +191,7 @@ enum _:CUP_REPLAY_ITEM
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.46";
+new const VERSION[] = "0.47";
 //new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the replay format changes
 new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, execut4ble, naz, mxpph";
 
@@ -616,7 +617,6 @@ new pcvar_kz_mysql_user;
 new pcvar_kz_mysql_pass;
 new pcvar_kz_mysql_db;
 new pcvar_kz_cup_format;
-new pcvar_kz_cup_max_maps;
 new pcvar_kz_cup_map_change_delay;
 new pcvar_kz_stop_moving_platforms;
 new pcvar_kz_noreset_agstart;   // count agstarts as no-reset runs? (there might be some exploit or annoyance with agstart)
@@ -761,8 +761,7 @@ public plugin_init()
 	pcvar_kz_mysql_db   = register_cvar("kz_mysql_db", "");    // MySQL database name
 
 	pcvar_kz_cup_format = register_cvar("kz_cup_format", "ABABABD");
-	pcvar_kz_cup_max_maps = register_cvar("kz_cup_max_maps", "7");
-	pcvar_kz_cup_map_change_delay = register_cvar("kz_cup_map_change_delay", "8.0");
+	pcvar_kz_cup_map_change_delay = register_cvar("kz_cup_map_change_delay", "12.0");
 
 	pcvar_kz_stop_moving_platforms = register_cvar("kz_stop_moving_platforms", "0");
 
@@ -797,6 +796,7 @@ public plugin_init()
 	register_clcmd("kz_map_pool_show",  "CmdMapsShowHandler",   ADMIN_CFG, "- shows the maps and their states on the screen");
 	register_clcmd("kz_map_pool_clear", "CmdMapsClearHandler",  ADMIN_CFG, "- clears the map pool (leaves it empty)");
 	register_clcmd("kz_cup_forceready", "CmdCupForceReady",     ADMIN_CFG, "- forces a player to ready.");
+	register_clcmd("kz_cup_maps",       "CmdCupMapsHandler",    ADMIN_CFG, "- how many maps to play, e.g.: 5 for a Bo5.");
 
 	register_clcmd("kz_set_custom_start",	"CmdSetCustomStartHandler",    -1, "- sets the custom start position");
 	register_clcmd("kz_clear_custom_start",	"CmdClearCustomStartHandler",  -1, "- clears the custom start position");
@@ -1650,7 +1650,7 @@ public ActionMapBanMenu(id, key)
 		}
 		else
 		{
-			client_print(0, print_chat, "[%s] We're done banning maps. Time to pick! You'll pick %d maps and then the remaining one is the decider.",
+			client_print(0, print_chat, "[%s] We're done banning maps. Time to pick! Now %d maps will be picked and then the remaining one is the decider.",
 				PLUGIN_TAG, availableMaps - 1);
 		}
 		CmdMapsShowHandler(0);
@@ -1785,19 +1785,14 @@ public ActionMapPickMenu(id, key)
 	return PLUGIN_HANDLED;
 }
 
-// TODO: refactor to be ordered in the map pool file, and retrieve already ordered
 Array:GetOrderedMapPool()
 {
-	new Array:result = ArrayCreate(CUP_MAP, 7);
+	new Array:result = ArrayCreate(CUP_MAP, TrieGetSize(g_CupMapPool));
 
 	new clean[CUP_MAP];
-	ArrayPushArray(result, clean, sizeof(clean));
-	ArrayPushArray(result, clean, sizeof(clean));
-	ArrayPushArray(result, clean, sizeof(clean));
-	ArrayPushArray(result, clean, sizeof(clean));
-	ArrayPushArray(result, clean, sizeof(clean));
-	ArrayPushArray(result, clean, sizeof(clean));
-	ArrayPushArray(result, clean, sizeof(clean));
+	// Fill the map list with empty entries
+	for (new i = 0; i < TrieGetSize(g_CupMapPool); i++)
+		ArrayPushArray(result, clean, sizeof(clean));
 
 	new TrieIter:ti = TrieIterCreate(g_CupMapPool);
 	while (!TrieIterEnded(ti))
@@ -1806,36 +1801,13 @@ Array:GetOrderedMapPool()
 		TrieIterGetArray(ti, cupMap, sizeof(cupMap));
 
 		ArraySetArray(result, cupMap[MAP_ORDER], cupMap, sizeof(cupMap));
-		//ArrayPushArray(result, cupMap, sizeof(cupMap));
 
 		TrieIterNext(ti);
 	}
 	TrieIterDestroy(ti);
 
-	//ArraySortEx(result, "SortMapPool") // doesn't really work... // TODO: make SortMapPool public and try again
-
 	return result;
 }
-
-/*
-SortMapPool(Array:array, elem1[], elem2[], const data[], data_size)
-{
-	// Sort in ascending order by MAP_ORDER
-
-	if (elem1[MAP_ORDER] < elem2[MAP_ORDER])
-	{
-		return -1;
-	}
-	else if (elem1[MAP_ORDER] > elem2[MAP_ORDER])
-	{
-		return 1;
-	}
-	else
-	{
-		return 0;
-	}
-}
-*/
 
 GetNextPicker()
 {
@@ -4803,18 +4775,18 @@ StartTimer(id)
 
 FinishTimer(id)
 {
-	new name[32], minutes, Float:seconds, pureRun[11];
+	new name[32], minutes, Float:seconds, pureRun[12];
 	new Float:kztime = get_gametime() - g_PlayerTime[id];
 	new RUN_TYPE:topType = GetTopType(id);
 
 	minutes = floatround(kztime, floatround_floor) / 60;
 	seconds = kztime - (60 * minutes);
-	pureRun = get_bit(g_baIsPureRunning, id) ? "(Pure Run)" : "";
+	pureRun = get_bit(g_baIsPureRunning, id) ? " (Pure Run)" : "";
 
 	client_cmd(0, "spk fvox/bell");
 
 	get_user_name(id, name, charsmax(name));
-	client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s^0 finished in %02d:%0", "(CPs: %d | TPs: %d) %s%s"),
+	client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s^0 finished in %02d:%0", " (CPs: %d | TPs: %d)%s%s"),
 		PLUGIN_TAG, name, minutes, seconds, g_CpCounters[id][COUNTER_CP], g_CpCounters[id][COUNTER_TP], pureRun, g_RunMode[id] == MODE_NORESET ? " No-Reset" : "");
 
 	g_RunStatsEndHudStartTime[id] = get_gametime();
@@ -5973,9 +5945,8 @@ RunCountdown(id, Float:currGameTime, Float:runStartTime, Float:totalCountdownTim
 		}
 		else
 		{
-			ShowMessage(id, "You have to press the start button before starting the match!");
 			// The ShowMessage doesn't actually seem to appear, maybe because the HUD is reset upon switching to spectator
-			// or something, so showing also this chat print just in case
+			// or something, so showing this chat print instead
 			client_print(id, print_chat, "[%s] You have to press the start button before starting the match!", PLUGIN_TAG);
 
 			ResetPlayer(id);
@@ -7238,9 +7209,6 @@ public Fw_FmPlayerPostThinkPre(id)
 			g_RunFrames[id] = ArrayCreate(REPLAY);
 		}
 
-		if (g_RunFrames[id] && ArraySize(g_RunFrames[id]) == 2)
-			server_print("[%s] Started recording player #%d's run", PLUGIN_TAG, get_user_userid(id));
-
 		if (!IsBot(id) && g_RecordRun[id])
 			RecordRunFrame(id);
 
@@ -8173,9 +8141,8 @@ public CheckAgstartConditions(taskId)
 			continue;
 		}
 
-		ShowMessage(id, "You have to press the start button before starting the match!");
 		// The ShowMessage doesn't actually seem to appear, maybe because the HUD is reset upon switching to spectator
-		// or something, so showing also this chat print just in case
+		// or something, so showing this chat print instead
 		client_print(id, print_chat, "[%s] You have to press the start button before starting the match!", PLUGIN_TAG);
 
 		ResetPlayer(id);
@@ -8200,6 +8167,7 @@ public CheckAgstartConditions(taskId)
 	}
 }
 
+// TODO: Cache the result when starting the map or when the map pool file is read
 bool:IsCupMap()
 {
 	// Check if the current map is one of the maps to be played
@@ -8310,8 +8278,11 @@ public CmdCupHandler(id, level, cid)
 
 		if (!cupMaps[0] || !target1[0] || !target2[0])
 		{
-			console_print(id, "Usage: kz_cup <number_of_maps> <#player1> <#player2> [<format>]");
-			console_print(id, "number_of_maps would be 5 if it's a Bo5; the format is optional, and here's an example of format: ABBAABD");
+			console_print(id, "Usage: kz_cup <number_of_maps> <#player1> <#player2> <format>");
+			console_print(id, "- number_of_maps would be 5 if it's a Bo5; and for the format, A and B are players and D is decider, e.g.: ABBAABD");
+			console_print(id, "- For #player1 and #player2 you can type status and get their user IDs from there, so e.g.: #152 and #157");
+			console_print(id, "- Full example: kz_cup 5 #152 #157 ABBAABD");
+			return PLUGIN_HANDLED;
 		}
 
 		new player1 = cmd_target(id, target1, CMDTARGET_ALLOW_SELF | CMDTARGET_NO_BOTS);
@@ -8319,19 +8290,27 @@ public CmdCupHandler(id, level, cid)
 
 		if (!player1)
 		{
-			console_print(id, "Cannot find the first player specified in the kz_cup command");
+			console_print(id, "[%s] Cannot find the first player specified in the kz_cup command", PLUGIN_TAG);
 			return PLUGIN_HANDLED;
 		}
 
 		if (!player2)
 		{
-			console_print(id, "Cannot find the second player specified in the kz_cup command");
+			console_print(id, "[%s] Cannot find the second player specified in the kz_cup command", PLUGIN_TAG);
+			return PLUGIN_HANDLED;
+		}
+
+		if (cupFormat[0] && strlen(cupFormat) != TrieGetSize(g_CupMapPool))
+		{
+			console_print(id, "[%s] The specified format doesn't match the map pool size", PLUGIN_TAG);
 			return PLUGIN_HANDLED;
 		}
 
 		if (!cupFormat[0] || !ProcessCupFormat(id, cupFormat))
 		{
 			new format[MAX_MATCH_MAPS + 1];
+			// TODO: deprecate this cvar? it's only used when picking/banning maps
+			// and it makes more sense to have the format only in the kz_cup command anyways
 			get_pcvar_string(pcvar_kz_cup_format, format, charsmax(format));
 
 			if (!ProcessCupFormat(id, format))
@@ -8339,6 +8318,8 @@ public CmdCupHandler(id, level, cid)
 				return PLUGIN_HANDLED;
 			}
 		}
+
+		server_print("[%s] Starting cup (best of %s, players #%d and #%d, format %s)", PLUGIN_TAG, cupMaps, target1, target2, cupFormat);
 
 		g_BestOfN = str_to_num(cupMaps);
 		g_CupPlayer1 = player1;
@@ -8351,7 +8332,11 @@ public CmdCupHandler(id, level, cid)
 		g_CupReady2 = false;
 		ResetCupMapStates(id);
 
-		client_print(0, print_chat, "[%s] Flipping a coin to decide who bans first...", PLUGIN_TAG);
+		if (g_BestOfN < TrieGetSize(g_CupMapPool))
+			client_print(0, print_chat, "[%s] Flipping a coin to decide who bans first...", PLUGIN_TAG);
+		else
+			client_print(0, print_chat, "[%s] Flipping a coin to decide who picks first...", PLUGIN_TAG);
+
 		set_task(2.0, "CupTensionFirstBan", TASKID_CUP_TENSION_FIRST_BAN);
 	}
 
@@ -8389,23 +8374,17 @@ bool:ProcessCupFormat(id, cupFormat[])
 	return true;
 }
 
-GetHumanReadableCupFormat(result[])
-{
-	new i;
-	while (g_CupFormat[i])
-	{
-		result[i] = g_CupFormatLetters[g_CupFormat[i]][0];
-		i++;
-	}
-}
-
 public CupTensionFirstBan(taskId)
 {
-	client_print(0, print_chat, "[%s] ...can you guess who bans first?", PLUGIN_TAG);
-	set_task(3.0, "CupFinallyFirstBan", TASKID_CUP_FINALLY_FIRST_BAN);
+	if (g_BestOfN < TrieGetSize(g_CupMapPool))
+		client_print(0, print_chat, "[%s] ...can you guess who bans first?", PLUGIN_TAG);
+	else
+		client_print(0, print_chat, "[%s] ...can you guess who picks first?", PLUGIN_TAG);
+
+	set_task(3.0, "CupFinallyFirstPickBan", TASKID_CUP_FINALLY_FIRST_BAN);
 }
 
-public CupFinallyFirstBan(taskId)
+public CupFinallyFirstPickBan(taskId)
 {
 	new rand = random_num(0, 1);
 	if (rand)
@@ -8427,9 +8406,17 @@ public CupFinallyFirstBan(taskId)
 
 	new playerName[32];
 	GetColorlessName(g_CupPlayer1, playerName, charsmax(playerName));
-	client_print(0, print_chat, "[%s] Okay, %s bans first!", PLUGIN_TAG, playerName);
 
-	CreateMapMenu(g_CupPlayer1, MAP_BAN_MENU_ID);
+	if (g_BestOfN < TrieGetSize(g_CupMapPool))
+	{
+		client_print(0, print_chat, "[%s] Okay, %s bans first!", PLUGIN_TAG, playerName);
+		CreateMapMenu(g_CupPlayer1, MAP_BAN_MENU_ID);
+	}
+	else
+	{
+		client_print(0, print_chat, "[%s] Okay, %s picks first!", PLUGIN_TAG, playerName);
+		CreateMapMenu(g_CupPlayer1, MAP_PICK_MENU_ID);
+	}
 }
 
 public CmdMapsShowHandler(id)
@@ -8518,27 +8505,22 @@ public CmdMapInsertHandler(id, level, cid)
 	if (cmd_access(id, level, cid, 1))
 	{
 		// Insert up to 5 maps at a time
-		new maps[5][32], poolLimit = get_pcvar_num(pcvar_kz_cup_max_maps);
+		new maps[MAX_MAP_INSERTIONS_AT_ONCE][32];
 		for (new i = 0; i < sizeof(maps); i++) {
 			read_argv(i+1, maps[i], charsmax(maps[]));
 
 			if (maps[i][0])
 			{
-				if (TrieGetSize(g_CupMapPool) < poolLimit)
-				{
-					//TrieSetCell(g_CupMapPool, maps[i], MAP_IDLE);
-					new cupMap[CUP_MAP];
-					TrieGetArray(g_CupMapPool, maps[i], cupMap, sizeof(cupMap));
+				new cupMap[CUP_MAP];
+				TrieGetArray(g_CupMapPool, maps[i], cupMap, sizeof(cupMap));
 
-					copy(cupMap[MAP_NAME], charsmax(cupMap[MAP_NAME]), maps[i]);
-					TrieSetArray(g_CupMapPool, maps[i], cupMap, sizeof(cupMap));
-				}
-				else
-				{
-					console_print(id, "[%s] Couldn't add %s to the map pool, the limit of %d maps has been reached.", PLUGIN_TAG, maps[i], poolLimit);
-				}
+				copy(cupMap[MAP_NAME], charsmax(cupMap[MAP_NAME]), maps[i]);
+				TrieSetArray(g_CupMapPool, maps[i], cupMap, sizeof(cupMap));
 			}
 		}
+
+		if (read_argc() > MAX_MAP_INSERTIONS_AT_ONCE + 1)
+			console_print(id, "[%s] Added %d maps, can't add more per command.", PLUGIN_TAG, MAX_MAP_INSERTIONS_AT_ONCE);
 
 		WriteCupMapPoolFile(id);
 	}
@@ -8691,6 +8673,19 @@ public CmdCupForceReady(id, level, cid)
 	return PLUGIN_HANDLED;
 }
 
+public CmdCupMapsHandler(id, level, cid)
+{
+	if (cmd_access(id, level, cid, 1))
+	{
+		new mapsToPlay[8];
+		read_argv(1, mapsToPlay, charsmax(mapsToPlay));
+
+		g_BestOfN = str_to_num(mapsToPlay);
+	}
+
+	return PLUGIN_HANDLED;
+}
+
 ClearCup(id)
 {
 	g_BestOfN = 0;
@@ -8713,6 +8708,9 @@ ClearCup(id)
 	}
 	else
 		server_print(msg);
+
+	WriteCupMapPoolFile(0);
+	WriteCupFile(0);
 }
 
 // Writes to a file the map pool in its current state
@@ -8754,9 +8752,6 @@ WriteCupFile(id)
 
 	if (g_BestOfN && g_CupSteam1[0] && g_CupSteam2[0])
 	{
-		//new format[MAX_MATCH_MAPS + 1];
-		//GetHumanReadableCupFormat(format);
-
 		fprintf(file, "%d %s %s %d %d\n", g_BestOfN, g_CupSteam1, g_CupSteam2, g_CupScore1, g_CupScore2);
 	}
 
@@ -10092,7 +10087,7 @@ GetVariableDecimalMessage(id, msg1[], msg2[] = "")
 	strcat(msg, sec, charsmax(msg));
 	strcat(msg, ".", charsmax(msg));
 	strcat(msg, dec, charsmax(msg));
-	strcat(msg, "f ", charsmax(msg));
+	strcat(msg, "f", charsmax(msg));
 	strcat(msg, msg2, charsmax(msg));
 	return msg;
 }
@@ -10153,7 +10148,7 @@ SaveRecordedRunCup(id, RUN_TYPE:topType)
 
 	ConvertSteamID32ToNumbers(authid, idNumbers);
 	formatex(replayFile, charsmax(replayFile), "%s/cup_%s_%s_%s_%d.dat",
-		g_ReplaysDir, g_Map, idNumbers, g_TopType[topType], ArraySize(g_RunFrames[id]));
+		g_ReplaysDir, g_Map, idNumbers, g_TopType[topType], get_systime());
 
 	g_RecordRun[id] = fopen(replayFile, "wb");
 	server_print("[%s] Saving cup run to: '%s'", PLUGIN_TAG, replayFile);
