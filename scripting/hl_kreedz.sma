@@ -7493,7 +7493,7 @@ bool:IsLiquid(ent)
 	if (equali(className, "func_water", 10))
 		return true;
 
-	if (equali(className, "func_conveyor", 13))
+	if (equali(className, "func_conveyor", 13) && !equali(g_Map, "hl1_bhop_rp", 11))
 		return true;
 
 	if (equali(className, "func_illusionary"))
