@@ -2754,6 +2754,11 @@ CmdNoclip(id)
 		client_print(id, print_chat, "[%s] Noclip is not enabled on this server.", PLUGIN_TAG);
 		return;
 	}
+	if (!IsAlive(id) || pev(id, pev_iuser1))
+	{
+		client_print(id, print_chat, "[%s] You must be alive to use this command.", PLUGIN_TAG);
+		return;
+	}
 	
 	if (g_IsInNoclip[id] == false) 			 // enter noclip
 	{	
@@ -2863,6 +2868,12 @@ CmdStartNr(id)
 		// We're in a normal run, behave the same as "/start"
 		CmdStart(id);
 		return;
+	}
+	
+	if (g_IsInNoclip[id])
+	{
+	client_print(id, print_chat, "[%s] Disable noclip to start a no-reset run.", PLUGIN_TAG);
+	return;
 	}
 
 	if (g_RunLaps)
@@ -3648,6 +3659,12 @@ CmdRespawn(id)
 	{
 		ShowMessage(id, "You can't respawn during a race or No-Reset run");
 		return;
+	}
+	
+	if (g_IsInNoclip[id])
+	{
+	client_print(id, print_chat, "[%s] Exit noclip to respawn.", PLUGIN_TAG);
+	return;
 	}
 
 	ResetPlayer(id, false, true);
@@ -7714,6 +7731,11 @@ CmdStartNoReset(id)
 		ShowMessage(id, "Cannot start. There's a vote running that can potentially interrupt your run");
 		return PLUGIN_HANDLED;
 	}
+	if (g_IsInNoclip[id])
+	{
+	client_print(id, print_chat, "[%s] Disable noclip to start a no-reset run.", PLUGIN_TAG);
+	return PLUGIN_HANDLED;
+	}
 
 	FreezePlayer(id);
 
@@ -7744,9 +7766,9 @@ CmdStartNoReset(id)
 
 StartRace(id)
 {
-	if (pev(id, pev_iuser1))
+	if (pev(id, pev_iuser1) || g_IsInNoclip[id])
 	{
-		ShowMessage(id, "You can't participate in races while being in spectator mode");
+		ShowMessage(id, "You can't participate in races while being in spectator mode or noclip.");
 		return;
 	}
 
@@ -8848,6 +8870,11 @@ public CmdSetCustomStartHandler(id)
 	if (!IsValidPlaceForCp(id))
 	{
 		ShowMessage(id, "You must be on the ground");
+		return PLUGIN_HANDLED;
+	}
+	if (g_IsInNoclip[id])
+	{
+		ShowMessage(id, "You must not be in noclip to use this command.");
 		return PLUGIN_HANDLED;
 	}
 
