@@ -2082,7 +2082,7 @@ Array:GetCupReplays()
 		ArrayPushArray(result, cupReplayItem);
 	}
 
-    return result;
+	return result;
 }
 
 public HandleCupReplaysMenu(id, menu, item)
@@ -2923,6 +2923,10 @@ CmdSpecList(id)
 
 CmdSpec(id)
 {
+	if (g_IsInNoclip[id]) //exit noclip, prevents the game saying you are cheating when exiting spec
+	{
+		CmdNoclip(id);
+	}
 	client_cmd(id, "spectate");	// CanSpectate is called inside of command hook handler
 }
 
@@ -3726,10 +3730,9 @@ CmdHelp(id)
 		/dec <1-6> - number of decimals in times\n\
 		/nv <0-2> - nightvision mode, 0=off, 1=flashlight, 2=global\n\
 		/slopefix - toggle slopebug/surfbug fix, if you get stuck in little slopes disable it\n\
-		/speedcap - <#> - set your horizontal speed limit\n\
-		/hudcolor - <#> <#> <#> - set custom HUD color (R, G, B)\n\
+		/speedcap <#> - set your horizontal speed limit\n\
+		/hudcolor <#> <#> <#> - set custom HUD color (R, G, B)\n\
 		/hudcolor - <red|green|blue|cyan|magenta|yellow|gray|white>\n\
-		/noclip - Toggle noclip mode\n\
 		/kzhelp - this motd\n");
 
 	formatex(motd[len], charsmax(motd) - len,
