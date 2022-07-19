@@ -597,6 +597,7 @@ new pcvar_kz_pure_max_start_speed;
 new pcvar_kz_pure_limit_zone_speed;
 new pcvar_kz_pure_allow_healthboost;
 new pcvar_kz_remove_func_friction;
+new pcvar_kz_remove_func_conveyor;
 new pcvar_kz_nightvision;
 new pcvar_kz_slopefix;
 new pcvar_kz_speedcap;
@@ -724,6 +725,7 @@ public plugin_init()
 
 	pcvar_kz_pure_allow_healthboost = register_cvar("kz_pure_allow_healthboost", "0");
 	pcvar_kz_remove_func_friction = register_cvar("kz_remove_func_friction", "0");
+	pcvar_kz_remove_func_conveyor = register_cvar("kz_remove_func_conveyor", "1");
 
 	// 0 = disabled, 1 = all nightvision types allowed, 2 = only flashlight-like nightvision allowed, 3 = only map-global nightvision allowed
 	pcvar_kz_nightvision = register_cvar("kz_def_nightvision", "0");
@@ -2872,8 +2874,8 @@ CmdStartNr(id)
 	
 	if (g_IsInNoclip[id])
 	{
-	client_print(id, print_chat, "[%s] Disable noclip to start a no-reset run.", PLUGIN_TAG);
-	return;
+		client_print(id, print_chat, "[%s] Disable noclip to start a no-reset run.", PLUGIN_TAG);
+		return;
 	}
 
 	if (g_RunLaps)
@@ -3667,8 +3669,8 @@ CmdRespawn(id)
 	
 	if (g_IsInNoclip[id])
 	{
-	client_print(id, print_chat, "[%s] Exit noclip to respawn.", PLUGIN_TAG);
-	return;
+		client_print(id, print_chat, "[%s] Exit noclip to respawn.", PLUGIN_TAG);
+		return;
 	}
 
 	ResetPlayer(id, false, true);
@@ -7563,7 +7565,7 @@ bool:IsLiquid(ent)
 	if (equali(className, "func_water", 10))
 		return true;
 
-	if (equali(className, "func_conveyor", 13) && !equali(g_Map, "hl1_bhop_rp", 11))
+	if (equali(className, "func_conveyor", 13) && get_pcvar_num(pcvar_kz_remove_func_conveyor) == 1)
 		return true;
 
 	if (equali(className, "func_illusionary"))
@@ -7736,8 +7738,8 @@ CmdStartNoReset(id)
 	}
 	if (g_IsInNoclip[id])
 	{
-	client_print(id, print_chat, "[%s] Disable noclip to start a no-reset run.", PLUGIN_TAG);
-	return PLUGIN_HANDLED;
+		client_print(id, print_chat, "[%s] Disable noclip to start a no-reset run.", PLUGIN_TAG);
+		return PLUGIN_HANDLED;
 	}
 
 	FreezePlayer(id);
