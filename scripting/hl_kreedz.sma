@@ -7076,7 +7076,7 @@ CheckSpeedcap(id, bool:isAtStart = false)
 	new Float:speedcap = g_Speedcap[id];
 
 	new Float:allowedSpeedcap = get_pcvar_float(pcvar_kz_speedcap);
-	if (allowedSpeedcap && speedcap > allowedSpeedcap)
+	if (allowedSpeedcap > 0.0 && speedcap > allowedSpeedcap)
 		speedcap = allowedSpeedcap;
 
 	new shouldDowngradeRun = true;
@@ -7095,7 +7095,7 @@ CheckSpeedcap(id, bool:isAtStart = false)
 				server_print("[%s] Setting kz_pure_max_start_speed to %.1f due to missing or too low prespeed limit for a start zone", PLUGIN_TAG, prespeedcap);
 			}
 
-			if (prespeedcap != 0.0 && (speedcap == 0.0 || prespeedcap < speedcap))
+			if (prespeedcap > 0.0 && (speedcap == 0.0 || prespeedcap < speedcap))
 			{
 				// The cap for prespeed is lower than your speedcap, so use this as the cap, whichever is more restrictive
 				speedcap = prespeedcap;
@@ -7104,7 +7104,7 @@ CheckSpeedcap(id, bool:isAtStart = false)
 		}
 	}
 
-	if (speedcap && endSpeed > speedcap)
+	if (speedcap > 0.0 && endSpeed > speedcap)
 	{
 		if (shouldDowngradeRun)
 			clr_bit(g_baIsPureRunning, id);
