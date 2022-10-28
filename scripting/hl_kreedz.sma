@@ -7079,6 +7079,7 @@ CheckSpeedcap(id, bool:isAtStart = false)
 	if (allowedSpeedcap && speedcap > allowedSpeedcap)
 		speedcap = allowedSpeedcap;
 
+	new shouldDowngradeRun = true;
 	if (g_usesStartingZone && g_RunFrameCount[id] <= 2 && get_pcvar_num(pcvar_kz_pure_limit_zone_speed))
 	{
 		if ((isAtStart && g_Prespeedcap[id] > 0) || (!isAtStart && g_Prespeedcap[id] == 2))
@@ -7098,12 +7099,16 @@ CheckSpeedcap(id, bool:isAtStart = false)
 			{
 				// The cap for prespeed is lower than your speedcap, so use this as the cap, whichever is more restrictive
 				speedcap = prespeedcap;
+				shouldDowngradeRun = false;
 			}
 		}
 	}
 
 	if (speedcap && endSpeed > speedcap)
 	{
+		if (shouldDowngradeRun)
+			clr_bit(g_baIsPureRunning, id);
+
 		new Float:m = (endSpeed / speedcap) * 1.000001;
 		new Float:cappedVelocity[3];
 		cappedVelocity[0] = currVelocity[0] / m;
