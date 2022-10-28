@@ -6708,15 +6708,12 @@ public Fw_MsgCountdown(msg_id, msg_dest, msg_entity)
 
 	if (count != -1 || sound != 0)
 	{
-		if (get_pcvar_num(pcvar_kz_noreset_agstart))
+		new conditionsCheckSecond = floatround(AG_COUNTDOWN, floatround_tozero) - MATCH_START_CHECK_SECOND;
+		if (count == conditionsCheckSecond)
 		{
-			new conditionsCheckSecond = floatround(AG_COUNTDOWN, floatround_tozero) - MATCH_START_CHECK_SECOND;
-			if (count == conditionsCheckSecond)
-			{
-				// Not doing the call instantly, because it crashes the server with this error message:
-				// "New message started when msg '98' has not been sent yet"
-				set_task(0.000001, "CheckAgstartConditions", TASKID_MATCH_START_CHECK);
-			}
+			// Not doing the call instantly, because it crashes the server with this error message:
+			// "New message started when msg '98' has not been sent yet"
+			set_task(0.000001, "CheckAgstartConditions", TASKID_MATCH_START_CHECK);
 		}
 		return;
 	}
