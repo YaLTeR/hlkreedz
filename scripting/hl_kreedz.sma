@@ -52,7 +52,7 @@
 #define FL_ONGROUND_ALL (FL_ONGROUND | FL_PARTIALGROUND | FL_INWATER | FL_CONVEYOR | FL_FLOAT)
 
 #define MAX_RACE_ID                     65535
-#define MAX_FPS_MULTIPLIER              4	// for replaying demos at a max. fps of 250*MAX_FPS_MULTIPLIER
+#define MAX_FPS_MULTIPLIER              4    // for replaying demos at a max. fps of 250*MAX_FPS_MULTIPLIER
 #define MIN_COUNTDOWN                   1.0
 #define AG_COUNTDOWN                    10.0 // TODO: account for sv_ag_countdown in AG 6.7
 #define MAX_COUNTDOWN                   30.0
@@ -98,7 +98,7 @@
 #define TASKID_CUP_START_MATCH          6357015
 #define TASKID_CUP_CHANGE_MAP           5357015
 
-#define TE_EXPLOSION                3
+#define TE_EXPLOSION                    3
 
 enum _:REPLAY
 {
@@ -452,7 +452,6 @@ new bool:g_hasSurfbugged[MAX_PLAYERS + 1];
 new bool:g_hasSlopebugged[MAX_PLAYERS + 1];
 new bool:g_StoppedSlidingRamp[MAX_PLAYERS + 1];
 new g_RampFrameCounter[MAX_PLAYERS + 1];
-new g_HBFrameCounter[MAX_PLAYERS + 1];    // frame counter for healthbooster trigger_multiple
 new MOVEMENT_STATE:g_Movement[MAX_PLAYERS + 1];
 new g_PrevFlags[MAX_PLAYERS + 1];
 
@@ -480,7 +479,8 @@ new g_HideableEntity[MAX_ENTITIES];
 
 // These are for a fix for players receiving too much damage from trigger_hurt
 new Array:g_DamagedByEntity[MAX_PLAYERS + 1];
-new Array:g_DamageTimeEntity[MAX_PLAYERS + 1];
+new Array:g_DamagedTimeEntity[MAX_PLAYERS + 1];
+new Array:g_DamagedPreSpeed[MAX_PLAYERS + 1];
 
 new g_HudRGB[MAX_PLAYERS + 1][3];
 new colorRed[COLOR], colorGreen[COLOR], colorBlue[COLOR],
@@ -593,9 +593,9 @@ new pcvar_kz_spawn_mainmenu;
 new pcvar_kz_nostat;
 new pcvar_kz_top_records;
 new pcvar_kz_top_records_max;
+new pcvar_kz_pure_max_damage_boost;
 new pcvar_kz_pure_max_start_speed;
 new pcvar_kz_pure_limit_zone_speed;
-new pcvar_kz_pure_allow_healthboost;
 new pcvar_kz_remove_func_friction;
 new pcvar_kz_invis_func_conveyor;
 new pcvar_kz_nightvision;
@@ -723,9 +723,10 @@ public plugin_init()
 	pcvar_kz_pure_max_start_speed = register_cvar("kz_pure_max_start_speed", defaultMaxStartSpeed);
 	pcvar_kz_pure_limit_zone_speed = register_cvar("kz_pure_limit_zone_speed", "1");
 
-	pcvar_kz_pure_allow_healthboost = register_cvar("kz_pure_allow_healthboost", "0");
 	pcvar_kz_remove_func_friction = register_cvar("kz_remove_func_friction", "0");
 	pcvar_kz_invis_func_conveyor = register_cvar("kz_invis_func_conveyor", "1");
+
+	pcvar_kz_pure_max_damage_boost = register_cvar("kz_pure_max_damage_boost", "100");
 
 	// 0 = disabled, 1 = all nightvision types allowed, 2 = only flashlight-like nightvision allowed, 3 = only map-global nightvision allowed
 	pcvar_kz_nightvision = register_cvar("kz_def_nightvision", "0");
@@ -933,8 +934,6 @@ public plugin_init()
 	register_touch("monster_snark",    "player", "Fw_FmPlayerTouchMonster");
 	register_touch("monster_tripmine", "player", "Fw_FmPlayerTouchMonster");
 	register_touch("trigger_teleport", "player", "Fw_FmPlayerTouchTeleport");
-	register_touch("trigger_push",     "player", "Fw_FmPlayerTouchPush");
-	register_touch("trigger_multiple", "player", "Fw_FmPlayerTouchHealthBooster");
 
 	mfwd_hlkz_cheating    = CreateMultiForward("hlkz_cheating", ET_IGNORE, FP_CELL);
 	mfwd_hlkz_worldrecord = CreateMultiForward("hlkz_worldrecord", ET_IGNORE, FP_CELL, FP_CELL);
@@ -2175,7 +2174,8 @@ public client_putinserver(id)
 	g_ReplayFrames[id] = ArrayCreate(REPLAY);
 
 	g_DamagedByEntity[id] = ArrayCreate();
-	g_DamageTimeEntity[id] = ArrayCreate();
+	g_DamagedTimeEntity[id] = ArrayCreate();
+	g_DamagedPreSpeed[id] = ArrayCreate();
 
 	// Link this player to the cup player
 	new uniqueId[32];
@@ -2296,7 +2296,8 @@ public client_disconnect(id)
 	g_RunFrameCount[id] = 0;
 
 	ArrayClear(g_DamagedByEntity[id]);
-	ArrayClear(g_DamageTimeEntity[id]);
+	ArrayClear(g_DamagedTimeEntity[id]);
+	ArrayClear(g_DamagedPreSpeed[id]);
 
 	g_UniqueId[id][0] = EOS;
 
@@ -6040,6 +6041,7 @@ CheckSettings(id)
 		// The settings bug occurred, for the moment just gonna restore the important settings and log the incident
 		new name[32];
 		GetColorlessName(id, name, charsmax(name));
+		// TODO: replace with log_amx()?
 		log_to_file(HLKZ_LOG_FILENAME, "ERROR | CheckSettings() | Settings bug detected on player with ID %s and nickname %s", g_UniqueId[id], name);
 
 		g_ShowTimer[id] = g_PrevShowTimer[id];
@@ -6442,32 +6444,45 @@ public Fw_HamTakeDamagePlayerPre(victim, inflictor, aggressor, Float:damage, dam
 
 	if (IsPlayer(victim) && pev_valid(aggressor) && !IsPlayer(aggressor))
 	{
-		new classNameAggressor[32];
-		pev(aggressor, pev_classname, classNameAggressor, charsmax(classNameAggressor));
+		new Float:currVelocity[3], Float:currTotalSpeed;
+		pev(victim, pev_velocity, currVelocity);
+		currTotalSpeed = xs_vec_len(currVelocity);
 
-		if (equal(classNameAggressor, "trigger_hurt"))
+		new entityName[32], victimName[32];
+		pev(aggressor, pev_classname, entityName, charsmax(entityName));
+		GetColorlessName(victim, victimName, charsmax(victimName));
+
+		new idx = ArrayFindValue(g_DamagedByEntity[victim], aggressor);
+		if (idx != -1)
 		{
-			new idx = ArrayFindValue(g_DamagedByEntity[victim], aggressor);
-			if (idx != -1)
+			if (aggressor != 0 && damage > 0.0 && (Float:ArrayGetCell(g_DamagedTimeEntity[victim], idx) + TRIGGER_HURT_DAMAGE_TIME) > get_gametime())
 			{
-				if (Float:ArrayGetCell(g_DamageTimeEntity[victim], idx) > get_gametime())
+				// We have already been damaged by this entity less than 0.5 seconds ago, so ignore this damage...
+				// Case: players receiving 100 damage from a 10 damage trigger_hurt, in a few frames...
+				// We don't ignore:
+				// * Falldamage (aggressor == 0 == worldspawn)
+				// * Healthboost damage (negative damage)
+				if (!equal(entityName, "trigger_hurt"))
 				{
-					// We have already been damaged by this entity less than 0.5 seconds ago, so ignore this damage...
-					// Case: players receiving 100 damage from a 10 damage trigger_hurt, in a few frames...
-					return HAM_SUPERCEDE;
+					// Unexpected entity dealing damage with too much frequency, let's see what it is
+					server_print("[%s] [t=%.4f] Avoided receiving too many damage ticks for %s, would have gotten %.1f damage from %s",
+						PLUGIN_TAG, get_gametime(), victimName, damage, entityName);
 				}
-				else
-				{
-					// Update the damage time, cannot deal any more damage until then
-					ArraySetCell(g_DamageTimeEntity[victim], idx, get_gametime() + TRIGGER_HURT_DAMAGE_TIME);
-				}
+				return HAM_SUPERCEDE;
 			}
 			else
 			{
-				// First time we get damage from this entity, so register it
-				ArrayPushCell(g_DamagedByEntity[victim], aggressor);
-				ArrayPushCell(g_DamageTimeEntity[victim], get_gametime() + TRIGGER_HURT_DAMAGE_TIME);
+				// Update the damage time and speed
+				ArraySetCell(g_DamagedTimeEntity[victim], idx, get_gametime());
+				ArraySetCell(g_DamagedPreSpeed[victim], idx, currTotalSpeed);
 			}
+		}
+		else
+		{
+			// First time we get damage from this entity, so register some data about it
+			ArrayPushCell(g_DamagedByEntity[victim], aggressor);
+			ArrayPushCell(g_DamagedTimeEntity[victim], get_gametime());
+			ArrayPushCell(g_DamagedPreSpeed[victim], currTotalSpeed);
 		}
 	}
 
@@ -6514,6 +6529,29 @@ public Fw_HamTakeDamagePlayerPost(victim, inflictor, aggressor, Float:damage, da
 	if (fHealth > 255.0 && (fHealth < 100000 || g_LastHealth < 100000) && fHealth != g_LastHealth)
 	{
 		ShowInHealthHud(victim, "HP: %.0f", fHealth);
+	}
+
+	// Check if the player is gaining too much speed from this damage tick... filter out falldamage
+	if (IsPlayer(victim) && !IsPlayer(aggressor) && aggressor != 0)
+	{
+		new idx = ArrayFindValue(g_DamagedByEntity[victim], aggressor);
+		if (idx == -1)
+		{
+			server_print("[%s] Aggressor entity %d not found. Review why it didn't get registered in pre TakeDamage", PLUGIN_TAG, aggressor);
+			return;
+		}
+		new Float:prevTotalSpeed = Float:ArrayGetCell(g_DamagedPreSpeed[victim], idx);
+
+		new Float:currVelocity[3], Float:currTotalSpeed;
+		pev(victim, pev_velocity, currVelocity);
+		currTotalSpeed = xs_vec_len(currVelocity);
+
+		new Float:overspeed = currTotalSpeed - (prevTotalSpeed + get_pcvar_float(pcvar_kz_pure_max_damage_boost));
+		if (overspeed > 0.0)
+		{
+			// Downgrade run to Pro
+			clr_bit(g_baIsPureRunning, victim);
+		}
 	}
 }
 
@@ -6864,12 +6902,6 @@ public Fw_FmPlayerPreThinkPost(id)
 	if (g_RampFrameCounter[id] > 0)
 		g_RampFrameCounter[id] -= 1;
 
-	if (g_HBFrameCounter[id] > 0)
-	{
-		g_HBFrameCounter[id] -= 1;
-		CheckHealthBoost(id);
-	}
-
 	CheckSettings(id);
 
 	// Copy some settings to be able to log when the bug with settings being zeroed happens mid-game
@@ -7030,38 +7062,8 @@ public Fw_FmPlayerTouchTeleport(tp, id) {
 		g_hasSurfbugged[id] = false;
 		g_hasSlopebugged[id] = false;
 		g_RampFrameCounter[id] = 0;
-		g_HBFrameCounter[id] = 0;
     }
 
-}
-
-public Fw_FmPlayerTouchPush(push, id)
-{
-	if (is_user_alive(id))
-		CheckHealthBoost(id);
-}
-
-CheckHealthBoost(id)
-{
-	if (!get_pcvar_num(pcvar_kz_pure_allow_healthboost))
-	{
-		new Float:startSpeed = xs_vec_len_2d(g_Velocity[id]);
-		new Float:endSpeed = GetPlayerSpeed(id);
-		if (endSpeed > (startSpeed * 1.5) && endSpeed >= 2000.0)
-		{
-			// Very likely used healthboost, so this is not a pure run anymore
-			clr_bit(g_baIsPureRunning, id);
-			if (g_CpCounters[id][COUNTER_CP] || g_CpCounters[id][COUNTER_TP])
-				g_RunType[id] = "Noob";
-			else
-				g_RunType[id] = "Pro";
-
-			g_HBFrameCounter[id] = 0;
-
-			new ret;
-			ExecuteForward(mfwd_hlkz_cheating, ret, id);
-		}
-	}
 }
 
 CheckSpeedcap(id, bool:isAtStart = false)
@@ -7113,12 +7115,6 @@ CheckSpeedcap(id, bool:isAtStart = false)
 		cappedVelocity[2] = currVelocity[2];
 		set_pev(id, pev_velocity, cappedVelocity);
 	}
-}
-
-public Fw_FmPlayerTouchHealthBooster(hb, id)
-{
-	if (is_user_alive(id))
-		g_HBFrameCounter[id] = 250;
 }
 
 public Fw_FmPlayerPostThinkPre(id)
@@ -7210,10 +7206,6 @@ public Fw_FmPlayerPostThinkPre(id)
 			g_hasSlopebugged[id] = true;
 		}
 	}
-
-	if (g_HBFrameCounter[id] > 0)
-		CheckHealthBoost(id);
-
 	CheckSpeedcap(id);
 
 	// TODO: refactor, same code in StartClimb(), but sometimes it doesn't work there...
