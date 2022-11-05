@@ -29,7 +29,7 @@
 #include <chatcolor>
 #endif
 
-new const VERSION[] = "1.1.2";
+new const VERSION[] = "1.2.0-SR";
 
 #pragma semicolon 1
 
@@ -82,6 +82,8 @@ new szConfigFile[64];
 
 new Trie:g_iBlocksClass;
 
+new g_hCvarActionOnFall;
+
 new g_iMaxPlayers, g_iMaxEnts;
 #define IsPlayer(%1)	( 1 <= %1 <= g_iMaxPlayers )
 
@@ -106,6 +108,9 @@ public plugin_init()
 	register_clcmd("kz_showblocks", "ClCmd_ShowBlocks", ADMIN_CFG);
 
 	register_clcmd("fullupdate", "ClCmd_FullUpdate");
+
+	// 0 - nothing (able to stand still on block), 1 - teleport to last safe point, 2 - drop player from block
+	g_hCvarActionOnFall = register_cvar("kz_action_on_fall", "1");
 
 	register_menucmd(register_menuid("MpBhop Menu"), KEYS ,"MpBhopMenuAction");
 
@@ -499,7 +504,12 @@ public Touch_Block(iBlock, id)
 			return HAM_SUPERCEDE;
 		}
 
-		Util_TeleportPlayerBack( id );
+		switch (get_pcvar_num(g_hCvarActionOnFall))
+		{
+			case 1: Util_TeleportPlayerBack(id);
+			case 2: MoveToEdge(id, iBlock);
+			default: { /*do nothing*/ }
+		}
 	}
 	return HAM_SUPERCEDE;
 }
@@ -530,6 +540,58 @@ Util_TeleportPlayerBack(id)
 	set_pev(id, pev_gravity, g_flJumpGravity[id]);
 
 	set_pev(id, pev_fuser2, 0.0);
+}
+
+// Credits: Mistrick (https://forums.alliedmods.net/showpost.php?p=2700452&postcount=274)
+MoveToEdge(id, ent)
+{
+	new Float:dmins[3], Float:dmaxs[3];
+	pev(ent, pev_absmin, dmins);
+	pev(ent, pev_absmax, dmaxs);
+
+	new Float:tcenter[3];
+	tcenter[0] = (dmins[0] + dmaxs[0]) / 2.0;
+	tcenter[1] = (dmins[1] + dmaxs[1]) / 2.0;
+	tcenter[2] = dmaxs[2];
+
+	new Float:tmpvec[3], Float:tmpvec2[3];
+
+	tmpvec[0] = (dmaxs[0] + dmins[0]) / 2;
+	tmpvec[1] = dmaxs[1] + 20;
+	tmpvec[2] = dmaxs[2] + 20;
+
+	// TODO: cache fpos after first search
+	new Float:fpos[3];
+
+	trace_line(ent, tcenter, tmpvec, tmpvec2);
+	if (!trace_hull(tmpvec, HULL_HUMAN) && tmpvec2[2] == tmpvec[2])
+	{
+		fpos = tmpvec;
+	}
+	else
+	{
+		tmpvec[1] = dmins[1] - 20;
+		trace_line( ent, tcenter, tmpvec, tmpvec2 );
+		if (!trace_hull(tmpvec, HULL_HUMAN) && tmpvec2[2] == tmpvec[2])
+		{
+		    fpos = tmpvec;
+		}
+		else
+		{
+			tmpvec[0] = dmaxs[0] + 20;
+			tmpvec[1] = (dmaxs[1] + dmins[1]) / 2;
+			trace_line(ent, tcenter, tmpvec, tmpvec2);
+			if (!trace_hull(tmpvec, HULL_HUMAN) && tmpvec2[2] == tmpvec[2])
+			{
+				fpos = tmpvec;
+			} else {
+				tmpvec[0] = dmins[0] - 20;
+				fpos = tmpvec;
+			}
+		}
+	}
+	set_pev(id, pev_velocity, { 0.0, 0.0, -100.0 });
+	entity_set_origin(id, fpos);
 }
 
 public ConCmd_MpBhop(id, lvl, cid)
