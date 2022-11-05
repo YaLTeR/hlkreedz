@@ -29,7 +29,7 @@
 #include <chatcolor>
 #endif
 
-new const VERSION[] = "1.2.0-SR";
+new const VERSION[] = "1.2.1-SR";
 
 #pragma semicolon 1
 
@@ -70,7 +70,7 @@ new Float:g_flJumpAngles[ PLAYERS_ARRAY_SIZE ][3];
 new Float:g_flJumpGravity[ PLAYERS_ARRAY_SIZE ];
 
 new g_bBlocks[MAX_ENTSARRAYS_SIZE], g_bBlocksByPlugin[MAX_ENTSARRAYS_SIZE];
-new g_bOnGround, g_bTeleported, g_bAdmin;
+new g_bOnGround, g_bTeleported, g_bAdmin, g_bRunRestarted;
 
 new bool:g_bBlockEntityTouch;
 new bool:g_bActive;
@@ -251,6 +251,7 @@ public client_putinserver(id)
 	}
 	ClearIdBits(g_bOnGround, id);
 	ClearIdBits(g_bTeleported, id);
+	ClearIdBits(g_bRunRestarted, id);
 }
 
 public client_disconnect(id)
@@ -258,6 +259,7 @@ public client_disconnect(id)
 	ClearIdBits(g_bAdmin, id);
 	ClearIdBits(g_bOnGround, id);
 	ClearIdBits(g_bTeleported, id);
+	ClearIdBits(g_bRunRestarted, id);
 }
 
 public ClCmd_ShowBlocks(id, level, cid)
@@ -501,6 +503,35 @@ public Touch_Block(iBlock, id)
 		if( flTime - g_flFirstTouch[id] > 0.7 )
 		{
 			g_flFirstTouch[id] = flTime;
+			return HAM_SUPERCEDE;
+		}
+
+		if (GetIdBits(g_bRunRestarted, id))
+		{
+			MoveToEdge(id, iBlock);
+			ClearIdBits(g_bRunRestarted, id);
+
+			// After the MoveToEdge, you're still too close to the block, so if you happen to touch it
+			// before landing on a non-bhop-block, you will still get teleported to the last jump position,
+			// which could be right at the end button. So we override the jump position with the one where
+			// we teleported the player with MoveToEdge, so the next Util_TeleportPlayerBack can't possibly
+			// send you to the end button anymore. This behaviour is only for the first block touch after
+			// the run is started, so in case it leads to an annoying teleporting bug or something, at least
+			// it's only at the start, and you can probably just tp to the place where you pressed the start
+			// button through the commands provided by the kreedz plugin to get out of that situation
+			// Duck logic copied from PreThink
+			new Float:flVecOrigin[3];
+			pev(id, pev_origin, flVecOrigin);
+			if (pev(id, pev_flags) & FL_DUCKING)
+			{
+				flVecOrigin[2] += 18.0;
+				if (!trace_hull(flVecOrigin, HULL_HUMAN, id, IGNORE_MONSTERS))
+				{
+					flVecOrigin[2] -= 18.0;
+				}
+			}
+			xs_vec_copy(flVecOrigin, g_flJumpOrigin[id]);
+
 			return HAM_SUPERCEDE;
 		}
 
@@ -940,6 +971,11 @@ SetTriggerMultiple()
 			SetEntBits(g_bBlocks, iEnt);
 		}
 	}
+}
+
+public hlkz_timer_start(id)
+{
+	SetIdBits(g_bRunRestarted, id);
 }
 
 public plugin_end()

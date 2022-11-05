@@ -644,6 +644,7 @@ new pcvar_sv_ag_match_running;
 
 new mfwd_hlkz_cheating;
 new mfwd_hlkz_worldrecord;
+new mfwd_hlkz_timer_start;
 
 public plugin_precache()
 {
@@ -935,8 +936,9 @@ public plugin_init()
 	register_touch("monster_tripmine", "player", "Fw_FmPlayerTouchMonster");
 	register_touch("trigger_teleport", "player", "Fw_FmPlayerTouchTeleport");
 
-	mfwd_hlkz_cheating    = CreateMultiForward("hlkz_cheating", ET_IGNORE, FP_CELL);
+	mfwd_hlkz_cheating    = CreateMultiForward("hlkz_cheating",    ET_IGNORE, FP_CELL);
 	mfwd_hlkz_worldrecord = CreateMultiForward("hlkz_worldrecord", ET_IGNORE, FP_CELL, FP_CELL);
+	mfwd_hlkz_timer_start = CreateMultiForward("hlkz_timer_start", ET_IGNORE, FP_CELL);
 
 	register_message(get_user_msgid("Health"), "Fw_MsgHealth");
 	register_message(SVC_TEMPENTITY, "Fw_MsgTempEntity");
@@ -1108,6 +1110,7 @@ public plugin_end()
 
 	DestroyForward(mfwd_hlkz_cheating);
 	DestroyForward(mfwd_hlkz_worldrecord);
+	DestroyForward(mfwd_hlkz_timer_start);
 }
 
 // To be executed after cvars in amxx.cfg and other configs have been set,
@@ -4829,6 +4832,9 @@ StartTimer(id)
 {
 	g_RunStartTimestamp[id] = get_systime();
 	g_PlayerTime[id] = get_gametime();
+
+	new ret;
+	ExecuteForward(mfwd_hlkz_timer_start, ret, id);
 
 	if (g_ShowStartMsg[id])
 	{
