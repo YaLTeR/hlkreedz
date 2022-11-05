@@ -252,6 +252,10 @@ public client_putinserver(id)
 	ClearIdBits(g_bOnGround, id);
 	ClearIdBits(g_bTeleported, id);
 	ClearIdBits(g_bRunRestarted, id);
+
+	g_iBlock[id] = -1;
+	g_flFirstTouch[id] = 0.0;
+	g_iAdminDoor[id] = -1;
 }
 
 public client_disconnect(id)
@@ -260,6 +264,10 @@ public client_disconnect(id)
 	ClearIdBits(g_bOnGround, id);
 	ClearIdBits(g_bTeleported, id);
 	ClearIdBits(g_bRunRestarted, id);
+
+	g_iBlock[id] = -1;
+	g_flFirstTouch[id] = 0.0;
+	g_iAdminDoor[id] = -1;
 }
 
 public ClCmd_ShowBlocks(id, level, cid)
