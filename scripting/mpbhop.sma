@@ -436,6 +436,7 @@ public CBasePlayer_PreThink(id)
 						flVecOrigin[2] -= 18.0;
 						xs_vec_copy(flVecOrigin, g_flJumpOrigin[id]);
 						SetIdBits(g_bOnGround, id);
+						ClearIdBits(g_bRunRestarted, id);
 					}
 					else
 					{
@@ -447,6 +448,7 @@ public CBasePlayer_PreThink(id)
 				{
 					pev(id, pev_origin, g_flJumpOrigin[id]);
 					SetIdBits(g_bOnGround, id);
+					ClearIdBits(g_bRunRestarted, id);
 				}
 			}
 			else
