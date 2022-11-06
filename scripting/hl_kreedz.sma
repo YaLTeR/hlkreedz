@@ -8,6 +8,10 @@
 * Credit to Quaker for the snippet of setting light style (nightvision) https://github.com/skyrim/qmxx/blob/master/scripting/q_nightvision.sma
 */
 
+// HACK: remove_filepath() from string_stocks checks for '\' which we use as ctrlchar,
+// so we place the include before setting our ctrlchar to avoid it being used inside that include
+#include <string_stocks>
+
 #pragma semicolon 1
 #pragma ctrlchar '\'
 
@@ -191,7 +195,7 @@ enum _:CUP_REPLAY_ITEM
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.47";
+new const VERSION[] = "0.48";
 //new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the replay format changes
 new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, execut4ble, naz, mxpph";
 
@@ -201,7 +205,7 @@ new const MAP_BAN_MENU_ID[] = "Ban a map";
 new const MAP_PICK_MENU_ID[] = "Pick a map";
 
 new const CONFIGS_SUB_DIR[] = "hl_kreedz";
-new const PLUGIN_CFG_FILENAME[] = "hl_kreedz.cfg";
+new const PLUGIN_CFG_FILENAME[] = "hl_kreedz";
 new const PLUGIN_CFG_SHORTENED[] = "hlkz";
 new const MYSQL_LOG_FILENAME[] = "kz_mysql.log";
 new const HLKZ_LOG_FILENAME[] = "hl_kreedz.log";
@@ -1020,10 +1024,26 @@ public plugin_cfg()
 
 	// Execute custom config file
 	new cfg[256];
-	formatex(cfg, charsmax(cfg), "%s/%s", g_ConfigsDir, PLUGIN_CFG_FILENAME);
+	formatex(cfg, charsmax(cfg), "%s/%s.cfg", g_ConfigsDir, PLUGIN_CFG_FILENAME);
 	if (file_exists(cfg))
 	{
 		server_cmd("exec %s", cfg);
+		server_exec();
+	}
+
+	// Execute custom config file in a multi-instance server environment
+	// So you may have several hlds instances running with the same user and same files,
+	// and you want to configure different HLKZ databases for each instance. So here we're
+	// gonna rely on the `+servercfg` launch param, which you're probably already using
+	// with a different value for each server instance. If you have `+servercfg myinstance.cfg`,
+	// HLKZ is gonna search for hl_kreedz_myinstance.cfg in amxmodx/configs and execute it
+	new serverCfgPath[256], serverCfgFile[128], instanceCfgFile[256];
+	get_cvar_string("servercfgfile", serverCfgPath, charsmax(serverCfgPath));
+	remove_filepath(serverCfgPath, serverCfgFile, charsmax(serverCfgFile));
+	formatex(instanceCfgFile, charsmax(instanceCfgFile), "%s/%s_%s", g_ConfigsDir, PLUGIN_CFG_FILENAME, serverCfgFile);
+	if (file_exists(instanceCfgFile))
+	{
+		server_cmd("exec %s", instanceCfgFile);
 		server_exec();
 	}
 
