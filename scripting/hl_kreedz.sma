@@ -597,7 +597,7 @@ new pcvar_kz_pure_max_start_speed;
 new pcvar_kz_pure_limit_zone_speed;
 new pcvar_kz_pure_allow_healthboost;
 new pcvar_kz_remove_func_friction;
-new pcvar_kz_remove_func_conveyor;
+new pcvar_kz_invis_func_conveyor;
 new pcvar_kz_nightvision;
 new pcvar_kz_slopefix;
 new pcvar_kz_speedcap;
@@ -725,7 +725,7 @@ public plugin_init()
 
 	pcvar_kz_pure_allow_healthboost = register_cvar("kz_pure_allow_healthboost", "0");
 	pcvar_kz_remove_func_friction = register_cvar("kz_remove_func_friction", "0");
-	pcvar_kz_remove_func_conveyor = register_cvar("kz_remove_func_conveyor", "1");
+	pcvar_kz_invis_func_conveyor = register_cvar("kz_invis_func_conveyor", "1");
 
 	// 0 = disabled, 1 = all nightvision types allowed, 2 = only flashlight-like nightvision allowed, 3 = only map-global nightvision allowed
 	pcvar_kz_nightvision = register_cvar("kz_def_nightvision", "0");
@@ -2749,7 +2749,7 @@ CmdTp(id)
 
 CmdNoclip(id)
  {
- 	g_IsInNoclip[id] = get_user_noclip(id);
+	g_IsInNoclip[id] = get_user_noclip(id);
 	
 	if (get_pcvar_num(pcvar_kz_noclip) == 0)
 	{
@@ -2762,29 +2762,29 @@ CmdNoclip(id)
 		return;
 	}
 	
-	if (g_IsInNoclip[id] == false) 			 // enter noclip
+	if (g_IsInNoclip[id] == false)           // enter noclip
 	{	
 		if (g_RunMode[id] || g_RunModeStarting[id] != MODE_NORMAL)
 		{
 			client_print(id, print_chat, "[%s] No cheating in a race or a no-reset run!", PLUGIN_TAG);
 			return;
 		}
-		CmdPracticeCp(id);					// create a cp to return to when disabling noclip
+		CmdPracticeCp(id);                   // create a cp to return to when disabling noclip
 		g_IsInNoclip[id] = true;
 		g_CheatCommandsGuard[id] = 1;				
-		set_user_noclip(id, 1);				//turn on noclip
+		set_user_noclip(id, 1);              //turn on noclip
 		ResetPlayer(id)
 		client_print(id, print_chat, "[%s] Noclip enabled", PLUGIN_TAG);
 		return;
 	}
-	else									// exit noclip
+	else                                     // exit noclip
 	{	
 		g_IsInNoclip[id] = false;
 		g_CheatCommandsGuard[id] = 0;
-		set_user_noclip(id, 0);				// turn off noclip
+		set_user_noclip(id, 0);              // turn off noclip
 		client_print(id, print_chat, "[%s] Noclip disabled", PLUGIN_TAG);
 		ResetPlayer(id)
-		CmdPracticeTp(id);					// return to cp made when entering noclip
+		CmdPracticeTp(id);                   // return to cp made when entering noclip
 		return;
 	}
 }
@@ -3734,7 +3734,7 @@ CmdHelp(id)
 		/slopefix - toggle slopebug/surfbug fix, if you get stuck in little slopes disable it\n\
 		/speedcap <#> - set your horizontal speed limit\n\
 		/hudcolor <#> <#> <#> - set custom HUD color (R, G, B)\n\
-		/hudcolor - <red|green|blue|cyan|magenta|yellow|gray|white>\n\
+		/hudcolor <red|green|blue|cyan|magenta|yellow|gray|white>\n\
 		/kzhelp - this motd\n");
 
 	formatex(motd[len], charsmax(motd) - len,
@@ -7565,7 +7565,7 @@ bool:IsLiquid(ent)
 	if (equali(className, "func_water", 10))
 		return true;
 
-	if (equali(className, "func_conveyor", 13) && get_pcvar_num(pcvar_kz_remove_func_conveyor) == 1)
+	if (equali(className, "func_conveyor", 13) && get_pcvar_num(pcvar_kz_invis_func_conveyor) == 1)
 		return true;
 
 	if (equali(className, "func_illusionary"))
