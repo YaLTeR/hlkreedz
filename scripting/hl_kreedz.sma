@@ -362,6 +362,7 @@ new Array:g_PbSplits[MAX_PLAYERS + 1][RUN_TYPE];      // Split times of PB run
 new Array:g_PbLaps[MAX_PLAYERS + 1][RUN_TYPE];        // Lap times of PB run
 new bool:g_PbSplitsUpToDate[MAX_PLAYERS + 1];         // To decide whether to retrieve split/lap times again
 new bool:g_IsUsingSplits[MAX_PLAYERS + 1];
+new bool:g_IsInNoclip[MAX_PLAYERS + 1];
 
 // Splits stuff
 new Trie:g_Splits;                       // split id -> SPLIT struct
@@ -596,6 +597,7 @@ new pcvar_kz_pure_max_start_speed;
 new pcvar_kz_pure_limit_zone_speed;
 new pcvar_kz_pure_allow_healthboost;
 new pcvar_kz_remove_func_friction;
+new pcvar_kz_invis_func_conveyor;
 new pcvar_kz_nightvision;
 new pcvar_kz_slopefix;
 new pcvar_kz_speedcap;
@@ -625,6 +627,7 @@ new pcvar_kz_noreset_countdown; // default countdown for no-reset runs
 new pcvar_kz_race_countdown;    // countdown for races done with custom kz votes
 new pcvar_kz_vote_hold_time;    // time that the vote will appear and be votable
 new pcvar_kz_vote_wait_time;    // minimum time to make a new vote since the last one
+new pcvar_kz_noclip;
 
 new Handle:g_DbHost;
 new Handle:g_DbConnection;
@@ -722,6 +725,7 @@ public plugin_init()
 
 	pcvar_kz_pure_allow_healthboost = register_cvar("kz_pure_allow_healthboost", "0");
 	pcvar_kz_remove_func_friction = register_cvar("kz_remove_func_friction", "0");
+	pcvar_kz_invis_func_conveyor = register_cvar("kz_invis_func_conveyor", "1");
 
 	// 0 = disabled, 1 = all nightvision types allowed, 2 = only flashlight-like nightvision allowed, 3 = only map-global nightvision allowed
 	pcvar_kz_nightvision = register_cvar("kz_def_nightvision", "0");
@@ -764,6 +768,7 @@ public plugin_init()
 	pcvar_kz_cup_map_change_delay = register_cvar("kz_cup_map_change_delay", "12.0");
 
 	pcvar_kz_stop_moving_platforms = register_cvar("kz_stop_moving_platforms", "0");
+	pcvar_kz_noclip = register_cvar("kz_noclip", "0"); // Whether or not /noclip is allowed 
 
 	pcvar_kz_noreset_agstart   = register_cvar("kz_noreset_agstart", "0");
 	//pcvar_kz_noreset_race      = register_cvar("kz_noreset_race", "0");
@@ -2079,7 +2084,7 @@ Array:GetCupReplays()
 		ArrayPushArray(result, cupReplayItem);
 	}
 
-    return result;
+	return result;
 }
 
 public HandleCupReplaysMenu(id, menu, item)
@@ -2207,6 +2212,7 @@ public client_disconnect(id)
 	g_PlayerRunReqs[id] = 0;
 
 	g_IsValidStart[id] = false;
+	g_IsInNoclip[id] = false;
 
 	g_RaceId[id] = 0;
 	g_RunMode[id] = MODE_NORMAL;
@@ -2741,6 +2747,48 @@ CmdTp(id)
 		Teleport(id, CP_TYPE_CURRENT);
 }
 
+CmdNoclip(id)
+ {
+	g_IsInNoclip[id] = get_user_noclip(id);
+	
+	if (get_pcvar_num(pcvar_kz_noclip) == 0)
+	{
+		client_print(id, print_chat, "[%s] Noclip is not enabled on this server.", PLUGIN_TAG);
+		return;
+	}
+	if (!IsAlive(id) || pev(id, pev_iuser1))
+	{
+		client_print(id, print_chat, "[%s] You must be alive to use this command.", PLUGIN_TAG);
+		return;
+	}
+	
+	if (g_IsInNoclip[id] == false)           // enter noclip
+	{	
+		if (g_RunMode[id] || g_RunModeStarting[id] != MODE_NORMAL)
+		{
+			client_print(id, print_chat, "[%s] No cheating in a race or a no-reset run!", PLUGIN_TAG);
+			return;
+		}
+		CmdPracticeCp(id);                   // create a cp to return to when disabling noclip
+		g_IsInNoclip[id] = true;
+		g_CheatCommandsGuard[id] = 1;				
+		set_user_noclip(id, 1);              //turn on noclip
+		ResetPlayer(id)
+		client_print(id, print_chat, "[%s] Noclip enabled", PLUGIN_TAG);
+		return;
+	}
+	else                                     // exit noclip
+	{	
+		g_IsInNoclip[id] = false;
+		g_CheatCommandsGuard[id] = 0;
+		set_user_noclip(id, 0);              // turn off noclip
+		client_print(id, print_chat, "[%s] Noclip disabled", PLUGIN_TAG);
+		ResetPlayer(id)
+		CmdPracticeTp(id);                   // return to cp made when entering noclip
+		return;
+	}
+}
+
 CmdPracticeCp(id)
 {
 	if (CanCreateCp(id, true, true))
@@ -2823,6 +2871,12 @@ CmdStartNr(id)
 		CmdStart(id);
 		return;
 	}
+	
+	if (g_IsInNoclip[id])
+	{
+		client_print(id, print_chat, "[%s] Disable noclip to start a no-reset run.", PLUGIN_TAG);
+		return;
+	}
 
 	if (g_RunLaps)
 	{
@@ -2871,6 +2925,10 @@ CmdSpecList(id)
 
 CmdSpec(id)
 {
+	if (g_IsInNoclip[id]) //exit noclip, prevents the game saying you are cheating when exiting spec
+	{
+		CmdNoclip(id);
+	}
 	client_cmd(id, "spectate");	// CanSpectate is called inside of command hook handler
 }
 
@@ -3608,6 +3666,12 @@ CmdRespawn(id)
 		ShowMessage(id, "You can't respawn during a race or No-Reset run");
 		return;
 	}
+	
+	if (g_IsInNoclip[id])
+	{
+		client_print(id, print_chat, "[%s] Exit noclip to respawn.", PLUGIN_TAG);
+		return;
+	}
 
 	ResetPlayer(id, false, true);
 
@@ -3914,6 +3978,9 @@ public CmdSayHandler(id, level, cid)
 	{
 		CmdHudColor(id);
 	}
+	
+	else if (containi(args[1], "noclip") == 0)
+		CmdNoclip(id);
 /*
 	else if (containi(args[1], "pov") == 0)
 	{
@@ -4042,6 +4109,11 @@ bool:CanCreateCp(id, bool:showMessages = true, bool:practiceMode = false)
 			if (showMessages) ShowMessage(id, "You must be on the ground");
 			return false;
 		}
+	}
+	if (g_IsInNoclip[id])
+	{
+		client_print(id, print_chat, "[%s] You can't create a checkpoint in noclip.", PLUGIN_TAG);
+		return false;
 	}
 
 	return true;
@@ -4582,7 +4654,7 @@ ResetRecording(id)
 
 StartClimb(id, bool:isMatch = false)
 {
-	if (g_CheatCommandsGuard[id])
+	if (g_CheatCommandsGuard[id] || g_IsInNoclip[id])
 	{
 		if(get_pcvar_num(pcvar_kz_denied_sound))
 		{
@@ -4646,7 +4718,7 @@ FinishClimb(id)
 {
 	new kzDeniedSound = get_pcvar_bool(pcvar_kz_denied_sound);
 	new bool:canFinish = true;
-	if (g_CheatCommandsGuard[id])
+	if (g_CheatCommandsGuard[id] || g_IsInNoclip[id])
 	{
 		ShowMessage(id, "Using timer while cheating is prohibited");
 		canFinish = false;
@@ -7493,7 +7565,7 @@ bool:IsLiquid(ent)
 	if (equali(className, "func_water", 10))
 		return true;
 
-	if (equali(className, "func_conveyor", 13))
+	if (equali(className, "func_conveyor", 13) && get_pcvar_num(pcvar_kz_invis_func_conveyor) == 1)
 		return true;
 
 	if (equali(className, "func_illusionary"))
@@ -7664,6 +7736,11 @@ CmdStartNoReset(id)
 		ShowMessage(id, "Cannot start. There's a vote running that can potentially interrupt your run");
 		return PLUGIN_HANDLED;
 	}
+	if (g_IsInNoclip[id])
+	{
+		client_print(id, print_chat, "[%s] Disable noclip to start a no-reset run.", PLUGIN_TAG);
+		return PLUGIN_HANDLED;
+	}
 
 	FreezePlayer(id);
 
@@ -7694,9 +7771,9 @@ CmdStartNoReset(id)
 
 StartRace(id)
 {
-	if (pev(id, pev_iuser1))
+	if (pev(id, pev_iuser1) || g_IsInNoclip[id])
 	{
-		ShowMessage(id, "You can't participate in races while being in spectator mode");
+		ShowMessage(id, "You can't participate in races while being in spectator mode or noclip.");
 		return;
 	}
 
@@ -8798,6 +8875,11 @@ public CmdSetCustomStartHandler(id)
 	if (!IsValidPlaceForCp(id))
 	{
 		ShowMessage(id, "You must be on the ground");
+		return PLUGIN_HANDLED;
+	}
+	if (g_IsInNoclip[id])
+	{
+		ShowMessage(id, "You must not be in noclip to use this command.");
 		return PLUGIN_HANDLED;
 	}
 
