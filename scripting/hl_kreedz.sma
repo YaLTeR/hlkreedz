@@ -207,6 +207,7 @@ new const MAP_PICK_MENU_ID[] = "Pick a map";
 new const CONFIGS_SUB_DIR[] = "hl_kreedz";
 new const PLUGIN_CFG_FILENAME[] = "hl_kreedz";
 new const PLUGIN_CFG_SHORTENED[] = "hlkz";
+new const REPLAYS_DIR_NAME[] = "replays";
 new const MYSQL_LOG_FILENAME[] = "kz_mysql.log";
 new const HLKZ_LOG_FILENAME[] = "hl_kreedz.log";
 new const MAP_POOL_FILE[] = "map_pool.ini";
@@ -611,6 +612,7 @@ new pcvar_kz_autorecord;
 new pcvar_kz_max_concurrent_replays;
 new pcvar_kz_max_replay_duration;
 new pcvar_kz_replay_setup_time;
+new pcvar_kz_replay_dir_suffix;
 new pcvar_kz_spec_unfreeze;
 new pcvar_kz_denied_sound;
 new pcvar_sv_items_respawn_time;
@@ -746,6 +748,8 @@ public plugin_init()
 	pcvar_kz_max_concurrent_replays = register_cvar("kz_max_concurrent_replays", "5");
 	pcvar_kz_max_replay_duration = register_cvar("kz_max_replay_duration", "1200");  // in seconds (default: 20 minutes)
 	pcvar_kz_replay_setup_time = register_cvar("kz_replay_setup_time", "2");  // in seconds
+	pcvar_kz_replay_dir_suffix = register_cvar("kz_replay_dir_suffix", "");
+
 	pcvar_kz_spec_unfreeze = register_cvar("kz_spec_unfreeze", "1");  // unfreeze spectator cam when watching a replaybot teleport
 
 	pcvar_allow_spectators = get_cvar_pointer("allow_spectators");
@@ -1061,9 +1065,35 @@ public plugin_cfg()
 	if (!dir_exists(g_ConfigsDir))
 		mkdir(g_ConfigsDir);
 
-	formatex(g_ReplaysDir, charsmax(g_ReplaysDir), "%s/%s", g_ConfigsDir, "replays");
-	if (!dir_exists(g_ReplaysDir))
-		mkdir(g_ReplaysDir);
+	// Get/prepare the different possible replay directories:
+	// 1. Check the directory specified by cvar, useful for servers with shared folders
+	// 2. Or check for the directory specific for this server instance in a multi-instance environment
+	// 3. Otherwise just go for the "replays" directory
+	// The instance name should be the value of +servercfgfile minus the extension (".cfg")
+	new suffix[128];
+	if (get_pcvar_string(pcvar_kz_replay_dir_suffix, suffix, charsmax(suffix)) > 0)
+	{
+		formatex(g_ReplaysDir, charsmax(g_ReplaysDir), "%s/%s_%s", g_ConfigsDir, REPLAYS_DIR_NAME, suffix);
+		if (!dir_exists(g_ReplaysDir))
+			mkdir(g_ReplaysDir);
+	}
+	else
+	{
+		new instanceName[sizeof(serverCfgFile) - 4];
+		copy(instanceName, strlen(serverCfgFile) - 4, serverCfgFile);
+		formatex(g_ReplaysDir, charsmax(g_ReplaysDir), "%s/%s_%s", g_ConfigsDir, REPLAYS_DIR_NAME, instanceName);
+		// Don't create a folder for the replays of this instance, we expect the admin to create it, because
+		// +servercfgfile is set always (i guess?), so since it always has a value we can't know if you actually
+		// want to separate this instance's replays from the other servers until you indicate it by creating the folder
+		if (!dir_exists(g_ReplaysDir))
+		{
+			// Fall back to the default folder
+			formatex(g_ReplaysDir, charsmax(g_ReplaysDir), "%s/%s", g_ConfigsDir, REPLAYS_DIR_NAME);
+			if (!dir_exists(g_ReplaysDir))
+				mkdir(g_ReplaysDir);
+		}
+	}
+	server_print("[%s] Replays dir: %s", PLUGIN_TAG, g_ReplaysDir);
 
 	formatex(g_PlayersDir, charsmax(g_PlayersDir), "%s/%s", g_ConfigsDir, "players");
 	if (!dir_exists(g_PlayersDir))
