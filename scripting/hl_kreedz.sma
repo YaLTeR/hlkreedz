@@ -82,6 +82,7 @@
 #define START_ZONE_ALLOWED_PRESPEED     540.0
 #define START_BUTTON_ALLOWED_PRESPEED   50.0
 #define MAX_MAP_INSERTIONS_AT_ONCE      7
+#define DEFAULT_HLKZ_NOCLIP_SPEED       800.0
 
 // https://github.com/ValveSoftware/halflife/blob/c7240b965743a53a29491dd49320c88eecf6257b/dlls/triggers.cpp#L1013
 #define TRIGGER_HURT_DAMAGE_TIME        0.5
@@ -345,7 +346,7 @@ new g_RunStartTimestamp[MAX_PLAYERS + 1];
 new Float:g_PlayerTime[MAX_PLAYERS + 1];
 new Float:g_PlayerTimePause[MAX_PLAYERS + 1];
 new g_SolidState[MAX_PLAYERS + 1];
-new g_LastButtons[MAX_PLAYERS + 1];
+new g_LastButtons[MAX_PLAYERS + 1];  // only for HUD; for any other usage, use g_Buttons instead
 new g_LastSentButtons[MAX_PLAYERS + 1];
 new Float:g_LastPressedJump[MAX_PLAYERS + 1];
 new Float:g_LastPressedDuck[MAX_PLAYERS + 1];
@@ -367,7 +368,10 @@ new Array:g_PbSplits[MAX_PLAYERS + 1][RUN_TYPE];      // Split times of PB run
 new Array:g_PbLaps[MAX_PLAYERS + 1][RUN_TYPE];        // Lap times of PB run
 new bool:g_PbSplitsUpToDate[MAX_PLAYERS + 1];         // To decide whether to retrieve split/lap times again
 new bool:g_IsUsingSplits[MAX_PLAYERS + 1];
+
 new bool:g_IsInNoclip[MAX_PLAYERS + 1];
+new Float:g_NoclipTargetSpeed[MAX_PLAYERS + 1];  // max speed to reach when noclipping
+
 
 // Splits stuff
 new Trie:g_Splits;                       // split id -> SPLIT struct
@@ -436,8 +440,8 @@ new Float:g_LastFrameTime[MAX_PLAYERS + 1];
 new g_RunFrameCount[MAX_PLAYERS + 1];
 new g_LastSpawnedBot;
 
-new g_FrameTime[MAX_PLAYERS + 1][2];
-new Float:g_FrameTimeInMsec[MAX_PLAYERS + 1];
+new g_FrameTimeMs[MAX_PLAYERS + 1][2];
+new Float:g_FrameTime[MAX_PLAYERS + 1];
 
 new g_ControlPoints[MAX_PLAYERS + 1][CP_TYPES][CP_DATA];
 new g_CpCounters[MAX_PLAYERS + 1][COUNTERS];
@@ -448,7 +452,7 @@ new Float:g_PrevOrigin[MAX_PLAYERS + 1][3];
 new Float:g_Origin[MAX_PLAYERS + 1][3];
 new Float:g_Angles[MAX_PLAYERS + 1][3];
 new Float:g_ViewOfs[MAX_PLAYERS + 1][3];
-new g_Impulses[MAX_PLAYERS + 1];
+//new g_Impulses[MAX_PLAYERS + 1];
 new g_Buttons[MAX_PLAYERS + 1];
 new bool:g_bIsSurfing[MAX_PLAYERS + 1];
 new bool:g_bWasSurfing[MAX_PLAYERS + 1];
@@ -634,6 +638,7 @@ new pcvar_kz_race_countdown;    // countdown for races done with custom kz votes
 new pcvar_kz_vote_hold_time;    // time that the vote will appear and be votable
 new pcvar_kz_vote_wait_time;    // minimum time to make a new vote since the last one
 new pcvar_kz_noclip;
+new pcvar_kz_noclip_speed;
 
 new Handle:g_DbHost;
 new Handle:g_DbConnection;
@@ -778,7 +783,8 @@ public plugin_init()
 	pcvar_kz_cup_map_change_delay = register_cvar("kz_cup_map_change_delay", "12.0");
 
 	pcvar_kz_stop_moving_platforms = register_cvar("kz_stop_moving_platforms", "0");
-	pcvar_kz_noclip = register_cvar("kz_noclip", "0"); // Whether or not /noclip is allowed 
+	pcvar_kz_noclip = register_cvar("kz_noclip", "0"); // Whether or not /noclip is allowed
+	pcvar_kz_noclip_speed = create_cvar("kz_noclip_speed", "0", _, "Max movement speed with noclip, players can't set their speed higher than this. 0 = no limits", true, 0.0);
 
 	pcvar_kz_noreset_agstart   = register_cvar("kz_noreset_agstart", "0");
 	//pcvar_kz_noreset_race      = register_cvar("kz_noreset_race", "0");
@@ -2183,6 +2189,8 @@ public client_putinserver(id)
 	g_ConsolePrintNextFrames[id] = 0;
 	g_ReplayFpsMultiplier[id] = 1;
 
+	g_IsInNoclip[id] = false;
+
 	g_RaceId[id] = 0;
 	g_RunModeStarting[id] = MODE_NORMAL;
 	g_RunStartTime[id] = 0.0;
@@ -2393,6 +2401,8 @@ InitPlayerSettings(id)
 	g_Speedcap[id] = get_pcvar_float(pcvar_kz_speedcap);
 	g_Prespeedcap[id] = 1;
 
+	g_NoclipTargetSpeed[id] = DEFAULT_HLKZ_NOCLIP_SPEED;
+
 	g_ShowSpeed[id]                  = false;
 	g_ShowDistance[id]               = false;
 	g_ShowHeightDiff[id]             = false;
@@ -2517,6 +2527,7 @@ LoadPlayerSettings(id)
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "prespeedcap",        g_Prespeedcap[id]);
 	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "run_countdown",      g_RunCountdown[id]);
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown",    g_TpOnCountdown[id]);
+	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "noclip_speed",       g_NoclipTargetSpeed[id]);
 
 	// TODO: load run stats, in case we're in a NR run and come back later to finish it
 
@@ -2582,6 +2593,7 @@ SavePlayerSettings(id)
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "prespeedcap",        g_Prespeedcap[id]);
 	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "run_countdown",      g_RunCountdown[id]);
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown",    g_TpOnCountdown[id]);
+	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "noclip_speed",       g_NoclipTargetSpeed[id]);
 
 	// TODO: save run stats and position, in case we're in a NR run and come back later to finish it
 }
@@ -2824,23 +2836,48 @@ CmdNoclip(id)
 			return;
 		}
 		CmdPracticeCp(id);                   // create a cp to return to when disabling noclip
+		set_user_noclip(id, 1);              // turn on noclip
+		HandleNoclipCheating(id);
 		g_IsInNoclip[id] = true;
-		g_CheatCommandsGuard[id] = 1;				
-		set_user_noclip(id, 1);              //turn on noclip
 		ResetPlayer(id)
 		client_print(id, print_chat, "[%s] Noclip enabled", PLUGIN_TAG);
 		return;
 	}
 	else                                     // exit noclip
 	{	
-		g_IsInNoclip[id] = false;
-		g_CheatCommandsGuard[id] = 0;
 		set_user_noclip(id, 0);              // turn off noclip
+		set_user_velocity(id, {0.0, 0.0, 0.0})  // just in case
+		HandleNoclipCheating(id);
+		g_IsInNoclip[id] = false;
 		client_print(id, print_chat, "[%s] Noclip disabled", PLUGIN_TAG);
 		ResetPlayer(id)
 		CmdPracticeTp(id);                   // return to cp made when entering noclip
 		return;
 	}
+}
+
+CmdNoclipSpeed(id)
+{
+	new Float:allowedSpeed = get_pcvar_float(pcvar_kz_noclip_speed);
+	new Float:desiredSpeed = GetFloatArg();
+
+	if (allowedSpeed && desiredSpeed > allowedSpeed)
+	{
+		g_NoclipTargetSpeed[id] = allowedSpeed;
+		ShowMessage(id, "Horizontal noclip max speed set to %.2f (max. allowed)", allowedSpeed);
+	}
+	else if (desiredSpeed <= 0.0)
+	{
+		g_NoclipTargetSpeed[id] = 0.0;
+		ShowMessage(id, "Your horizontal noclip max speed is back to normal (%.2f?)", get_cvar_float("sv_maxspeed"));
+	}
+	else
+	{
+		g_NoclipTargetSpeed[id] = desiredSpeed;
+		ShowMessage(id, "Your horizontal noclip max speed is now: %.2f", g_NoclipTargetSpeed[id]);
+	}
+
+ 	return PLUGIN_HANDLED;
 }
 
 CmdPracticeCp(id)
@@ -3936,7 +3973,9 @@ public CmdSayHandler(id, level, cid)
 
 	else if (equali(args[1], "runstats_con") || equali(args[1], "runstats_console"))
 		CmdShowRunStatsOnConsole(id);
-
+	
+	else if (equali(args[1], "noclip"))
+		CmdNoclip(id);
 
 	// The ones below use containi() because they can be passed parameters
 	else if (containi(args[1], "alignvote") == 0)
@@ -4033,8 +4072,8 @@ public CmdSayHandler(id, level, cid)
 		CmdHudColor(id);
 	}
 	
-	else if (containi(args[1], "noclip") == 0)
-		CmdNoclip(id);
+	else if (containi(args[1], "noclipspeed") == 0)
+		CmdNoclipSpeed(id);
 /*
 	else if (containi(args[1], "pov") == 0)
 	{
@@ -6911,11 +6950,11 @@ public Fw_FmGetGameDescriptionPre()
 
 public Fw_FmCmdStartPre(id, uc_handle, seed)
 {
-	g_FrameTime[id][1] = g_FrameTime[id][0];
-	g_FrameTime[id][0] = get_uc(uc_handle, UC_Msec);
-	g_FrameTimeInMsec[id] = g_FrameTime[id][0] * 0.001;
-	g_Buttons[id] = get_uc(uc_handle, UC_Buttons);
-	g_Impulses[id] = get_uc(uc_handle, UC_Impulse);
+	g_FrameTimeMs[id][1] = g_FrameTimeMs[id][0];
+	g_FrameTimeMs[id][0] = get_uc(uc_handle, UC_Msec);
+	g_FrameTime[id] = g_FrameTimeMs[id][0] * 0.001;
+	//g_Buttons[id] = get_uc(uc_handle, UC_Buttons);
+	//g_Impulses[id] = get_uc(uc_handle, UC_Impulse);
 }
 
 public Fw_MsgTempEntity()
@@ -6975,6 +7014,7 @@ public Fw_FmPlayerPreThinkPost(id)
 	pev(id, pev_angles, g_Angles[id]);
 	pev(id, pev_view_ofs, g_ViewOfs[id]);
 	pev(id, pev_velocity, g_Velocity[id]);
+	g_Buttons[id] = pev(id, pev_button);
 	//console_print(id, "sequence: %d, pev_gaitsequence: %d", pev(id, pev_sequence), pev(id, pev_gaitsequence));
 
 	// Store pressed keys here, cos HUD updating is called not so frequently
@@ -6998,8 +7038,15 @@ public Fw_FmPlayerPreThinkPost(id)
 	else if (g_Unfreeze[id])
 		g_Unfreeze[id]++;
 
-	CheckSpeedcap(id);
+	// When a player dies, noclip apparently gets removed, and I don't know in what other cases it can get removed
+	// So we track the state of it every frame... otherwise we could lose track and give them the noclipspeed when
+	// they don't want to or in a way that it can be abused
+	HandleNoclipCheating(id);
 
+	if (g_IsInNoclip[id] || pev(id, pev_iuser1) == OBS_ROAMING)
+		CheckNoclipSpeed(id);
+	else
+		CheckSpeedcap(id);
 
 	if (IsHltv(id) || !get_pcvar_num(pcvar_kz_semiclip) || pev(id, pev_iuser1))
 		return;
@@ -7122,6 +7169,101 @@ public Fw_FmPlayerTouchTeleport(tp, id) {
 
 }
 
+HandleNoclipCheating(id)
+{
+	new isNoclip = get_user_noclip(id);
+	if (isNoclip && !g_IsInNoclip[id])
+	{
+		// Player has just started noclipping
+		g_CheatCommandsGuard[id] |= (1 << 3);
+	}
+	else if (!isNoclip && g_IsInNoclip[id])
+	{
+		// Player has just stopped noclipping
+		g_CheatCommandsGuard[id] &= ~(1 << 3);
+	}
+	g_IsInNoclip[id] = isNoclip;
+
+	if (g_CheatCommandsGuard[id] & (1 << 3))
+	{
+		new ret;
+		ExecuteForward(mfwd_hlkz_cheating, ret, id);
+	}
+}
+
+CheckNoclipSpeed(id)
+{
+	if (!HasMovementKeys(g_Buttons[id]) || g_NoclipTargetSpeed[id] <= 0.0)
+		return;
+
+	new Float:allowedSpeed = get_pcvar_float(pcvar_kz_noclip_speed);
+	if (allowedSpeed && g_NoclipTargetSpeed[id] > allowedSpeed)
+		g_NoclipTargetSpeed[id] = allowedSpeed;
+
+	new Float:addedVelocity[3], Float:totalVelocity[3], Float:inputAddedVelocity[3], Float:inputTotalVelocity[3];
+	new Float:vAngles[3], Float:forwardMove[3], Float:rightMove[3];
+	pev(id, pev_v_angle, vAngles);
+	angle_vector(vAngles, ANGLEVECTOR_FORWARD, forwardMove);
+	angle_vector(vAngles, ANGLEVECTOR_RIGHT, rightMove);
+	
+	new Float:input[3];
+	if (g_Buttons[id] & IN_FORWARD)
+		input[0]++;
+
+	if (g_Buttons[id] & IN_BACK)
+		input[0]--;
+
+	if (g_Buttons[id] & IN_MOVELEFT)
+		input[1]--;
+
+	if (g_Buttons[id] & IN_MOVERIGHT)
+		input[1]++;
+
+	new Float:inputLen = xs_vec_len_2d(input);  // should we care about Z?
+	new Float:auxSpeed = g_NoclipTargetSpeed[id];
+	if (pev(id, pev_iuser1) != OBS_ROAMING)
+	{
+		// Game already moves you at sv_maxspeed when noclipping, so we have
+		// to add speed on top of what the game already does, so if we want
+		// 1000 speed and the normal noclip is 300, we have to handle the
+		// movement for the remaining 700 speed
+		// But spectator mode's Free Roaming is handled differently, we don't
+		// need to do anything for that apparently, we handle the whole thing
+		auxSpeed -= get_cvar_float("sv_maxspeed");
+	}
+	
+	// If you're pressing forward and right with a noclip maxspeed of 800, the x velocity should be 565
+	// and the y velocity 565 too, so that the total speed is 800; so that's what we do here
+	for (new i = 0; i < 3; i++)
+	{
+		inputAddedVelocity[i] = (auxSpeed * input[i]) / inputLen;
+		inputTotalVelocity[i] = (g_NoclipTargetSpeed[id] * input[i]) / inputLen;
+	}
+
+	// Then we have to account for the viewangles, so if you're looking upwards for example,
+	// the forward movement gets translated to upwards velocity
+	for (new i = 0; i < 3; i++)
+	{
+		addedVelocity[i] = forwardMove[i] * inputAddedVelocity[0] + rightMove[i] * inputAddedVelocity[1];
+		totalVelocity[i] = forwardMove[i] * inputTotalVelocity[0] + rightMove[i] * inputTotalVelocity[1];
+	}
+
+	// Account for +moveup or +movedown i guess
+	addedVelocity[2] += inputAddedVelocity[2];
+	totalVelocity[2] += inputTotalVelocity[2];
+
+	if (xs_vec_len(totalVelocity) <= 0.0)
+		return;
+
+	// Calculate the new origin with this extra speed
+	xs_vec_add_scaled(g_Origin[id], addedVelocity, g_FrameTime[id], g_Origin[id]);
+	set_pev(id, pev_origin, g_Origin[id]);
+
+	// Update the velocity too so that the HUD shows it correctly (at least /speed, maybe not the client's hud_speedometer)
+	xs_vec_copy(totalVelocity, g_Velocity[id]);
+	set_pev(id, pev_velocity, totalVelocity);
+}
+
 CheckSpeedcap(id, bool:isAtStart = false)
 {
 	new Float:currVelocity[3];
@@ -7195,9 +7337,9 @@ public Fw_FmPlayerPostThinkPre(id)
 		new Float:pGravity;
 		pev(id, pev_gravity, pGravity);
 
-		futureOrigin[0] = currOrigin[0] + g_Velocity[id][0] * g_FrameTimeInMsec[id];
-		futureOrigin[1] = currOrigin[1] + g_Velocity[id][1] * g_FrameTimeInMsec[id];
-		futureOrigin[2] = currOrigin[2] + 0.4 + g_FrameTimeInMsec[id] * (g_Velocity[id][2] - pGravity * svGravity * g_FrameTimeInMsec[id] / 2);
+		futureOrigin[0] = currOrigin[0] + g_Velocity[id][0] * g_FrameTime[id];
+		futureOrigin[1] = currOrigin[1] + g_Velocity[id][1] * g_FrameTime[id];
+		futureOrigin[2] = currOrigin[2] + 0.4 + g_FrameTime[id] * (g_Velocity[id][2] - pGravity * svGravity * g_FrameTime[id] / 2);
 
 		futureVelocity = g_Velocity[id];
 		futureVelocity[2] += 0.1;
@@ -7262,7 +7404,9 @@ public Fw_FmPlayerPostThinkPre(id)
 			g_hasSlopebugged[id] = true;
 		}
 	}
-	CheckSpeedcap(id);
+	
+	if (!g_IsInNoclip[id] && pev(id, pev_iuser1) != OBS_ROAMING)
+		CheckSpeedcap(id);
 
 	// TODO: refactor, same code in StartClimb(), but sometimes it doesn't work there...
 	// e.g.: in kz_cargo, or hl1_bhop_oar_beta with normal /start, not custom or practice cp

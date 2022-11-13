@@ -537,3 +537,8 @@ DestroyMenus(id)
 	if (newmenu != -1)
 		menu_destroy(newmenu);
 }
+
+bool:HasMovementKeys(buttons)
+{
+	return buttons & IN_MOVELEFT || buttons & IN_MOVERIGHT || buttons & IN_FORWARD || buttons && IN_BACK;
+}
