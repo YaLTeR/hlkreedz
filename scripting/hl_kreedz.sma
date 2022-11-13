@@ -87,6 +87,11 @@
 // https://github.com/ValveSoftware/halflife/blob/c7240b965743a53a29491dd49320c88eecf6257b/dlls/triggers.cpp#L1013
 #define TRIGGER_HURT_DAMAGE_TIME        0.5
 
+#define CHEAT_HOOK                      1
+#define CHEAT_ROPE                      2
+#define CHEAT_TAS                       3
+#define CHEAT_NOCLIP                    4
+
 #define TASKID_ICON                     5633445
 #define TASKID_WELCOME                  43321
 #define TASKID_POST_WELCOME             5332178
@@ -4097,20 +4102,21 @@ public CheatCmdHandler(id)
 	new bit;
 	switch (cmd[1])
 	{
-	case 'h', 'H': bit = 1 << 0;		// +|-hook
-	case 'r', 'R': bit = 1 << 1;		// +|-rope
+	case 'h', 'H': set_bit(bit, CHEAT_HOOK);  // +|-hook
+	case 'r', 'R': set_bit(bit, CHEAT_ROPE);  // +|-rope
 	default: return PLUGIN_CONTINUE;
 	}
 
-	new const hookBits = (1 << 0) | (1 << 1);	// hook&rope
+	new const hookOrRopeBits = (1 << (CHEAT_HOOK - 1)) | (1 << (CHEAT_ROPE - 1));
 
 	if (cmd[0] == '+')
 		g_CheatCommandsGuard[id] |= bit;
 	else
 	{
 		// Skip timer reset if hook isn't used, the case when console opened/closed with bind to command (it sends -command)
-		if (!(g_CheatCommandsGuard[id] & hookBits))
+		if (!(g_CheatCommandsGuard[id] & hookOrRopeBits))
 			return PLUGIN_CONTINUE;
+
 		g_CheatCommandsGuard[id] &= ~bit;
 	}
 
@@ -4134,13 +4140,14 @@ public TASCmdHandler(id)
 	read_argv(0, cmd, charsmax(cmd));
 
 	if (cmd[0] == '+')
-		g_CheatCommandsGuard[id] |= (1 << 2);
+		set_bit(g_CheatCommandsGuard[id], CHEAT_TAS);
 	else
 	{
 		// Skip timer reset if hook isn't used, the case when console opened/closed with bind to command (it sends -command)
-		if (!(g_CheatCommandsGuard[id] & (1 << 2)))
+		if (!get_bit(g_CheatCommandsGuard[id], CHEAT_TAS))
 			return PLUGIN_CONTINUE;
-		g_CheatCommandsGuard[id] &= ~(1 << 2);
+
+		clr_bit(g_CheatCommandsGuard[id], CHEAT_TAS)
 	}
 
 	if (get_bit(g_baIsClimbing, id))
@@ -7175,16 +7182,16 @@ HandleNoclipCheating(id)
 	if (isNoclip && !g_IsInNoclip[id])
 	{
 		// Player has just started noclipping
-		g_CheatCommandsGuard[id] |= (1 << 3);
+		set_bit(g_CheatCommandsGuard[id], CHEAT_NOCLIP);
 	}
 	else if (!isNoclip && g_IsInNoclip[id])
 	{
 		// Player has just stopped noclipping
-		g_CheatCommandsGuard[id] &= ~(1 << 3);
+		clr_bit(g_CheatCommandsGuard[id], CHEAT_NOCLIP);
 	}
 	g_IsInNoclip[id] = isNoclip;
 
-	if (g_CheatCommandsGuard[id] & (1 << 3))
+	if (get_bit(g_CheatCommandsGuard[id], CHEAT_NOCLIP))
 	{
 		new ret;
 		ExecuteForward(mfwd_hlkz_cheating, ret, id);
