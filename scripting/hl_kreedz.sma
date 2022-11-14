@@ -645,6 +645,8 @@ new pcvar_kz_vote_wait_time;    // minimum time to make a new vote since the las
 new pcvar_kz_noclip;
 new pcvar_kz_noclip_speed;
 
+new cvarhook:hookInvisFuncConveyor;
+
 new Handle:g_DbHost;
 new Handle:g_DbConnection;
 
@@ -742,6 +744,7 @@ public plugin_init()
 
 	pcvar_kz_remove_func_friction = register_cvar("kz_remove_func_friction", "0");
 	pcvar_kz_invis_func_conveyor = register_cvar("kz_invis_func_conveyor", "1");
+	hookInvisFuncConveyor = hook_cvar_change(pcvar_kz_invis_func_conveyor, "InvisFuncConveyorChange");
 
 	pcvar_kz_pure_max_damage_boost = register_cvar("kz_pure_max_damage_boost", "100");
 
@@ -7701,6 +7704,11 @@ CheckTeleportDestinations()
 		server_print("[%s] The current map doesn't have teleports", PLUGIN_TAG);
 }
 
+public InvisFuncConveyorChange(pcvar, const old_value[], const new_value[])
+{
+	CheckHideableEntities();
+}
+
 CheckHideableEntities()
 {
 	new ent, entCount;
@@ -7714,6 +7722,12 @@ CheckHideableEntities()
 		{
 			g_HideableEntity[ent] = true;
 			entCount++;
+		}
+		else
+		{
+			// Could be true if for example kz_invis_func_conveyor's value was switches a couple times,
+			// so we have to update the state here too for /winvis to work correctly
+			g_HideableEntity[ent] = false;
 		}
 	}
 
