@@ -418,6 +418,8 @@ new Float:g_RunStatsHudX[MAX_PLAYERS + 1];
 new Float:g_RunStatsHudY[MAX_PLAYERS + 1];
 new g_RunStatsConsoleDetailLevel[MAX_PLAYERS + 1];
 new g_RunStatsHudDetailLevel[MAX_PLAYERS + 1];
+new bool:g_FocusMode[MAX_PLAYERS + 1];
+new CHAT_TYPE:g_ChatStatus[MAX_PLAYERS + 1]; // bit field, see CHAT_* in CHAT_TYPE enum
 
 new Float:g_PrevRunCountdown[MAX_PLAYERS + 1];
 new g_PrevShowTimer[MAX_PLAYERS + 1];
@@ -644,6 +646,7 @@ new pcvar_kz_vote_hold_time;    // time that the vote will appear and be votable
 new pcvar_kz_vote_wait_time;    // minimum time to make a new vote since the last one
 new pcvar_kz_noclip;
 new pcvar_kz_noclip_speed;
+new pcvar_kz_fireworks_on_wr;
 
 new cvarhook:hookInvisFuncConveyor;
 
@@ -800,6 +803,8 @@ public plugin_init()
 	pcvar_kz_race_countdown    = register_cvar("kz_race_countdown", "5");
 	pcvar_kz_vote_hold_time    = register_cvar("kz_vote_hold_time", "10");
 	pcvar_kz_vote_wait_time    = register_cvar("kz_vote_wait_time", "10");
+
+	pcvar_kz_fireworks_on_wr   = register_cvar("kz_fireworks_on_wr", "1");
 
 
 	register_dictionary("telemenu.txt");
@@ -1116,6 +1121,9 @@ public plugin_cfg()
 	GetTopTypeString(NOOB, g_TopType[NOOB], charsmax(g_TopType[]));
 	GetTopTypeString(PRO,  g_TopType[PRO],  charsmax(g_TopType[]));
 	GetTopTypeString(PURE, g_TopType[PURE], charsmax(g_TopType[]));
+
+	// TODO: = 2^32 - 1 so that we don't have to keep adding here whenever we add a value into the enum definition?
+	g_ChatStatus[0] = CHAT_RUN_FINISHED + CHAT_RUN_PB + CHAT_RUN_PB_TOP15 + CHAT_RUN_WR;
 
 	// Load stats
 	formatex(g_StatsFile[NOOB], charsmax(g_StatsFile[]), "%s/%s_%s.dat", g_ConfigsDir, g_Map, g_TopType[NOOB]);
@@ -2398,6 +2406,8 @@ InitPlayerSettings(id)
 	g_TimeDecimals[id] = get_pcvar_num(pcvar_kz_time_decimals) ? get_pcvar_num(pcvar_kz_time_decimals) : DEFAULT_TIME_DECIMALS;
 	g_Nightvision[id]  = get_pcvar_num(pcvar_kz_nightvision);
 	g_Slopefix[id]     = false;
+	g_FocusMode[id]    = false;
+	g_ChatStatus[id]   = CHAT_RUN_FINISHED + CHAT_RUN_PB + CHAT_RUN_PB_TOP15 + CHAT_RUN_WR;
 
 	// Nightvision value 1 in server cvar is "all modes allowed", if that's the case we default it to mode 2 in client,
 	// every other mode in cvar is +1 than client command, so we do -1 to get the correct mode
@@ -2536,6 +2546,8 @@ LoadPlayerSettings(id)
 	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "run_countdown",      g_RunCountdown[id]);
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown",    g_TpOnCountdown[id]);
 	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "noclip_speed",       g_NoclipTargetSpeed[id]);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "focus_mode",         g_FocusMode[id]);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "chat_status",        _:g_ChatStatus[id]);
 
 	// TODO: load run stats, in case we're in a NR run and come back later to finish it
 
@@ -2602,6 +2614,8 @@ SavePlayerSettings(id)
 	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "run_countdown",      g_RunCountdown[id]);
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "tp_on_countdown",    g_TpOnCountdown[id]);
 	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "noclip_speed",       g_NoclipTargetSpeed[id]);
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "focus_mode",         g_FocusMode[id]);
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "chat_status",        _:g_ChatStatus[id]);
 
 	// TODO: save run stats and position, in case we're in a NR run and come back later to finish it
 }
@@ -3941,6 +3955,9 @@ public CmdSayHandler(id, level, cid)
 	else if (equali(args[1], "slopefix"))
 		CmdSlopefix(id);
 
+	else if (equali(args[1], "focusmode"))
+		CmdFocusMode(id);
+
 	else if (equali(args[1], "speed"))
 		CmdSpeed(id);
 
@@ -4962,11 +4979,9 @@ FinishTimer(id)
 	seconds = kztime - (60 * minutes);
 	pureRun = get_bit(g_baIsPureRunning, id) ? " (Pure Run)" : "";
 
-	client_cmd(0, "spk fvox/bell");
-
 	get_user_name(id, name, charsmax(name));
-	client_print(0, print_chat, GetVariableDecimalMessage(id, "[%s] %s^0 finished in %02d:%0", " (CPs: %d | TPs: %d)%s%s"),
-		PLUGIN_TAG, name, minutes, seconds, g_CpCounters[id][COUNTER_CP], g_CpCounters[id][COUNTER_TP], pureRun, g_RunMode[id] == MODE_NORESET ? " No-Reset" : "");
+	DispatchChat(id, 0, CHAT_RUN_FINISHED, GetVariableDecimalMessage(id, "%s^0 finished in %02d:%0", " (CPs: %d | TPs: %d)%s%s"),
+		name, minutes, seconds, g_CpCounters[id][COUNTER_CP], g_CpCounters[id][COUNTER_TP], pureRun, g_RunMode[id] == MODE_NORESET ? " No-Reset" : "");
 
 	g_RunStatsEndHudStartTime[id] = get_gametime();
 	g_RunStatsEndHudShown[id] = false;
@@ -6445,6 +6460,40 @@ ShowInHealthHud(id, const message[], {Float,Sql,Result,_}:...)
 
 	set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], -1.0, 0.92, 0, _, 2.0, _, _, -1);
 	ShowSyncHudMsg(id, g_SyncHudHealth, msg);
+}
+
+/**
+ * Send chat messages to players depending on whether they have that kind of message ignored or not
+ * @param id     Sender index, or the index of the player who provoked this message
+ * @param dst    Receiver index. 0 to send to everyone
+ */
+DispatchChat(id, dst, CHAT_TYPE:type, const message[], {Float,Sql,Result,_}:...)
+{
+	static msg[192];
+	vformat(msg, charsmax(msg), message, 5);
+
+	for (new i = 1; i <= g_MaxPlayers; i++)
+	{
+		if (id != i && !(g_ChatStatus[i] & type))
+		{
+			// Don't send to players that have this type of message disabled,
+			// except if it's for yourself, then you probably wanna see the PB message
+			console_print(i, "[%s] %s", PLUGIN_TAG, msg);
+			continue;
+		}
+
+		switch (type)
+		{
+			case CHAT_RUN_FINISHED: client_cmd(i, "spk fvox/bell");
+			case CHAT_RUN_PB_TOP15: client_cmd(i, "spk woop");
+			case CHAT_RUN_WR:       LaunchRecordFireworks(i);
+		}
+
+		// TODO: handle time decimals depending on receiver here. We currently display the
+		// number of decimals according to the player who got the record, and we should make it
+		// so that you can see any message formatted with the amount of decimals YOU want
+		client_print(i, print_chat, "[%s] %s", PLUGIN_TAG, msg);
+	}
 }
 
 
@@ -9146,6 +9195,29 @@ public CmdSlopefix(id)
 	return PLUGIN_HANDLED;
 }
 
+public CmdFocusMode(id)
+{
+	g_FocusMode[id] = !g_FocusMode[id];
+	ShowMessage(id, "Focus mode: %s", g_FocusMode[id] ? "ON" : "OFF");
+
+	if (g_FocusMode[id])
+	{
+		client_cmd(id, "cl_ignore_spawn_messages 1");
+		set_bit(g_bit_invis, id);
+		g_ChatStatus[id] = CHAT_NONE;
+	}
+	else
+	{
+		client_cmd(id, "cl_ignore_spawn_messages 0");
+		clr_bit(g_bit_invis, id);
+
+		// TODO: restore previous chat status instead of just enabling everything
+		g_ChatStatus[id] = CHAT_RUN_FINISHED + CHAT_RUN_PB + CHAT_RUN_PB_TOP15 + CHAT_RUN_WR;
+	}
+
+	return PLUGIN_HANDLED;
+}
+
 public CmdTimeDecimals(id)
 {
 	if (!get_pcvar_num(pcvar_kz_time_decimals))
@@ -10085,11 +10157,13 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	rank++;
 	if (rank <= get_pcvar_num(pcvar_kz_top_records))
 	{
-		client_cmd(0, "spk woop");
-		client_print(0, print_chat, "[%s] %s is now on place %d in %s 15", PLUGIN_TAG, name, rank, g_TopType[topType]);
+		if (rank == 1)
+			DispatchChat(id, 0, CHAT_RUN_WR, "[WORLD RECORD] %s is now on place %d in %s 15", name, rank, g_TopType[topType]);
+		else
+			DispatchChat(id, 0, CHAT_RUN_PB_TOP15, "%s is now on place %d in %s 15", name, rank, g_TopType[topType]);
 	}
 	else
-		client_print(0, print_chat, "[%s] %s's rank is %d of %d among %s players", PLUGIN_TAG, name, rank, ArraySize(arr), g_TopType[topType]);
+		DispatchChat(id, 0, CHAT_RUN_PB, "%s's rank is %d of %d among %s players", name, rank, ArraySize(arr), g_TopType[topType]);
 
 	if (storeInMySql)
 	{
@@ -10116,8 +10190,6 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	{
 		new ret;
 		ExecuteForward(mfwd_hlkz_worldrecord, ret, topType, arr);
-
-		LaunchRecordFireworks();
 	}
 }
 
@@ -10523,9 +10595,23 @@ PunishPlayerCheatingWithWeapons(id)
 		clr_bit(g_baIsPureRunning, id); // downgrade run from pure to pro
 }
 
-LaunchRecordFireworks()
+LaunchRecordFireworks(dst = 0)
 {
-	message_begin(MSG_BROADCAST, SVC_TEMPENTITY); // create firework entity
+	if (!get_pcvar_bool(pcvar_kz_fireworks_on_wr))
+		return;
+
+	if (0 == dst)
+	{
+		message_begin(MSG_BROADCAST, SVC_TEMPENTITY); // create firework entity
+	}
+	else
+	{
+		if (!is_user_connected(dst))
+			return;
+
+		message_begin(MSG_ONE_UNRELIABLE, SVC_TEMPENTITY, _, dst)
+	}
+	
 	write_byte(TE_EXPLOSION);
 	write_coord(floatround(g_PrevButtonOrigin[0]));	// start position
 	write_coord(floatround(g_PrevButtonOrigin[1]));
@@ -10535,7 +10621,8 @@ LaunchRecordFireworks()
 	write_byte(10);	// framerate
 	write_byte(6);
 	message_end();
-	emit_sound(0, CHAN_AUTO, FIREWORK_SOUND, VOL_NORM, ATTN_NONE, 0, PITCH_NORM);
+
+	emit_sound(dst, CHAN_AUTO, FIREWORK_SOUND, VOL_NORM, ATTN_NONE, 0, PITCH_NORM);
 }
 
 /**

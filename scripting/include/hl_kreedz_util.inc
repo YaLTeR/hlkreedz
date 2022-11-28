@@ -116,6 +116,15 @@ enum MOVEMENT_STATE
 	MOVEMENT_DUCKTAPPING
 }
 
+enum CHAT_TYPE (<<= 1)
+{
+	CHAT_NONE  = 0,
+	CHAT_RUN_FINISHED = 1,
+	CHAT_RUN_PB,
+	CHAT_RUN_PB_TOP15,
+	CHAT_RUN_WR
+}
+
 /*
 new const g_CupFormatLetters[][] =
 {
