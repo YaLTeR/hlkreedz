@@ -3422,6 +3422,8 @@ SpawnBot(id)
 			g_ReplayStartGameTime[id] = replay[RP_TIME];
 			//g_isCustomFpsReplay[id] = g_ReplayFpsMultiplier[id] > 1;
 
+			set_pev(bot, pev_movetype, MOVETYPE_NOCLIP);
+
 			g_BotOwner[bot] = id;
 			g_Unfreeze[bot] = 0;
 			//console_print(1, "player %d spawned the bot %d", id, bot);
