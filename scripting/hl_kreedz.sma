@@ -83,6 +83,9 @@
 #define START_BUTTON_ALLOWED_PRESPEED   50.0
 #define MAX_MAP_INSERTIONS_AT_ONCE      7
 #define DEFAULT_HLKZ_NOCLIP_SPEED       800.0
+// TODO: make this configurable
+#define DOUBLEPRESS_THRESHOLD           0.3  // in seconds, max time between keypresses to consider it a doublepress (like doubleclick)
+#define ANTIRESET_AFK_THRESHOLD         0.1  // in seconds, idle time after which we allow a single keypress to reset
 
 // https://github.com/ValveSoftware/halflife/blob/c7240b965743a53a29491dd49320c88eecf6257b/dlls/triggers.cpp#L1013
 #define TRIGGER_HURT_DAMAGE_TIME        0.5
@@ -420,6 +423,9 @@ new g_RunStatsConsoleDetailLevel[MAX_PLAYERS + 1];
 new g_RunStatsHudDetailLevel[MAX_PLAYERS + 1];
 new bool:g_FocusMode[MAX_PLAYERS + 1];
 new CHAT_TYPE:g_ChatStatus[MAX_PLAYERS + 1]; // bit field, see CHAT_* in CHAT_TYPE enum
+new Float:g_AntiResetThreshold[MAX_PLAYERS + 1];
+new Float:g_IdleTime[MAX_PLAYERS + 1];
+new Float:g_AntiResetIdleTime[MAX_PLAYERS + 1];
 
 new Float:g_PrevRunCountdown[MAX_PLAYERS + 1];
 new g_PrevShowTimer[MAX_PLAYERS + 1];
@@ -447,7 +453,7 @@ new Float:g_LastFrameTime[MAX_PLAYERS + 1];
 new g_RunFrameCount[MAX_PLAYERS + 1];
 new g_LastSpawnedBot;
 
-new g_FrameTimeMs[MAX_PLAYERS + 1][2];
+new g_FrameTimeMs[MAX_PLAYERS + 1];
 new Float:g_FrameTime[MAX_PLAYERS + 1];
 
 new g_ControlPoints[MAX_PLAYERS + 1][CP_TYPES][CP_DATA];
@@ -457,9 +463,12 @@ new Float:g_PrevVelocity[MAX_PLAYERS + 1][3];
 new Float:g_Velocity[MAX_PLAYERS + 1][3];
 new Float:g_PrevOrigin[MAX_PLAYERS + 1][3];
 new Float:g_Origin[MAX_PLAYERS + 1][3];
+new Float:g_PrevAngles[MAX_PLAYERS + 1];
 new Float:g_Angles[MAX_PLAYERS + 1][3];
+new Float:g_PrevViewOfs[MAX_PLAYERS + 1];
 new Float:g_ViewOfs[MAX_PLAYERS + 1][3];
 //new g_Impulses[MAX_PLAYERS + 1];
+new g_PrevButtons[MAX_PLAYERS + 1];
 new g_Buttons[MAX_PLAYERS + 1];
 new bool:g_bIsSurfing[MAX_PLAYERS + 1];
 new bool:g_bWasSurfing[MAX_PLAYERS + 1];
@@ -470,6 +479,7 @@ new bool:g_StoppedSlidingRamp[MAX_PLAYERS + 1];
 new g_RampFrameCounter[MAX_PLAYERS + 1];
 new MOVEMENT_STATE:g_Movement[MAX_PLAYERS + 1];
 new g_PrevFlags[MAX_PLAYERS + 1];
+new Float:g_LastStartAttempt[MAX_PLAYERS + 1];
 
 // Run stats
 new Float:g_RunAvgSpeed[MAX_PLAYERS + 1]; // horizontal speeds
@@ -647,6 +657,7 @@ new pcvar_kz_vote_wait_time;    // minimum time to make a new vote since the las
 new pcvar_kz_noclip;
 new pcvar_kz_noclip_speed;
 new pcvar_kz_fireworks_on_wr;
+new pcvar_kz_default_antireset_threshold;
 
 new cvarhook:hookInvisFuncConveyor;
 
@@ -805,6 +816,8 @@ public plugin_init()
 	pcvar_kz_vote_wait_time    = register_cvar("kz_vote_wait_time", "10");
 
 	pcvar_kz_fireworks_on_wr   = register_cvar("kz_fireworks_on_wr", "1");
+
+	pcvar_kz_default_antireset_threshold = create_cvar("kz_default_antireset_threshold", "0.0", _, "Run time after which you have to do /start twice to restart. 0 = disabled", true, 0.0);
 
 
 	register_dictionary("telemenu.txt");
@@ -2325,6 +2338,9 @@ public client_disconnect(id)
 	g_RunStatsEndHudStartTime[id] = -RUN_STATS_HUD_MAX_HOLD_TIME;
 	g_RunStatsEndHudShown[id] = false;
 
+	g_IdleTime[id] = 0.0;
+	g_AntiResetIdleTime[id] = 0.0;
+
 	ArrayClear(g_SplitTimes[id]);
 	ArrayClear(g_LapTimes[id]);
 	g_CurrentLap[id] = 0;
@@ -2408,6 +2424,9 @@ InitPlayerSettings(id)
 	g_Slopefix[id]     = false;
 	g_FocusMode[id]    = false;
 	g_ChatStatus[id]   = CHAT_RUN_FINISHED + CHAT_RUN_PB + CHAT_RUN_PB_TOP15 + CHAT_RUN_WR;
+
+	g_AntiResetThreshold[id] = get_pcvar_float(pcvar_kz_default_antireset_threshold);
+	g_LastStartAttempt[id]   = -9999999.9;
 
 	// Nightvision value 1 in server cvar is "all modes allowed", if that's the case we default it to mode 2 in client,
 	// every other mode in cvar is +1 than client command, so we do -1 to get the correct mode
@@ -2548,6 +2567,7 @@ LoadPlayerSettings(id)
 	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "noclip_speed",       g_NoclipTargetSpeed[id]);
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "focus_mode",         g_FocusMode[id]);
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "chat_status",        _:g_ChatStatus[id]);
+	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "antireset_thld",     g_AntiResetThreshold[id]);
 
 	// TODO: load run stats, in case we're in a NR run and come back later to finish it
 
@@ -2616,6 +2636,7 @@ SavePlayerSettings(id)
 	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "noclip_speed",       g_NoclipTargetSpeed[id]);
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "focus_mode",         g_FocusMode[id]);
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "chat_status",        _:g_ChatStatus[id]);
+	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "antireset_thld",     g_AntiResetThreshold[id]);
 
 	// TODO: save run stats and position, in case we're in a NR run and come back later to finish it
 }
@@ -2902,6 +2923,17 @@ CmdNoclipSpeed(id)
  	return PLUGIN_HANDLED;
 }
 
+CmdAntiReset(id)
+{
+	new Float:desiredThreshold = GetFloatArg();
+	if (desiredThreshold < 0.0)
+		desiredThreshold = 0.0;
+
+	g_AntiResetThreshold[id] = desiredThreshold;
+
+	ShowMessage(id, "Your anti-reset run time threshold is now: %.1f seconds", g_AntiResetThreshold[id]);
+}
+
 CmdPracticeCp(id)
 {
 	if (CanCreateCp(id, true, true))
@@ -2941,6 +2973,24 @@ CmdStart(id)
 		// Also we allow them to do this because they may get stuck at some part and this is the way to unstuck
 		ShowMessage(id, "You're in No-Reset mode! Say /startnr if you really want to go back to the start");
 		return;
+	}
+
+	new Float:currTime = get_gametime();
+	if (get_bit(g_baIsClimbing, id) && g_AntiResetThreshold[id] > 0.0 && currTime > (g_PlayerTime[id] + g_AntiResetThreshold[id]))
+	{
+		if (currTime < (g_LastStartAttempt[id] + DOUBLEPRESS_THRESHOLD))
+		{
+			// We're past the run time threshold where we have to account for the antireset measure
+			// The player has doublepressed the start bind fast enough, so we let them reset
+			g_LastStartAttempt[id] = -9999999.9;
+		}
+		else if (g_AntiResetIdleTime[id] < ANTIRESET_AFK_THRESHOLD)
+		{
+			// Avoid resetting, doesn't seem like a doublepress of the start bind (yet)
+			// Also if they have been idle for a while now, we let them reset with just 1 keypress instead of 2
+			g_LastStartAttempt[id] = currTime;
+			return;
+		}
 	}
 
 	// Reset the start validation. It's set to true when going through the start zone
@@ -4099,6 +4149,9 @@ public CmdSayHandler(id, level, cid)
 	
 	else if (containi(args[1], "noclipspeed") == 0)
 		CmdNoclipSpeed(id);
+
+	else if (containi(args[1], "antireset") == 0)
+		CmdAntiReset(id);
 /*
 	else if (containi(args[1], "pov") == 0)
 	{
@@ -7009,9 +7062,8 @@ public Fw_FmGetGameDescriptionPre()
 
 public Fw_FmCmdStartPre(id, uc_handle, seed)
 {
-	g_FrameTimeMs[id][1] = g_FrameTimeMs[id][0];
-	g_FrameTimeMs[id][0] = get_uc(uc_handle, UC_Msec);
-	g_FrameTime[id] = g_FrameTimeMs[id][0] * 0.001;
+	g_FrameTimeMs[id] = get_uc(uc_handle, UC_Msec);
+	g_FrameTime[id] = g_FrameTimeMs[id] * 0.001;
 	//g_Buttons[id] = get_uc(uc_handle, UC_Buttons);
 	//g_Impulses[id] = get_uc(uc_handle, UC_Impulse);
 }
@@ -7068,13 +7120,41 @@ public Fw_FmPlayerPreThinkPost(id)
 
 	xs_vec_copy(g_Origin[id],   g_PrevOrigin[id]);
 	xs_vec_copy(g_Velocity[id], g_PrevVelocity[id]);
+	xs_vec_copy(g_Angles[id],   g_PrevAngles[id]);
+	xs_vec_copy(g_ViewOfs[id],  g_PrevViewOfs[id]);
+	g_PrevButtons[id] = g_Buttons[id];
 
 	pev(id, pev_origin, g_Origin[id]);
 	pev(id, pev_angles, g_Angles[id]);
 	pev(id, pev_view_ofs, g_ViewOfs[id]);
 	pev(id, pev_velocity, g_Velocity[id]);
 	g_Buttons[id] = pev(id, pev_button);
+
 	//console_print(id, "sequence: %d, pev_gaitsequence: %d", pev(id, pev_sequence), pev(id, pev_gaitsequence));
+
+	if (xs_vec_equal(g_PrevAngles[id], g_Angles[id])
+		&& xs_vec_equal(g_PrevViewOfs[id], g_ViewOfs[id]))
+	{
+		if (xs_vec_equal(g_PrevOrigin[id], g_Origin[id]) && g_PrevButtons[id] == g_Buttons[id])
+			g_IdleTime[id] += g_FrameTime[id];
+		else
+			g_IdleTime[id] = 0.0;
+
+		// For the anti-reset measure we don't count origin change
+		if (!HasMovementKeys(g_PrevButtons[id]) && !HasMovementKeys(g_Buttons[id]))
+		{
+			// We don't count +jump, +duck, +showscores, etc. for the idle time used for the anti-reset measure,
+			// because there's a case where people still hold spacebar but stop using movement keys when they see
+			// they're gonna fail the jump. They wanna reset while falling and they only stop holding spacebar
+			// the very moment they hit reset, so we ignore spacebar (+jump) for this kind of idle time
+			g_AntiResetIdleTime[id] += g_FrameTime[id];
+		}
+	}
+	else
+	{
+		g_IdleTime[id] = 0.0;
+		g_AntiResetIdleTime[id] = 0.0;
+	}
 
 	// Store pressed keys here, cos HUD updating is called not so frequently
 	HudStorePressedKeys(id);
