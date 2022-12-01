@@ -1646,7 +1646,7 @@ CreateMapMenu(id, const menu_id[], bool:wasBadChoice=false)
 
 		if (cupMap[MAP_STATE_] == MAP_IDLE)
 		{
-			formatex(menuText, charsmax(menuText), "%s\\y%d\\w. %s %s\n",
+			format(menuText, charsmax(menuText), "%s\\y%d\\w. %s %s\n",
 				menuText,
 				i+1,
 				cupMap[MAP_NAME],
@@ -1654,7 +1654,7 @@ CreateMapMenu(id, const menu_id[], bool:wasBadChoice=false)
 		}
 		else
 		{
-			formatex(menuText, charsmax(menuText), "%s\\r%d\\d. %s %s\n",
+			format(menuText, charsmax(menuText), "%s\\r%d\\d. %s %s\n",
 				menuText,
 				i+1,
 				cupMap[MAP_NAME],
