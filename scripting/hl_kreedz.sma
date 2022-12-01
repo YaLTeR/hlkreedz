@@ -5310,7 +5310,7 @@ GetSplitTimeText(id, Float:time)
 
 	new sign[2];
 	if (time < 0.0)
-		formatex(sign, sizeof(sign), "-");
+		sign[0] = '-';
 
 	new result[14];
 	if (minutes)
