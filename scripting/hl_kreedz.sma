@@ -8687,7 +8687,7 @@ public CupFinallyFirstPickBan(taskId)
 		new oldPlayer1 = g_CupPlayer1;
 		new oldPlayer2 = g_CupPlayer2;
 		copy(oldSteam1, charsmax(oldSteam1), g_CupSteam1);
-		copy(oldSteam2, charsmax(oldSteam1), g_CupSteam2);
+		copy(oldSteam2, charsmax(oldSteam2), g_CupSteam2);
 
 		g_CupPlayer1 = oldPlayer2;
 		g_CupPlayer2 = oldPlayer1;
