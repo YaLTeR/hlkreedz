@@ -10243,8 +10243,8 @@ ShowTopClimbers(id, RUN_TYPE:topType)
 		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time              Date        Demo\n\n");
 
 	new szTopType[32], szTopTypeUCFirst[32];
-	formatex(szTopType, charsmax(szTopType), g_TopType[topType]);
-	formatex(szTopTypeUCFirst, charsmax(szTopTypeUCFirst), g_TopType[topType]);
+	formatex(szTopType, charsmax(szTopType), "%s", g_TopType[topType]);
+	formatex(szTopTypeUCFirst, charsmax(szTopTypeUCFirst), "%s", g_TopType[topType]);
 	ucfirst(szTopTypeUCFirst);
 
 	for (new i = recMin; i < recMax && charsmax(buffer) - len > 0; i++)
