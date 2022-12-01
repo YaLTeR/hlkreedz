@@ -9597,7 +9597,7 @@ GetLastCupMapAvailable(map[], len)
 		{
 			if (!isMapFound)
 			{
-				formatex(map, len, cupMap[MAP_NAME]);
+				formatex(map, len, "%s", cupMap[MAP_NAME]);
 				isMapFound = true;
 			}
 			else
