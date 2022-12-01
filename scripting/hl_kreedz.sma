@@ -2067,7 +2067,7 @@ Array:GetCupReplays()
 
 		// Remove the first "cup_" part too
 		new replayName[128];
-		formatex(replayName, charsmax(replayName), fileName[4]);
+		formatex(replayName, charsmax(replayName), "%s", fileName[4]);
 
 		// We only want the ones corresponding to the current map
 		new mapNameLen = strlen(g_Map);
@@ -2076,7 +2076,7 @@ Array:GetCupReplays()
 
 		// And remove the map part from the name, together with the "_" separator
 		new cutReplayName[128];
-		formatex(cutReplayName, charsmax(cutReplayName), replayName[mapNameLen + 1]);
+		formatex(cutReplayName, charsmax(cutReplayName), "%s", replayName[mapNameLen + 1]);
 
 		server_print("cup replay name: %s", cutReplayName);
 
