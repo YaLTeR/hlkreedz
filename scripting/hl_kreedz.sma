@@ -8686,13 +8686,13 @@ public CupFinallyFirstPickBan(taskId)
 		new oldSteam1[MAX_AUTHID_LENGTH], oldSteam2[MAX_AUTHID_LENGTH];
 		new oldPlayer1 = g_CupPlayer1;
 		new oldPlayer2 = g_CupPlayer2;
-		formatex(oldSteam1, charsmax(oldSteam1), g_CupSteam1);
-		formatex(oldSteam2, charsmax(oldSteam2), g_CupSteam2);
+		copy(oldSteam1, charsmax(oldSteam1), g_CupSteam1);
+		copy(oldSteam2, charsmax(oldSteam1), g_CupSteam2);
 
 		g_CupPlayer1 = oldPlayer2;
 		g_CupPlayer2 = oldPlayer1;
-		formatex(g_CupSteam1, charsmax(g_CupSteam1), oldSteam2);
-		formatex(g_CupSteam2, charsmax(g_CupSteam2), oldSteam1);
+		copy(g_CupSteam1, charsmax(g_CupSteam1), oldSteam2);
+		copy(g_CupSteam2, charsmax(g_CupSteam2), oldSteam1);
 	}
 
 	WriteCupFile(0);
