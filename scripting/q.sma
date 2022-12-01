@@ -78,7 +78,7 @@ public plugin_end() {
 clcmd_loadConfig() {
 	new buffer[512];
 	get_localinfo("amxx_configsdir", buffer, charsmax(buffer));
-	formatex(buffer, charsmax(buffer), "%s/q_clcmds.ini", buffer);
+	format(buffer, charsmax(buffer), "%s/q_clcmds.ini", buffer);
 	
 	new f = fopen(buffer, "rt");
 	if(!f) {
