@@ -9627,7 +9627,7 @@ GetNextCupMapToPlay(map[], len)
 
 		if (cupMap[MAP_STATE_] == MAP_PICKED || cupMap[MAP_STATE_] == MAP_DECIDER)
 		{
-			formatex(map, len, cupMap[MAP_NAME]);
+			formatex(map, len, "%s", cupMap[MAP_NAME]);
 			return;
 		}
 	}
