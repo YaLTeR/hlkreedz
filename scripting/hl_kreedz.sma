@@ -8479,7 +8479,7 @@ SetCupMapWinner(id)
 	}
 	else
 	{
-		new map[32];
+		new map[MAX_MAPNAME_LENGTH];
 		GetNextCupMapToPlay(map, charsmax(map));
 
 		new Float:timeToChange = get_pcvar_float(pcvar_kz_cup_map_change_delay);
@@ -8714,7 +8714,7 @@ public CupFinallyFirstPickBan(taskId)
 
 public CmdMapsShowHandler(id)
 {
-	new msg[512], map[32];
+	new msg[512], map[MAX_MAPNAME_LENGTH];
 	formatex(msg, charsmax(msg), "Map pool:\n");
 
 	// Add first the decider
@@ -8846,7 +8846,7 @@ public CmdMapStateHandler(id, level, cid)
 {
 	if (cmd_access(id, level, cid, 1))
 	{
-		new map[32], action[8];
+		new map[MAX_MAPNAME_LENGTH], action[8];
 		read_argv(1, map, charsmax(map));
 		read_argv(2, action, charsmax(action));
 
