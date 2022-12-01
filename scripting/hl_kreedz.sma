@@ -9544,7 +9544,7 @@ LoadMapPool()
 		cupMap[MAP_STATE_] = _:str_to_num(mapState);
 		cupMap[MAP_PICKER] = _:str_to_num(mapPicker);
 
-		formatex(cupMap[MAP_NAME], charsmax(cupMap[MAP_NAME]), mapName);
+		formatex(cupMap[MAP_NAME], charsmax(cupMap[MAP_NAME]), "%s", mapName);
 
 		server_print("filling g_CupMapPool with map %s (%s)", mapName, cupMap[MAP_NAME]);
 
