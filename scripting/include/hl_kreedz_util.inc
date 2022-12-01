@@ -540,5 +540,5 @@ DestroyMenus(id)
 
 bool:HasMovementKeys(buttons)
 {
-	return buttons & IN_MOVELEFT || buttons & IN_MOVERIGHT || buttons & IN_FORWARD || buttons && IN_BACK;
+	return !!(buttons & (IN_MOVELEFT|IN_MOVERIGHT|IN_FORWARD|IN_BACK));
 }
