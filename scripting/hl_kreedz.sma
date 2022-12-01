@@ -3195,7 +3195,7 @@ CmdReplay(id, RUN_TYPE:runType)
 
 	new replayingMsg[96], replayFailedMsg[96], szTopType[32];
 	ConvertSteamID32ToNumbers(authid, idNumbers);
-	formatex(szTopType, charsmax(szTopType), g_TopType[runType]);
+	formatex(szTopType, charsmax(szTopType), "%s", g_TopType[runType]);
 	strtolower(szTopType);
 	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
 	//formatex(g_ReplayFile[id], charsmax(replayFile), "%s", replayFile);
