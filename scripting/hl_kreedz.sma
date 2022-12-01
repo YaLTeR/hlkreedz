@@ -8722,7 +8722,7 @@ public CmdMapsShowHandler(id)
 	for (new i = 0; i < ArraySize(deciderMaps); i++)
 	{
 		ArrayGetString(deciderMaps, i, map, charsmax(map));
-		formatex(msg, charsmax(msg), "%s > %s - [DECIDER]\n", msg, map);
+		format(msg, charsmax(msg), "%s > %s - [DECIDER]\n", msg, map);
 		server_print("getting decider map %s", map);
 	}
 
@@ -8731,7 +8731,7 @@ public CmdMapsShowHandler(id)
 	for (new i = 0; i < ArraySize(pickedMaps); i++)
 	{
 		ArrayGetString(pickedMaps, i, map, charsmax(map));
-		formatex(msg, charsmax(msg), "%s > %s - [PICKED]\n", msg, map);
+		format(msg, charsmax(msg), "%s > %s - [PICKED]\n", msg, map);
 		server_print("getting picked map %s", map);
 	}
 
@@ -8740,7 +8740,7 @@ public CmdMapsShowHandler(id)
 	for (new i = 0; i < ArraySize(playedMaps); i++)
 	{
 		ArrayGetString(playedMaps, i, map, charsmax(map));
-		formatex(msg, charsmax(msg), "%s > %s - [PLAYED]\n", msg, map);
+		format(msg, charsmax(msg), "%s > %s - [PLAYED]\n", msg, map);
 		server_print("getting played map %s", map);
 	}
 
@@ -8749,7 +8749,7 @@ public CmdMapsShowHandler(id)
 	for (new i = 0; i < ArraySize(bannedMaps); i++)
 	{
 		ArrayGetString(bannedMaps, i, map, charsmax(map));
-		formatex(msg, charsmax(msg), "%s > %s - [BANNED]\n", msg, map);
+		format(msg, charsmax(msg), "%s > %s - [BANNED]\n", msg, map);
 		server_print("getting banned map %s", map);
 	}
 
@@ -8758,7 +8758,7 @@ public CmdMapsShowHandler(id)
 	for (new i = 0; i < ArraySize(idleMaps); i++)
 	{
 		ArrayGetString(idleMaps, i, map, charsmax(map));
-		formatex(msg, charsmax(msg), "%s > %s\n", msg, map);
+		format(msg, charsmax(msg), "%s > %s\n", msg, map);
 		server_print("getting idle map %s", map);
 	}
 
