@@ -9123,7 +9123,7 @@ public CmdCupForceReady(id, level, cid)
 {
 	if(cmd_access(id, level, cid, 1))
 	{
-		if(!g_CupPlayer2 || !g_CupPlayer2)
+		if(!g_CupPlayer1 || !g_CupPlayer2)
 		{
 			console_print(id, "The players could not be found.")
 			return PLUGIN_HANDLED;
