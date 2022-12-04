@@ -6541,7 +6541,11 @@ DispatchChat(id, dst, CHAT_TYPE:type, const message[], {Float,Sql,Result,_}:...)
 		{
 			case CHAT_RUN_FINISHED: client_cmd(i, "spk fvox/bell");
 			case CHAT_RUN_PB_TOP15: client_cmd(i, "spk woop");
-			case CHAT_RUN_WR:       LaunchRecordFireworks(i);
+			case CHAT_RUN_WR:
+			{
+				client_cmd(i, "spk woop");
+				LaunchRecordFireworks(i);
+			}
 		}
 
 		// TODO: handle time decimals depending on receiver here. We currently display the
