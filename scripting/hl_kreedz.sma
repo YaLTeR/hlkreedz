@@ -1646,7 +1646,7 @@ CreateMapMenu(id, const menu_id[], bool:wasBadChoice=false)
 
 		if (cupMap[MAP_STATE_] == MAP_IDLE)
 		{
-			formatex(menuText, charsmax(menuText), "%s\\y%d\\w. %s %s\n",
+			format(menuText, charsmax(menuText), "%s\\y%d\\w. %s %s\n",
 				menuText,
 				i+1,
 				cupMap[MAP_NAME],
@@ -1654,7 +1654,7 @@ CreateMapMenu(id, const menu_id[], bool:wasBadChoice=false)
 		}
 		else
 		{
-			formatex(menuText, charsmax(menuText), "%s\\r%d\\d. %s %s\n",
+			format(menuText, charsmax(menuText), "%s\\r%d\\d. %s %s\n",
 				menuText,
 				i+1,
 				cupMap[MAP_NAME],
@@ -2067,7 +2067,7 @@ Array:GetCupReplays()
 
 		// Remove the first "cup_" part too
 		new replayName[128];
-		formatex(replayName, charsmax(replayName), fileName[4]);
+		formatex(replayName, charsmax(replayName), "%s", fileName[4]);
 
 		// We only want the ones corresponding to the current map
 		new mapNameLen = strlen(g_Map);
@@ -2076,7 +2076,7 @@ Array:GetCupReplays()
 
 		// And remove the map part from the name, together with the "_" separator
 		new cutReplayName[128];
-		formatex(cutReplayName, charsmax(cutReplayName), replayName[mapNameLen + 1]);
+		formatex(cutReplayName, charsmax(cutReplayName), "%s", replayName[mapNameLen + 1]);
 
 		server_print("cup replay name: %s", cutReplayName);
 
@@ -3195,7 +3195,7 @@ CmdReplay(id, RUN_TYPE:runType)
 
 	new replayingMsg[96], replayFailedMsg[96], szTopType[32];
 	ConvertSteamID32ToNumbers(authid, idNumbers);
-	formatex(szTopType, charsmax(szTopType), g_TopType[runType]);
+	formatex(szTopType, charsmax(szTopType), "%s", g_TopType[runType]);
 	strtolower(szTopType);
 	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
 	//formatex(g_ReplayFile[id], charsmax(replayFile), "%s", replayFile);
@@ -5310,7 +5310,7 @@ GetSplitTimeText(id, Float:time)
 
 	new sign[2];
 	if (time < 0.0)
-		formatex(sign, sizeof(sign), "-");
+		sign[0] = '-';
 
 	new result[14];
 	if (minutes)
@@ -8479,7 +8479,7 @@ SetCupMapWinner(id)
 	}
 	else
 	{
-		new map[32];
+		new map[MAX_MAPNAME_LENGTH];
 		GetNextCupMapToPlay(map, charsmax(map));
 
 		new Float:timeToChange = get_pcvar_float(pcvar_kz_cup_map_change_delay);
@@ -8686,13 +8686,13 @@ public CupFinallyFirstPickBan(taskId)
 		new oldSteam1[MAX_AUTHID_LENGTH], oldSteam2[MAX_AUTHID_LENGTH];
 		new oldPlayer1 = g_CupPlayer1;
 		new oldPlayer2 = g_CupPlayer2;
-		formatex(oldSteam1, charsmax(oldSteam1), g_CupSteam1);
-		formatex(oldSteam2, charsmax(oldSteam2), g_CupSteam2);
+		copy(oldSteam1, charsmax(oldSteam1), g_CupSteam1);
+		copy(oldSteam2, charsmax(oldSteam2), g_CupSteam2);
 
 		g_CupPlayer1 = oldPlayer2;
 		g_CupPlayer2 = oldPlayer1;
-		formatex(g_CupSteam1, charsmax(g_CupSteam1), oldSteam2);
-		formatex(g_CupSteam2, charsmax(g_CupSteam2), oldSteam1);
+		copy(g_CupSteam1, charsmax(g_CupSteam1), oldSteam2);
+		copy(g_CupSteam2, charsmax(g_CupSteam2), oldSteam1);
 	}
 
 	WriteCupFile(0);
@@ -8714,7 +8714,7 @@ public CupFinallyFirstPickBan(taskId)
 
 public CmdMapsShowHandler(id)
 {
-	new msg[512], map[32];
+	new msg[512], map[MAX_MAPNAME_LENGTH];
 	formatex(msg, charsmax(msg), "Map pool:\n");
 
 	// Add first the decider
@@ -8722,7 +8722,7 @@ public CmdMapsShowHandler(id)
 	for (new i = 0; i < ArraySize(deciderMaps); i++)
 	{
 		ArrayGetString(deciderMaps, i, map, charsmax(map));
-		formatex(msg, charsmax(msg), "%s > %s - [DECIDER]\n", msg, map);
+		format(msg, charsmax(msg), "%s > %s - [DECIDER]\n", msg, map);
 		server_print("getting decider map %s", map);
 	}
 
@@ -8731,7 +8731,7 @@ public CmdMapsShowHandler(id)
 	for (new i = 0; i < ArraySize(pickedMaps); i++)
 	{
 		ArrayGetString(pickedMaps, i, map, charsmax(map));
-		formatex(msg, charsmax(msg), "%s > %s - [PICKED]\n", msg, map);
+		format(msg, charsmax(msg), "%s > %s - [PICKED]\n", msg, map);
 		server_print("getting picked map %s", map);
 	}
 
@@ -8740,7 +8740,7 @@ public CmdMapsShowHandler(id)
 	for (new i = 0; i < ArraySize(playedMaps); i++)
 	{
 		ArrayGetString(playedMaps, i, map, charsmax(map));
-		formatex(msg, charsmax(msg), "%s > %s - [PLAYED]\n", msg, map);
+		format(msg, charsmax(msg), "%s > %s - [PLAYED]\n", msg, map);
 		server_print("getting played map %s", map);
 	}
 
@@ -8749,7 +8749,7 @@ public CmdMapsShowHandler(id)
 	for (new i = 0; i < ArraySize(bannedMaps); i++)
 	{
 		ArrayGetString(bannedMaps, i, map, charsmax(map));
-		formatex(msg, charsmax(msg), "%s > %s - [BANNED]\n", msg, map);
+		format(msg, charsmax(msg), "%s > %s - [BANNED]\n", msg, map);
 		server_print("getting banned map %s", map);
 	}
 
@@ -8758,7 +8758,7 @@ public CmdMapsShowHandler(id)
 	for (new i = 0; i < ArraySize(idleMaps); i++)
 	{
 		ArrayGetString(idleMaps, i, map, charsmax(map));
-		formatex(msg, charsmax(msg), "%s > %s\n", msg, map);
+		format(msg, charsmax(msg), "%s > %s\n", msg, map);
 		server_print("getting idle map %s", map);
 	}
 
@@ -8846,7 +8846,7 @@ public CmdMapStateHandler(id, level, cid)
 {
 	if (cmd_access(id, level, cid, 1))
 	{
-		new map[32], action[8];
+		new map[MAX_MAPNAME_LENGTH], action[8];
 		read_argv(1, map, charsmax(map));
 		read_argv(2, action, charsmax(action));
 
@@ -9544,7 +9544,7 @@ LoadMapPool()
 		cupMap[MAP_STATE_] = _:str_to_num(mapState);
 		cupMap[MAP_PICKER] = _:str_to_num(mapPicker);
 
-		formatex(cupMap[MAP_NAME], charsmax(cupMap[MAP_NAME]), mapName);
+		formatex(cupMap[MAP_NAME], charsmax(cupMap[MAP_NAME]), "%s", mapName);
 
 		server_print("filling g_CupMapPool with map %s (%s)", mapName, cupMap[MAP_NAME]);
 
@@ -9597,7 +9597,7 @@ GetLastCupMapAvailable(map[], len)
 		{
 			if (!isMapFound)
 			{
-				formatex(map, len, cupMap[MAP_NAME]);
+				formatex(map, len, "%s", cupMap[MAP_NAME]);
 				isMapFound = true;
 			}
 			else
@@ -9627,7 +9627,7 @@ GetNextCupMapToPlay(map[], len)
 
 		if (cupMap[MAP_STATE_] == MAP_PICKED || cupMap[MAP_STATE_] == MAP_DECIDER)
 		{
-			formatex(map, len, cupMap[MAP_NAME]);
+			formatex(map, len, "%s", cupMap[MAP_NAME]);
 			return;
 		}
 	}
@@ -10243,8 +10243,8 @@ ShowTopClimbers(id, RUN_TYPE:topType)
 		len = formatex(buffer[len], charsmax(buffer) - len, "#   Player             Time              Date        Demo\n\n");
 
 	new szTopType[32], szTopTypeUCFirst[32];
-	formatex(szTopType, charsmax(szTopType), g_TopType[topType]);
-	formatex(szTopTypeUCFirst, charsmax(szTopTypeUCFirst), g_TopType[topType]);
+	formatex(szTopType, charsmax(szTopType), "%s", g_TopType[topType]);
+	formatex(szTopTypeUCFirst, charsmax(szTopTypeUCFirst), "%s", g_TopType[topType]);
 	ucfirst(szTopTypeUCFirst);
 
 	for (new i = recMin; i < recMax && charsmax(buffer) - len > 0; i++)
