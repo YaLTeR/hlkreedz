@@ -84,8 +84,8 @@
 #define MAX_MAP_INSERTIONS_AT_ONCE      7
 #define DEFAULT_HLKZ_NOCLIP_SPEED       800.0
 // TODO: make this configurable
-#define DOUBLEPRESS_THRESHOLD           0.3  // in seconds, max time between keypresses to consider it a doublepress (like doubleclick)
-#define ANTIRESET_AFK_THRESHOLD         0.1  // in seconds, idle time after which we allow a single keypress to reset
+#define DOUBLEPRESS_THRESHOLD           0.3   // in seconds, max time between keypresses to consider it a doublepress (like doubleclick)
+#define ANTIRESET_AFK_THRESHOLD         0.05  // in seconds, idle time after which we allow a single keypress to reset
 
 // https://github.com/ValveSoftware/halflife/blob/c7240b965743a53a29491dd49320c88eecf6257b/dlls/triggers.cpp#L1013
 #define TRIGGER_HURT_DAMAGE_TIME        0.5
@@ -7158,8 +7158,17 @@ public Fw_FmPlayerPreThinkPost(id)
 	}
 	else
 	{
+		if (xs_vec_equal(g_PrevOrigin[id], g_Origin[id])
+			&& !HasMovementKeys(g_PrevButtons[id]) && !HasMovementKeys(g_Buttons[id]))
+		{
+			// If you're moving the camera but you are not moving the character,
+			// then we still consider it for the anti-reset
+			g_AntiResetIdleTime[id] += g_FrameTime[id];
+		}
+		else
+			g_AntiResetIdleTime[id] = 0.0;
+
 		g_IdleTime[id] = 0.0;
-		g_AntiResetIdleTime[id] = 0.0;
 	}
 
 	// Store pressed keys here, cos HUD updating is called not so frequently
