@@ -7347,6 +7347,9 @@ HandleNoclipCheating(id)
 
 CheckNoclipSpeed(id)
 {
+	if (IsBot(id))
+		return;
+
 	if (!HasMovementKeys(g_Buttons[id]) || g_NoclipTargetSpeed[id] <= 0.0)
 		return;
 
@@ -7420,6 +7423,9 @@ CheckNoclipSpeed(id)
 
 CheckSpeedcap(id, bool:isAtStart = false)
 {
+	if (IsBot(id))
+		return;
+
 	new Float:currVelocity[3];
 	pev(id, pev_velocity, currVelocity);
 	new Float:endSpeed = xs_vec_len_2d(currVelocity);
