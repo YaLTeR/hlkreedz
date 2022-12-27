@@ -3432,7 +3432,8 @@ SpawnBot(id)
 			g_ReplayStartGameTime[id] = replay[RP_TIME];
 			//g_isCustomFpsReplay[id] = g_ReplayFpsMultiplier[id] > 1;
 
-			set_pev(bot, pev_movetype, MOVETYPE_NOCLIP);
+			//set_pev(bot, pev_solid, SOLID_NOT);
+			set_pev(bot, pev_movetype, MOVETYPE_NONE);
 
 			g_BotOwner[bot] = id;
 			g_Unfreeze[bot] = 0;
