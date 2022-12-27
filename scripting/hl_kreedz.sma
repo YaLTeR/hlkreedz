@@ -427,6 +427,9 @@ new Float:g_AntiResetThreshold[MAX_PLAYERS + 1];
 new Float:g_IdleTime[MAX_PLAYERS + 1];
 new Float:g_AntiResetIdleTime[MAX_PLAYERS + 1];
 
+// FIXME: not working for agstart yet, you should be able to move if you really want to? and tp to start on countdown end
+new bool:g_AllowMoveDuringCountdown[MAX_PLAYERS + 1];
+
 new Float:g_PrevRunCountdown[MAX_PLAYERS + 1];
 new g_PrevShowTimer[MAX_PLAYERS + 1];
 new g_PrevTimeDecimals[MAX_PLAYERS + 1];
@@ -2428,6 +2431,8 @@ InitPlayerSettings(id)
 	g_AntiResetThreshold[id] = get_pcvar_float(pcvar_kz_default_antireset_threshold);
 	g_LastStartAttempt[id]   = -9999999.9;
 
+	g_AllowMoveDuringCountdown[id] = false;
+
 	// Nightvision value 1 in server cvar is "all modes allowed", if that's the case we default it to mode 2 in client,
 	// every other mode in cvar is +1 than client command, so we do -1 to get the correct mode
 	if (g_Nightvision[id] > 1)
@@ -2568,6 +2573,7 @@ LoadPlayerSettings(id)
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "focus_mode",         g_FocusMode[id]);
 	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "chat_status",        _:g_ChatStatus[id]);
 	amx_load_setting_float(playerFileName, GAMEPLAY_SETTINGS, "antireset_thld",     g_AntiResetThreshold[id]);
+	amx_load_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "move_in_countdown",  g_AllowMoveDuringCountdown[id]);
 
 	// TODO: load run stats, in case we're in a NR run and come back later to finish it
 
@@ -2637,6 +2643,7 @@ SavePlayerSettings(id)
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "focus_mode",         g_FocusMode[id]);
 	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "chat_status",        _:g_ChatStatus[id]);
 	amx_save_setting_float(playerFileName, GAMEPLAY_SETTINGS, "antireset_thld",     g_AntiResetThreshold[id]);
+	amx_save_setting_int(  playerFileName, GAMEPLAY_SETTINGS, "move_in_countdown",  g_AllowMoveDuringCountdown[id]);
 
 	// TODO: save run stats and position, in case we're in a NR run and come back later to finish it
 }
@@ -2644,7 +2651,8 @@ SavePlayerSettings(id)
 ResetPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 {
 	// Unpause
-	UnfreezePlayer(id);
+	if (g_RunModeStarting[id] == MODE_NORMAL || g_AllowMoveDuringCountdown[id])
+		UnfreezePlayer(id);
 
 	InitPlayer(id, onDisconnect, onlyTimer);
 
@@ -2663,7 +2671,9 @@ InitPlayer(id, bool:onDisconnectOrAgstart = false, bool:onlyTimer = false)
 
 	// Reset timer
 	clr_bit(g_baIsClimbing, id);
-	clr_bit(g_baIsAgFrozen, id);
+	if (g_RunModeStarting[id] == MODE_NORMAL || g_AllowMoveDuringCountdown[id])
+		clr_bit(g_baIsAgFrozen, id);
+
 	clr_bit(g_baIsPaused, id);
 	clr_bit(g_baIsPureRunning, id);
 
@@ -4053,6 +4063,9 @@ public CmdSayHandler(id, level, cid)
 	
 	else if (equali(args[1], "noclip"))
 		CmdNoclip(id);
+
+	else if (equali(args[1], "countdown_move"))
+		CmdCountdownMove(id);
 
 	// The ones below use containi() because they can be passed parameters
 	else if (containi(args[1], "alignvote") == 0)
@@ -6061,6 +6074,8 @@ HudShowRun(id, Float:currGameTime)
 			ExecuteHamB(Ham_Spawn, id);
 			amxclient_cmd(id, "fullupdate");
 
+			UnfreezePlayer(id);
+
 			StartClimb(id, true);
 
 			g_RunMode[id] = runMode;
@@ -6140,14 +6155,13 @@ RunCountdown(id, Float:currGameTime, Float:runStartTime, Float:totalCountdownTim
 			// or something, so showing this chat print instead
 			client_print(id, print_chat, "[%s] You have to press the start button before starting the match!", PLUGIN_TAG);
 
-			ResetPlayer(id);
-
 			if (isNoReset)
 			{
 				g_RunModeStarting[id] = MODE_NORMAL;
 				g_RunStartTime[id] = 0.0;
 				g_RunNextCountdown[id] = 0.0;
 			}
+			ResetPlayer(id);
 		}
 	}
 
@@ -7102,7 +7116,8 @@ public Fw_FmPlayerPreThinkPost(id)
 {
 	if (get_bit(g_baIsAgFrozen, id) && !(pev(id, pev_flags) & FL_FROZEN))
 	{
-		FreezePlayer(id);
+		if (!g_AllowMoveDuringCountdown[id])
+			FreezePlayer(id);
 	}
 
 	g_bWasSurfing[id] = g_bIsSurfing[id];
@@ -8107,7 +8122,8 @@ CmdStartNoReset(id)
 		return PLUGIN_HANDLED;
 	}
 
-	FreezePlayer(id);
+	if (!g_AllowMoveDuringCountdown[id])
+		FreezePlayer(id);
 
 	g_IsValidStart[id] = false;
 
@@ -8142,7 +8158,8 @@ StartRace(id)
 		return;
 	}
 
-	FreezePlayer(id);
+	if (!g_AllowMoveDuringCountdown[id])
+		FreezePlayer(id);
 
 	g_RunMode[id] = MODE_NORMAL;
 	g_RunModeStarting[id] = MODE_RACE;
@@ -8530,13 +8547,14 @@ public CheckAgstartConditions(taskId)
 		// or something, so showing this chat print instead
 		client_print(id, print_chat, "[%s] You have to press the start button before starting the match!", PLUGIN_TAG);
 
-		ResetPlayer(id);
 		server_cmd("agforcespectator #%d", get_user_userid(id));
 
 		g_IsBannedFromMatch[id] = true;
 		g_RunModeStarting[id] = MODE_NORMAL;
 		g_RunStartTime[id] = 0.0;
 		g_RunNextCountdown[id] = 0.0;
+
+		ResetPlayer(id);
 
 		switchedPlayers++;
 	}
@@ -9469,6 +9487,17 @@ public CmdNightvision(id)
  	g_Nightvision[id] = mode;
 
  	return PLUGIN_HANDLED;
+}
+
+CmdCountdownMove(id)
+{
+	g_AllowMoveDuringCountdown[id] = !g_AllowMoveDuringCountdown[id];
+	if (g_AllowMoveDuringCountdown[id])
+		ShowMessage(id, "You can now move freely during a countdown");
+	else
+		ShowMessage(id, "You no longer can move freely during a countdown");
+
+	return PLUGIN_HANDLED;
 }
 
 CmdShowRunStatsOnConsole(id)
