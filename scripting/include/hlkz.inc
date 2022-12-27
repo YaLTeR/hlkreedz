@@ -2,11 +2,116 @@
  * Helper functions used by the HL_KreedZ plugin
  */
 
+
+#if defined _hlkz_included
+	#endinput
+#endif
+#define _hlkz_included
+
+#pragma reqlib hlkz
+#if !defined AMXMODX_NOAUTOLOAD
+	#pragma loadlib hlkz
+#endif
+
 #include <amxmodx>
 #include <fakemeta>
 #include <xs>
 
+
+#define MAX_PLAYERS    32
 #define MAX_MATCH_MAPS 101
+
+
+/**
+ * Called when +hook/+rope/healthbooster/noclip is used
+ * @param id           client id of the player that cheated
+ */
+forward hlkz_cheating(id);
+
+/**
+ * Called when a map's best time is beaten
+ * @param type         run type: 0 = pure, 1 = pro, 2 = noob
+ * @param top          Array with items of type STATS, which includes the info relative to the run
+ */
+forward hlkz_worldrecord(type, Array:top);
+
+/**
+ * Called when a run's timer start
+ * @param id           client id of the player that is starting a run
+ */
+forward hlkz_timer_start(id);
+
+/**
+ * Called after displaying the welcome message to a player, 1.4s after client_putinserver(),
+ * but only when there's an ongoing match and for those who are put in spectator mode (or not yet)
+ * to set a default spectating behaviour to them, like switching them automatically to some match
+ * player's viewpoint
+ * @param id           client id of the player that is starting a run
+ */
+forward hlkz_postwelcome(id);
+
+/**
+ * Called when a match ends due to explicit agabort, timelimit or some player hitting the end button
+ */
+forward hlkz_stop_match();
+
+/**
+ * Called when a run ends, after writing the time to the leaderboard file, and before resetting
+ * player state, like the recording of the run. Note that if database storage is enabled (kz_mysql 1 or 2)
+ * it will very likely execute before the run gets inserted to database, since that may take some time
+ * @param id           client id of the player that finished a run
+ */
+forward hlkz_run_finish(id);
+
+/**
+ * Called when a player disconnects (client_disconnect() forward), before clearing player state
+ * @param id           client id of the player that is disconnecting
+ */
+forward hlkz_pre_save_on_disconnect(id);
+
+
+// What kind of run a player is doing. A normal run, no-reset run, race or agstart
+native RUN_MODE:HLKZ_GetRunMode(id);
+
+// Whether the map uses a starting area as opposed to a start button
+native bool:HLKZ_UsesStartingZone();
+
+// Whether a player is allowed to teleport to some checkpoint
+native bool:HLKZ_CanTeleportNr(id, cpType);
+
+// Get the color that a player has set for the HUD elements shown by HLKZ
+native HLKZ_GetHudColor(id, rgb[]);
+
+// Show a message on HUD or chat to a player, depending on the kz_messages cvar
+native HLKZ_ShowMessage(id, const message[]);
+
+// Get a player's unique identifier, which depends on the kz_uniqueid cvar (it may be steam ID, ip, colorless nickname)
+native HLKZ_GetUserUniqueId(id, uniqueId[]);
+
+// Save a serverside recording of a player's run, with the demo name prefixed
+native HLKZ_SaveRecordedRun(id, prefix[]);
+
+// Whether there's an agstart run ongoing
+native HLKZ_IsMatchRunning();
+
+// Allow switching from/to spectator mode or not
+native HLKZ_AllowSpectate(bool:status);
+
+// Whether a player is participating in an agstart run
+native HLKZ_IsPlayingMatch(id);
+
+
+enum _:CP_TYPES
+{
+	CP_TYPE_SPEC,
+	CP_TYPE_CURRENT,
+	CP_TYPE_OLD,
+	CP_TYPE_PRACTICE, // Practice checkpoints (with speed / midair)
+	CP_TYPE_PRACTICE_OLD,
+	CP_TYPE_CUSTOM_START, // kz_set_custom_start position.
+	CP_TYPE_START,        // Start button.
+	CP_TYPE_DEFAULT_START // Standard spawn
+}
 
 enum _:STATS
 {
@@ -93,12 +198,20 @@ enum MAP_STATE
 	MAP_DECIDER
 }
 
-enum MATCH_FORMAT
+enum PLAYER_FORMAT
 {
-	MATCH_UNKNOWN,
-	MATCH_PLAYER1,
-	MATCH_PLAYER2,
-	MATCH_DECIDER
+	PF_UNKNOWN = 0,
+	PF_PLAYER1 = 'A',
+	PF_PLAYER2 = 'B',
+	PF_DECIDER = 'D'
+}
+
+enum MAP_FORMAT
+{
+	MF_UNKNOWN = 0,
+	MF_BAN     = 'B',
+	MF_PICK    = 'P',
+	MF_DECIDER = 'D'
 }
 
 enum _:CUP_MAP
@@ -106,7 +219,7 @@ enum _:CUP_MAP
 	MAP_ORDER,
 	MAP_STATE:MAP_STATE_,
 	MAP_NAME[MAX_MAPNAME_LENGTH],
-	MATCH_FORMAT:MAP_PICKER
+	PLAYER_FORMAT:MAP_PICKER
 }
 
 enum MOVEMENT_STATE
@@ -139,14 +252,26 @@ new const g_KzVotePositionString[][] =
 	"left",
 	"center",
 	"right"
-}
+};
 
 new const Float:g_KzVotePosition[] =
 {
 	0.05,
 	-1.0,
 	0.75
-}
+};
+
+new const g_MapStateString[][] =
+{
+	"",
+	"banned",
+	"picked",
+	"played",
+	"decider"
+};
+
+new const HLKZ_LOG_FILENAME[] = "hl_kreedz.log";
+
 
 GetNextNumber(buffer[], &pos)
 {
@@ -275,15 +400,22 @@ GetNumberArg()
 // e.g.: say "/speedcap 499.5" // get the '499.5'
 Float:GetFloatArg(str[]="", pos=0)
 {
-	new cmdArg[64], numberPart[64];
+	new cmdArg[64], unused[64], aux[64];
 
 	if (str[0])
 		formatex(cmdArg, charsmax(cmdArg), str);
 	else
 	{
-		read_args(cmdArg, charsmax(cmdArg));
-		remove_quotes(cmdArg);
-		trim(cmdArg);
+		read_args(aux, charsmax(aux));
+		remove_quotes(aux);
+		trim(aux);
+		strtok2(aux, unused, charsmax(unused), cmdArg, charsmax(cmdArg), _, 1);
+
+		if (!cmdArg[0])
+		{
+			// Couldn't split by whitespace, so it's probably messagemode or something
+			copy(cmdArg, charsmax(cmdArg), unused);
+		}
 	}
 
 	new _pos = pos;
@@ -550,4 +682,75 @@ DestroyMenus(id)
 bool:HasMovementKeys(buttons)
 {
 	return !!(buttons & (IN_MOVELEFT|IN_MOVERIGHT|IN_FORWARD|IN_BACK));
+}
+
+// A wrapper for returning ITEM_DISABLED, but greying out the menu item, as the AMXX menu system doesn't do it
+DisableMenuItem(menu, item)
+{
+	new itemName[64];
+	menu_item_getinfo(menu, item, _, _, _, itemName, charsmax(itemName));
+	format(itemName, charsmax(itemName), "\\d%s\\w", itemName); // make this text grey, then continue with white
+	menu_item_setname(menu, item, itemName);
+
+	return ITEM_DISABLED;
+}
+
+public RestoreSpecCam(payLoad[], taskId)
+{
+	new spec   = payLoad[0];
+	new target = payLoad[1];
+
+	if (!pev_valid(spec) || !pev_valid(target) || !is_user_connected(spec) || !is_user_connected(target))
+		return;
+
+	// Checking if the spectator continues spectating, otherwise if unspecs during
+	// the time this task is executed it will be teleported to the runner position
+	if (pev(spec, pev_iuser1))
+	{
+		// This spectator is watching the frozen target (not really, what is frozen is the cam, the target is moving)
+		new botName[33], specName[33];
+		GetColorlessName(target, botName, charsmax(botName));
+		GetColorlessName(spec, specName, charsmax(specName));
+
+		new Float:botOrigin[3], Float:botAngles[3];
+		pev(target, pev_origin, botOrigin);
+		pev(target, pev_v_angle, botAngles);
+
+		set_pev(spec, pev_iuser2, target);
+
+		set_pev(spec, pev_origin, botOrigin);
+		set_pev(spec, pev_angles, botAngles);
+		set_pev(spec, pev_v_angle, botAngles);
+	}
+}
+
+// Wrapper to limit calls to HLKZ_ShowMessage
+ShowMessageHLKZ(id, const message[], {Float,Sql,Result,_}:...)
+{
+	static msg[192];
+	vformat(msg, charsmax(msg), message, 3);
+
+	// TODO: limit the amount of times this is called to like twice per second per player, for performance reasons
+	HLKZ_ShowMessage(id, msg);
+}
+
+ClearLastMenu(id)
+{
+	new _dummy, menu;
+	player_menu_info(id, _dummy, menu);
+
+	if (menu > -1)
+		menu_destroy(menu);
+}
+
+ClearAllMenus(id)
+{
+	new _dummy, menu;
+	player_menu_info(id, _dummy, menu);
+
+	while (menu > -1)
+	{
+		menu_destroy(menu);
+		player_menu_info(id, _dummy, menu);
+	}
 }

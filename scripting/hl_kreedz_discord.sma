@@ -1,7 +1,7 @@
 #include <amxmodx>
 #include <curl>
 #include <json>
-#include <hl_kreedz_util>
+#include <hlkz>
 
 #define PLUGIN "HLKZ Discord WR Notifier"
 #define VERSION "1.1.0"
