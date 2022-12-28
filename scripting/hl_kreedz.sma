@@ -200,8 +200,6 @@ new const PLUGIN_CFG_FILENAME[] = "hl_kreedz";
 new const PLUGIN_CFG_SHORTENED[] = "hlkz";
 new const REPLAYS_DIR_NAME[] = "replays";
 new const MYSQL_LOG_FILENAME[] = "kz_mysql.log";
-new const MAP_POOL_FILE[] = "map_pool.ini";
-new const CUP_FILE[] = "cup.ini";
 new const HUD_SETTINGS[] = "HUD Settings";
 new const GAMEPLAY_SETTINGS[] = "Gameplay Settings";
 
@@ -535,18 +533,6 @@ new bool:g_bMatchStarting;
 new bool:g_bMatchRunning;
 new bool:g_DisableSpec;
 
-new g_BestOfN;            // how many maps will runners play to decide who qualifies, NOT the total maps in the pool, e.g.: Bo5 -> 5
-new g_CupPlayer1;         // player index of opponent 1
-new g_CupPlayer2;         // player index of opponent 2
-new g_CupSteam1[32];      // Steam id of opponent 1
-new g_CupSteam2[32];      // Steam id of opponent 2
-new g_CupScore1;          // score of opponent 1, score meaning maps won
-new g_CupScore2;          // score of opponent 2
-new bool:g_CupReady1;     // whether opponent 1 is ready or not
-new bool:g_CupReady2;     // whether opponent 2 is ready or not
-new Trie:g_CupMapPool;    // mapName->mapState (MAP_BANNED, MAP_PICKED, etc.)
-new MATCH_FORMAT:g_CupFormat[MAX_MATCH_MAPS + 1];    // ABBAABD, etc.
-
 new bool:g_isAnyBoostWeaponInMap;
 
 new bool:g_usesStartingZone;
@@ -617,8 +603,6 @@ new pcvar_kz_mysql_host;
 new pcvar_kz_mysql_user;
 new pcvar_kz_mysql_pass;
 new pcvar_kz_mysql_db;
-new pcvar_kz_cup_format;
-new pcvar_kz_cup_map_change_delay;
 new pcvar_kz_stop_moving_platforms;
 new pcvar_kz_noreset_agstart;   // count agstarts as no-reset runs? (there might be some exploit or annoyance with agstart)
 //new pcvar_kz_noreset_race;    // same as for agstarts, but for races made through custom kz votes
@@ -630,8 +614,6 @@ new pcvar_kz_noclip;
 new pcvar_kz_noclip_speed;
 new pcvar_kz_fireworks_on_wr;
 new pcvar_kz_default_antireset_threshold;
-
-new cvarhook:hookInvisFuncConveyor;
 
 new Handle:g_DbHost;
 new Handle:g_DbConnection;
@@ -749,7 +731,7 @@ public plugin_init()
 
 	pcvar_kz_remove_func_friction = register_cvar("kz_remove_func_friction", "0");
 	pcvar_kz_invis_func_conveyor = register_cvar("kz_invis_func_conveyor", "1");
-	hookInvisFuncConveyor = hook_cvar_change(pcvar_kz_invis_func_conveyor, "InvisFuncConveyorChange");
+	hook_cvar_change(pcvar_kz_invis_func_conveyor, "InvisFuncConveyorChange");
 
 	pcvar_kz_pure_max_damage_boost = register_cvar("kz_pure_max_damage_boost", "100");
 
@@ -791,9 +773,6 @@ public plugin_init()
 	pcvar_kz_mysql_user = register_cvar("kz_mysql_user", "");  // Name of the MySQL user that will be used to read/write data in the DB
 	pcvar_kz_mysql_pass = register_cvar("kz_mysql_pass", "");  // Password of the MySQL user
 	pcvar_kz_mysql_db   = register_cvar("kz_mysql_db", "");    // MySQL database name
-
-	pcvar_kz_cup_format = register_cvar("kz_cup_format", "ABABABD");
-	pcvar_kz_cup_map_change_delay = register_cvar("kz_cup_map_change_delay", "12.0");
 
 	pcvar_kz_stop_moving_platforms = register_cvar("kz_stop_moving_platforms", "0");
 	pcvar_kz_noclip = register_cvar("kz_noclip", "0"); // Whether or not /noclip is allowed
@@ -1156,7 +1135,6 @@ public plugin_end()
 	ArrayDestroy(g_SortedRunReqIndexes);
 
 	TrieDestroy(g_DbPlayerId);
-	TrieDestroy(g_CupMapPool);
 	TrieDestroy(g_ColorsList);
 	TrieDestroy(g_Splits);
 
@@ -1172,11 +1150,11 @@ public plugin_end()
 public RUN_MODE:native_get_runmode(plugin, params)
 {
 	if (params != 1)
-		return PLUGIN_CONTINUE;
+		return MODE_NORMAL;
 
 	new id = get_param(1);
 	if (!id)
-		return PLUGIN_CONTINUE;
+		return MODE_NORMAL;
 
 	return g_RunMode[id];
 }
@@ -1189,11 +1167,11 @@ public bool:native_uses_startingzone(plugin, params)
 public bool:native_can_teleportnr(plugin, params)
 {
 	if (params != 2)
-		return PLUGIN_CONTINUE;
+		return false;
 
 	new id = get_param(1);
 	if (!id)
-		return PLUGIN_CONTINUE;
+		return false;
 
 	new cpType = get_param(2);
 
@@ -1202,22 +1180,17 @@ public bool:native_can_teleportnr(plugin, params)
 
 public native_get_hudcolor(plugin, params)
 {
-	//server_print("native_get_hudcolor %d", params);
 	if (params != 2)
 		return PLUGIN_CONTINUE;
 
 	new id = get_param(1);
-	//server_print("getting colors for player %d, g_HudRGB[id]: [%d, %d, %d]",
-		//id, g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2]);
 
 	if (!id)
 		return PLUGIN_CONTINUE;
 
 	set_array(2, g_HudRGB[id], sizeof(g_HudRGB[]));
 
-	new tmp[3];
-	get_array(2, tmp, sizeof(tmp));
-	//server_print("colors: [%d, %d, %d]", tmp[0], tmp[1], tmp[2]);
+	return PLUGIN_HANDLED;
 }
 
 public native_show_message(plugin, params)
@@ -1233,6 +1206,8 @@ public native_show_message(plugin, params)
 	get_array(2, message, charsmax(message));
 
 	ShowMessage(id, message);
+
+	return PLUGIN_HANDLED;
 }
 
 public native_get_user_uniqueid(plugin, params)
@@ -1247,6 +1222,8 @@ public native_get_user_uniqueid(plugin, params)
 	new uniqueId[32];
 	GetUserUniqueId(id, uniqueId, charsmax(uniqueId));
 	set_array(2, uniqueId, sizeof(uniqueId));
+
+	return PLUGIN_HANDLED;
 }
 
 public native_save_recordedrun(plugin, params)
@@ -1262,6 +1239,8 @@ public native_save_recordedrun(plugin, params)
 	get_array(2, prefix, charsmax(prefix));
 
 	SaveRecordedRunPrefixed(id, prefix);
+
+	return PLUGIN_HANDLED;
 }
 
 public native_is_match_running(plugin, params)
@@ -1275,6 +1254,8 @@ public native_allow_spectate(plugin, params)
 		return PLUGIN_CONTINUE;
 
 	g_DisableSpec = !(bool:get_param(1));
+
+	return PLUGIN_HANDLED;
 }
 
 // To be executed after cvars in amxx.cfg and other configs have been set,
@@ -2613,7 +2594,7 @@ CmdTp(id)
 
 CmdNoclip(id)
  {
-	g_IsInNoclip[id] = get_user_noclip(id);
+	g_IsInNoclip[id] = bool:get_user_noclip(id);
 	
 	if (get_pcvar_num(pcvar_kz_noclip) == 0)
 	{
@@ -2644,7 +2625,7 @@ CmdNoclip(id)
 	else                                     // exit noclip
 	{	
 		set_user_noclip(id, 0);              // turn off noclip
-		set_user_velocity(id, {0.0, 0.0, 0.0})  // just in case
+		set_user_velocity(id, Float:{0.0, 0.0, 0.0})  // just in case
 		HandleNoclipCheating(id);
 		g_IsInNoclip[id] = false;
 		client_print(id, print_chat, "[%s] Noclip disabled", PLUGIN_TAG);
@@ -4254,13 +4235,6 @@ bool:IsUserOnGround(id)
 	return !!(pev(id, pev_flags) & FL_ONGROUND_ALL);
 }
 
-Float:GetPlayerSpeed(id)
-{
-	new Float:velocity[3];
-	pev(id, pev_velocity, velocity);
-	return xs_vec_len_2d(velocity);
-}
-
 
 //*******************************************************
 //*                                                     *
@@ -4656,7 +4630,6 @@ FinishClimb(id)
 		// to help admins judge together with replays or VOD
 		new name[32], minutes, Float:seconds, pureRun[12];
 		new Float:kztime = get_gametime() - g_PlayerTime[id];
-		new RUN_TYPE:topType = GetTopType(id);
 
 		minutes = floatround(kztime, floatround_floor) / 60;
 		seconds = kztime - (60 * minutes);
@@ -5179,9 +5152,6 @@ StopMatch()
 {
 	g_bMatchStarting = false;
 	g_bMatchRunning = false;
-
-	g_CupReady1 = false;
-	g_CupReady2 = false;
 
 	new players[MAX_PLAYERS], playersNum;
 	get_players_ex(players, playersNum, GetPlayers_ExcludeBots);
@@ -7062,7 +7032,7 @@ public Fw_FmPlayerTouchTeleport(tp, id) {
 
 HandleNoclipCheating(id)
 {
-	new isNoclip = get_user_noclip(id);
+	new bool:isNoclip = bool:get_user_noclip(id);
 	if (isNoclip && !g_IsInNoclip[id])
 	{
 		// Player has just started noclipping
@@ -9492,29 +9462,6 @@ SaveRecordedRun(id, RUN_TYPE:topType)
 	}
 	fclose(g_RecordRun[id]);
 	server_print("[%s] Saved %d frames to replay file", PLUGIN_TAG, ArraySize(g_RunFrames[id]));
-}
-
-SaveRecordedRunCup(id, RUN_TYPE:topType)
-{
-	static authid[32], replayFile[256], idNumbers[24];
-	get_user_authid(id, authid, charsmax(authid));
-
-	ConvertSteamID32ToNumbers(authid, idNumbers);
-	formatex(replayFile, charsmax(replayFile), "%s/cup_%s_%s_%s_%d.dat",
-		g_ReplaysDir, g_Map, idNumbers, g_TopType[topType], get_systime());
-
-	g_RecordRun[id] = fopen(replayFile, "wb");
-	server_print("[%s] Saving cup run to: '%s'", PLUGIN_TAG, replayFile);
-
-	new frameState[REPLAY];
-	for (new i; i < ArraySize(g_RunFrames[id]); i++)
-	{
-		ArrayGetArray(g_RunFrames[id], i, frameState);
-		fwrite_blocks(g_RecordRun[id], frameState, sizeof(frameState) - 2, BLOCK_INT); // gametime, origin and angles
-		fwrite(g_RecordRun[id], frameState[RP_BUTTONS], BLOCK_SHORT); // buttons
-	}
-	fclose(g_RecordRun[id]);
-	server_print("[%s] Saved %d frames to cup replay file", PLUGIN_TAG, ArraySize(g_RunFrames[id]));
 }
 
 SaveRecordedRunPrefixed(id, prefix[])

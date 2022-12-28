@@ -261,7 +261,7 @@ new const Float:g_KzVotePosition[] =
 	0.75
 };
 
-new const g_MapStateString[][] =
+stock const g_MapStateString[][] =
 {
 	"",
 	"banned",
@@ -655,7 +655,7 @@ stock datacopy(any:into[], any:from[], positionsToCopy, intoStartPos = 0, fromSt
     }
 }
 
-GetNumberOfBitsSet(iBitField)
+stock GetNumberOfBitsSet(iBitField)
 {
 	iBitField = iBitField - ((iBitField >> 1) & 0x55555555);
 	iBitField = (iBitField & 0x33333333) + ((iBitField >> 2) & 0x33333333);
@@ -685,7 +685,7 @@ bool:HasMovementKeys(buttons)
 }
 
 // A wrapper for returning ITEM_DISABLED, but greying out the menu item, as the AMXX menu system doesn't do it
-DisableMenuItem(menu, item)
+stock DisableMenuItem(menu, item)
 {
 	new itemName[64];
 	menu_item_getinfo(menu, item, _, _, _, itemName, charsmax(itemName));
@@ -725,7 +725,7 @@ public RestoreSpecCam(payLoad[], taskId)
 }
 
 // Wrapper to limit calls to HLKZ_ShowMessage
-ShowMessageHLKZ(id, const message[], {Float,Sql,Result,_}:...)
+stock ShowMessageHLKZ(id, const message[], {Float,Sql,Result,_}:...)
 {
 	static msg[192];
 	vformat(msg, charsmax(msg), message, 3);
@@ -734,7 +734,7 @@ ShowMessageHLKZ(id, const message[], {Float,Sql,Result,_}:...)
 	HLKZ_ShowMessage(id, msg);
 }
 
-ClearLastMenu(id)
+stock ClearLastMenu(id)
 {
 	new _dummy, menu;
 	player_menu_info(id, _dummy, menu);
@@ -743,7 +743,7 @@ ClearLastMenu(id)
 		menu_destroy(menu);
 }
 
-ClearAllMenus(id)
+stock ClearAllMenus(id)
 {
 	new _dummy, menu;
 	player_menu_info(id, _dummy, menu);
@@ -753,4 +753,11 @@ ClearAllMenus(id)
 		menu_destroy(menu);
 		player_menu_info(id, _dummy, menu);
 	}
+}
+
+stock Float:GetPlayerSpeed(id)
+{
+	new Float:velocity[3];
+	pev(id, pev_velocity, velocity);
+	return xs_vec_len_2d(velocity);
 }
