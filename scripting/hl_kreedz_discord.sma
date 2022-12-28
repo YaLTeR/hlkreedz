@@ -54,6 +54,19 @@ public plugin_init()
 	get_mapname(g_szMapName, charsmax(g_szMapName));
 }
 
+public plugin_cfg()
+{
+	static szURL[128];
+	get_pcvar_string(g_cvar_webhook, szURL, charsmax(szURL));
+	if (-1 == contain(szURL, "discord"))
+	{
+		server_print("[%.4f] Invalid Webhook URL", get_gametime());
+		log_amx("[%s] Invalid Webhook URL? -> %s", g_szPluginTag, szURL);
+	}
+	else
+		server_print("[%s] Discord webhook: %s", g_szPluginTag, szURL);
+}
+
 public plugin_end()
 {
 	if (g_cURLHandle)
@@ -96,13 +109,7 @@ public hlkz_worldrecord(iWRecType, Array:arTop)
 	}
 
 	static szURL[128];
-	if (get_pcvar_string(g_cvar_webhook, szURL, charsmax(szURL)) < DISCORD_WEBHOOK_URL_LENGTH)
-	{ // naz: not sure about the URL length, it's unlikely but it may change after some years...
-	  // maybe check if empty, if contains http... instead of checking the length
-		server_print("[%.4f] Invalid Webhook URL", get_gametime());
-		log_amx("[%s] Invalid Webhook URL? -> %s", g_szPluginTag, szURL);
-		return;
-	}
+	get_pcvar_string(g_cvar_webhook, szURL, charsmax(szURL));
 
 	static szBuffer[128], sTopEntry[STATS], szMessage[2001], iMsgLen, szDate[11], iMinutes, Float:flSeconds;
 	new JSON:jWebhook = json_init_object();
