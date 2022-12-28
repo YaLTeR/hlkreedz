@@ -151,6 +151,7 @@ enum BUTTON_TYPE
 enum _:WEAPON
 {
 	WEAPON_CLASSNAME[32],
+	Float:WEAPON_ORIGIN_FIRST[3],  // first time we found this weapon, what origin it had
 	Float:WEAPON_ORIGIN[3]
 }
 
@@ -474,7 +475,7 @@ new Float:g_RunLostEndTime[MAX_PLAYERS + 1];  // how many frames passed since yo
 new Float:g_RunStartPrestrafeSpeed[MAX_PLAYERS + 1];  // what was the speed you had in the first jump (or ducktap if it came before the first jump)
 new Float:g_RunStartPrestrafeTime[MAX_PLAYERS + 1];  // how much time you spent on the first prestrafe (right after pressing the start button)
 
-new g_MapWeapons[256][WEAPON];    // weapons that are in the map, with their origin and angles
+new g_MapWeapons[MAX_ENTITIES][WEAPON];  // weapons that are in the map, with their origin and angles
 new g_HideableEntity[MAX_ENTITIES];
 
 // These are for a fix for players receiving too much damage from trigger_hurt
@@ -922,6 +923,8 @@ public plugin_init()
 		for (new i = 0; i < sizeof(g_ItemNames); i++)
 			RegisterHam(Ham_Respawn, g_ItemNames[i], "Fw_HamItemRespawn", 1);
 
+		// Weapons don't seem to respawn like items, instead a whole new entity is created everytime
+		// they're picked up, so we detect them by the touch with worldspawn and closeness in origin
 		for (new j = 0; j < sizeof(g_WeaponNames); j++)
 			register_touch(g_WeaponNames[j], "worldspawn", "Fw_FmWeaponRespawn");
 	}
@@ -6501,15 +6504,13 @@ public Fw_HamItemRespawn(itemId)
 	return PLUGIN_CONTINUE;
 }
 
-public Fw_FmWeaponRespawn(weaponId, worldspawnId)
+public Fw_FmWeaponRespawn(weaponId, worldspawnId /* = 0 */)
 {
-	// Tried setting the nextthink of weapons like we do with items, but that didn't work,
-	// so we set a task and make it call the weapon's spawn function
 	new weapon[WEAPON];
 	pev(weaponId, pev_classname, weapon[WEAPON_CLASSNAME], charsmax(weapon[WEAPON_CLASSNAME]));
 	pev(weaponId, pev_origin, weapon[WEAPON_ORIGIN]);
 
-	new i, bool:found = false, Float:subtract[3];
+	new i, bool:found, Float:subtraction[3];
 	for (i = 0; i < sizeof(g_MapWeapons); i++)
 	{
 		if (!g_MapWeapons[i][WEAPON_CLASSNAME])
@@ -6519,27 +6520,43 @@ public Fw_FmWeaponRespawn(weaponId, worldspawnId)
 		{
 			// The height at which the weapon is placed seems to be slightly changed
 			// after the weapon is taken FOR FIRST TIME in the map. It's like the next time
-			// the entity spawns a little lower in the Z axis, more sticked to the ground.
-			// After the first take, all the entities of that weapon class that spawn there
+			// the entity spawns a little lower in the Z axis, closer to the ground.
+			// After the first pickup, all the entities of that weapon class that spawn there
 			// will have the same Z value though
-			xs_vec_sub(g_MapWeapons[i][WEAPON_ORIGIN], weapon[WEAPON_ORIGIN], subtract);
-			if (!subtract[0] && !subtract[1] && xs_fabs(subtract[2]) <= 0.1)
+			xs_vec_sub(g_MapWeapons[i][WEAPON_ORIGIN], weapon[WEAPON_ORIGIN], subtraction);
+			if (!subtraction[0] && !subtraction[1])
 			{
-				found = true;
-				break;
+				if (xs_fabs(subtraction[2]) <= 4.0)  // arbitrary threshold
+				{
+					found = true;
+					break;
+				}
+				else if (weapon[WEAPON_ORIGIN][2] <= -8200.0)
+				{
+					xs_vec_sub(g_MapWeapons[weaponId][WEAPON_ORIGIN_FIRST], weapon[WEAPON_ORIGIN], subtraction);
+					if (xs_fabs(subtraction[2]) >= 100.0)
+					{
+						// This weapon seems to be falling off world; skipping
+						return;
+					}
+				}
 			}
 		}
 	}
 
 	if (!found)
-		g_MapWeapons[i] = weapon;
+	{
+		if (i > sizeof(g_MapWeapons))
+			i = weaponId;
+
+		datacopy(g_MapWeapons[i], weapon, sizeof(weapon));
+		xs_vec_copy(weapon[WEAPON_ORIGIN], g_MapWeapons[weaponId][WEAPON_ORIGIN_FIRST]);
+	}
 	else
 	{
 		new Float:respawnTime = get_pcvar_float(pcvar_sv_items_respawn_time);
 		set_pev(weaponId, pev_nextthink, get_gametime() + respawnTime);
 	}
-
-	return PLUGIN_CONTINUE;
 }
 
 public Fw_FmKeyValuePre(ent, kvd)
