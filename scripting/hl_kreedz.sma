@@ -2337,6 +2337,13 @@ LoadPlayerSettings(id)
 		set_bit(g_bit_invis, id);
 		g_HadInvisPreSpec[id] = true;
 	}
+
+	if (g_FocusMode[id])
+	{
+		client_cmd(id, "cl_ignore_spawn_messages 1");
+		set_bit(g_bit_invis, id);
+		g_ChatStatus[id] = CHAT_NONE;
+	}
 }
 
 SavePlayerSettings(id)
