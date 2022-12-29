@@ -3161,6 +3161,9 @@ SpawnBot(id)
 			//set_pev(bot, pev_solid, SOLID_NOT);
 			set_pev(bot, pev_movetype, MOVETYPE_NONE);
 
+			// Make sure the bot is not in spectator mode... for some reason it sometimes spawns there
+			set_pev(bot, pev_iuser1, OBS_NONE);
+
 			g_BotOwner[bot] = id;
 			g_Unfreeze[bot] = 0;
 			//console_print(1, "player %d spawned the bot %d", id, bot);
@@ -3354,6 +3357,11 @@ public npc_think(id)
 		set_pev(bot, pev_v_angle, replay[RP_ANGLES]);
 		set_pev(bot, pev_button, replay[RP_BUTTONS]);
 		set_pev(bot, pev_velocity, botVelocity);
+
+		// We set this every frame in case the replaybot goes spectator mode for some reason,
+		// where it seems is the only moment where players can get stuck into the bot
+		set_pev(bot, pev_movetype, MOVETYPE_NONE);
+		set_pev(bot, pev_iuser1, OBS_NONE);
 
 		entity_set_float(id, EV_FL_nextthink, get_gametime() + replayNext[RP_TIME] - replay[RP_TIME]);
 
