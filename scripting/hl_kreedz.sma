@@ -396,6 +396,7 @@ new CHAT_TYPE:g_ChatStatus[MAX_PLAYERS + 1]; // bit field, see CHAT_* in CHAT_TY
 new Float:g_AntiResetThreshold[MAX_PLAYERS + 1];
 new Float:g_IdleTime[MAX_PLAYERS + 1];
 new Float:g_AntiResetIdleTime[MAX_PLAYERS + 1];
+new bool:g_HadInvisPreSpec[MAX_PLAYERS + 1];
 
 // FIXME: not working for agstart yet, you should be able to move if you really want to? and tp to start on countdown end
 new bool:g_AllowMoveDuringCountdown[MAX_PLAYERS + 1];
@@ -2095,6 +2096,8 @@ public client_disconnect(id)
 	g_IdleTime[id] = 0.0;
 	g_AntiResetIdleTime[id] = 0.0;
 
+	g_HadInvisPreSpec[id] = false;
+
 	ArrayClear(g_SplitTimes[id]);
 	ArrayClear(g_LapTimes[id]);
 	g_CurrentLap[id] = 0;
@@ -2175,6 +2178,8 @@ InitPlayerSettings(id)
 	g_Slopefix[id]     = false;
 	g_FocusMode[id]    = false;
 	g_ChatStatus[id]   = CHAT_RUN_FINISHED + CHAT_RUN_PB + CHAT_RUN_PB_TOP15 + CHAT_RUN_WR;
+
+	g_HadInvisPreSpec[id] = false;
 
 	g_AntiResetThreshold[id] = get_pcvar_float(pcvar_kz_default_antireset_threshold);
 	g_LastStartAttempt[id]   = -9999999.9;
@@ -2327,7 +2332,11 @@ LoadPlayerSettings(id)
 
 
 	if (hasLiquidsInvis) set_bit(g_bit_waterinvis, id);
-	if (hasPlayersInvis) set_bit(g_bit_invis, id);
+	if (hasPlayersInvis)
+	{
+		set_bit(g_bit_invis, id);
+		g_HadInvisPreSpec[id] = true;
+	}
 }
 
 SavePlayerSettings(id)
@@ -4403,7 +4412,11 @@ ClientCommandSpectatePost(id)
 		}
 		else
 		{
+			g_HadInvisPreSpec[id] = get_bit(g_bit_invis, id);
+
+			// TODO: make a player setting to decide whether to undo invis or not
 			clr_bit(g_bit_invis, id);
+
 			// Entered spectate mode
 			// Remove frozen state and pause sprite if any, but maintain timer stopped
 			if (get_bit(g_baIsPaused, id))
@@ -4455,6 +4468,10 @@ ClientCommandSpectatePost(id)
 	{
 		// Returned from spectator mode, resume timer
 		ResumeTimer(id);
+
+		// Restore invis state
+		if (g_HadInvisPreSpec[id])
+			set_bit(g_bit_invis, id);
 	}
 
 	return FMRES_HANDLED;
