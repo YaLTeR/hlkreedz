@@ -456,6 +456,7 @@ new g_PrevFlags[MAX_PLAYERS + 1];
 new Float:g_LastStartAttempt[MAX_PLAYERS + 1];
 
 // Run stats
+// TODO: use the RUNSTATS struct to store these?
 new Float:g_RunAvgSpeed[MAX_PLAYERS + 1]; // horizontal speeds
 new Float:g_RunMaxSpeed[MAX_PLAYERS + 1];
 new Float:g_RunCurrSpeed[MAX_PLAYERS + 1];
@@ -8982,7 +8983,22 @@ FillQueryData(id, queryData[QUERY], RUN_TYPE:topType, stats[STATS])
 	queryData[QUERY_RUN_TYPE] = topType;
 	queryData[QUERY_NO_RESET] = g_RunMode[id] == MODE_NORESET;
 	queryData[QUERY_PID] = pid;
+	copy(queryData[QUERY_HLKZ_VERSION], charsmax(queryData[QUERY_HLKZ_VERSION]), VERSION);
 	datacopy(queryData[QUERY_STATS], stats, sizeof(stats));
+
+	queryData[QUERY_RUNSTATS][RS_AVG_FPS]         = g_RunAvgFps[id];
+	queryData[QUERY_RUNSTATS][RS_AVG_SPEED]       = g_RunAvgSpeed[id];
+	queryData[QUERY_RUNSTATS][RS_MAX_SPEED]       = g_RunMaxSpeed[id];
+	queryData[QUERY_RUNSTATS][RS_END_SPEED]       = g_RunCurrSpeed[id];
+	queryData[QUERY_RUNSTATS][RS_PRESTRAFE_SPEED] = g_RunStartPrestrafeSpeed[id];
+	queryData[QUERY_RUNSTATS][RS_PRESTRAFE_TIME]  = g_RunStartPrestrafeTime[id];
+	queryData[QUERY_RUNSTATS][RS_TIMELOSS_START]  = g_RunLostStartTime[id];
+	queryData[QUERY_RUNSTATS][RS_TIMELOSS_END]    = g_RunLostEndTime[id];
+	queryData[QUERY_RUNSTATS][RS_DISTANCE_2D]     = g_RunDistance2D[id];
+	queryData[QUERY_RUNSTATS][RS_DISTANCE_3D]     = g_RunDistance3D[id];
+	queryData[QUERY_RUNSTATS][RS_JUMPS]           = g_RunJumps[id];
+	queryData[QUERY_RUNSTATS][RS_DUCKTAPS]        = g_RunDucktaps[id];
+	queryData[QUERY_RUNSTATS][RS_SLOWDOWNS]       = g_RunSlowdowns[id];
 }
 
 // Here instead of writing the whole file again, we just insert a few rows in the DB, so it's much less expensive in this case
@@ -9884,9 +9900,14 @@ public PlayerNameInsertHandler(failstate, error[], errNo, queryData[], size, Flo
 	// the run insert queries before this one, so it would be weird to have the splits update query run before the splits insert one,
 	// but it's a race condition and has to be tackled at some moment... FIXME: make sure the run is inserted only after the splits insert
 	formatex(query, charsmax(query), "\
-	    CALL InsertRunAndUpdateSplits(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %d, %d, %d)",
+	    CALL InsertRunWithStatsAndUpdateSplits(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %d, %d, %d, %.4f, %.2f, %.2f, %.2f, %.2f, %.6f, %.6f, %.6f, %.2f, %.2f, %d, %d, %d, '%s')",
 	    queryData[QUERY_PID], g_MapId, g_TopType[queryData[QUERY_RUN_TYPE]], queryData[QUERY_STATS][STATS_TIME], queryData[QUERY_RUN_START_TS],
-	    queryData[QUERY_STATS][STATS_TIMESTAMP], queryData[QUERY_STATS][STATS_CP], queryData[QUERY_STATS][STATS_TP], queryData[QUERY_NO_RESET]
+	    queryData[QUERY_STATS][STATS_TIMESTAMP], queryData[QUERY_STATS][STATS_CP], queryData[QUERY_STATS][STATS_TP], queryData[QUERY_NO_RESET],
+	    queryData[QUERY_RUNSTATS][RS_AVG_FPS], queryData[QUERY_RUNSTATS][RS_AVG_SPEED], queryData[QUERY_RUNSTATS][RS_MAX_SPEED],
+	    queryData[QUERY_RUNSTATS][RS_END_SPEED], queryData[QUERY_RUNSTATS][RS_PRESTRAFE_SPEED], queryData[QUERY_RUNSTATS][RS_PRESTRAFE_TIME],
+	    queryData[QUERY_RUNSTATS][RS_TIMELOSS_START], queryData[QUERY_RUNSTATS][RS_TIMELOSS_END], queryData[QUERY_RUNSTATS][RS_DISTANCE_2D],
+	    queryData[QUERY_RUNSTATS][RS_DISTANCE_3D], queryData[QUERY_RUNSTATS][RS_JUMPS], queryData[QUERY_RUNSTATS][RS_DUCKTAPS], queryData[QUERY_RUNSTATS][RS_SLOWDOWNS],
+	    queryData[QUERY_HLKZ_VERSION]
 	);
 
 	mysql_query(g_DbConnection, "RunInsertHandler", query, queryData, size);

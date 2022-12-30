@@ -113,6 +113,7 @@ enum _:CP_TYPES
 	CP_TYPE_DEFAULT_START // Standard spawn
 }
 
+// TODO: maybe rename to something more accurate
 enum _:STATS
 {
 	STATS_RUN_ID,
@@ -122,6 +123,23 @@ enum _:STATS
 	STATS_TP,
 	Float:STATS_TIME,	// Timer value
 	STATS_TIMESTAMP 	// Date
+}
+
+enum _:RUNSTATS
+{
+	Float:RS_AVG_FPS,
+	Float:RS_AVG_SPEED,
+	Float:RS_MAX_SPEED,
+	Float:RS_END_SPEED,
+	Float:RS_PRESTRAFE_SPEED,
+	Float:RS_PRESTRAFE_TIME,
+	Float:RS_TIMELOSS_START,
+	Float:RS_TIMELOSS_END,
+	Float:RS_DISTANCE_2D,
+	Float:RS_DISTANCE_3D,
+	RS_JUMPS,
+	RS_DUCKTAPS,
+	RS_SLOWDOWNS
 }
 
 enum RUN_TYPE
@@ -162,7 +180,9 @@ enum _:QUERY
 	QUERY_PID,                // player ID in database
 	QUERY_NO_RESET,           // was no-reset mode set for this run?
 	QUERY_STATS[STATS],       // steam ID, nickname, cps, tps, run duration, end date
-	QUERY_RUN_START_TS	      // timestamp of the time the run was started, might have to put this into STATS instead
+	QUERY_RUN_START_TS,	      // timestamp of the time the run was started, might have to put this into STATS instead
+	QUERY_RUNSTATS[RUNSTATS], // start/end/average speed, average fps
+	QUERY_HLKZ_VERSION[32]
 }
 
 enum _:NORESET
