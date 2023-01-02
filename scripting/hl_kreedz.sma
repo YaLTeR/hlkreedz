@@ -464,27 +464,11 @@ new g_PrevFlags[MAX_PLAYERS + 1];
 new Float:g_LastStartAttempt[MAX_PLAYERS + 1];
 
 // Run stats
-// TODO: use the RUNSTATS struct to store these?
-new Float:g_RunAvgSpeed[MAX_PLAYERS + 1]; // horizontal speeds
-new Float:g_RunMaxSpeed[MAX_PLAYERS + 1];
-new Float:g_RunCurrSpeed[MAX_PLAYERS + 1];
-new Float:g_RunAvgFps[MAX_PLAYERS + 1]; // This is effective fps, not the fps_max, but the real fps player has, like the one `net_graph` shows
-new Float:g_RunMinFps[MAX_PLAYERS + 1];
-new Float:g_RunDistance2D[MAX_PLAYERS + 1];
-new Float:g_RunDistance3D[MAX_PLAYERS + 1];
-new g_RunJumps[MAX_PLAYERS + 1];
-new g_RunDucktaps[MAX_PLAYERS + 1];
-new g_RunStrafes[MAX_PLAYERS + 1];
-new g_RunSync[MAX_PLAYERS + 1];
-new g_RunSlowdowns[MAX_PLAYERS + 1];  // times you crash into a wall, turn too much losing speed, tap +back, or have any other significant slowdown
+new g_RunStats[MAX_PLAYERS + 1][RUNSTATS];
 new g_RunSlowdownLastFrameChecked[MAX_PLAYERS + 1];
 new Float:g_LastSlowdownOrigin[MAX_PLAYERS + 1][3];
 new Float:g_LastSlowdownTime[MAX_PLAYERS + 1];
 new g_LastSlowdownStats[MAX_PLAYERS + 1][RUNSTATS];
-new Float:g_RunLostStartTime[MAX_PLAYERS + 1];  // how many frames passed since you pressed the start button until you started moving
-new Float:g_RunLostEndTime[MAX_PLAYERS + 1];  // how many frames passed since you could press the end button, until you actually pressed it
-new Float:g_RunStartPrestrafeSpeed[MAX_PLAYERS + 1];  // what was the speed you had in the first jump (or ducktap if it came before the first jump)
-new Float:g_RunStartPrestrafeTime[MAX_PLAYERS + 1];  // how much time you spent on the first prestrafe (right after pressing the start button)
 
 new g_MapWeapons[MAX_ENTITIES][WEAPON];  // weapons that are in the map, with their origin and angles
 new g_HideableEntity[MAX_ENTITIES];
@@ -2008,18 +1992,7 @@ public client_putinserver(id)
 	g_KzVoteStartTime[id] = 0.0;
 	g_KzVoteCaller[id] = 0;
 
-	g_RunAvgSpeed[id] = 0.0;
-	g_RunMaxSpeed[id] = 0.0;
-	g_RunCurrSpeed[id] = 0.0;
-	g_RunAvgFps[id] = 0.0;
-	g_RunMinFps[id] = 0.0;
-	g_RunDistance2D[id] = 0.0;
-	g_RunDistance3D[id] = 0.0;
-	g_RunJumps[id] = 0;
-	g_RunDucktaps[id] = 0;
-	g_RunStrafes[id] = 0;
-	g_RunSync[id] = 0;
-	g_RunSlowdowns[id] = 0;
+	ClearRunStats(g_RunStats[id]);
 	g_RunSlowdownLastFrameChecked[id] = 0;
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownOrigin[id]);
 	arrayset(g_LastSlowdownStats[id], 0.0, RS_DISTANCE_3D);
@@ -2028,10 +2001,6 @@ public client_putinserver(id)
 	g_LastSlowdownStats[id][RS_DUCKTAPS] = 0;
 	g_LastSlowdownStats[id][RS_SLOWDOWNS] = 0;
 	g_LastSlowdownTime[id] = 0.0;
-	g_RunLostStartTime[id] = 0.0;
-	g_RunLostEndTime[id] = 0.0;
-	g_RunStartPrestrafeSpeed[id] = 0.0;
-	g_RunStartPrestrafeTime[id] = 0.0;
 
 	g_RunStatsEndHudStartTime[id] = -RUN_STATS_HUD_MAX_HOLD_TIME;
 	g_RunStatsEndHudShown[id] = false;
@@ -2099,18 +2068,7 @@ public client_disconnect(id)
 	g_KzVoteStartTime[id] = 0.0;
 	g_KzVoteCaller[id] = 0;
 
-	g_RunAvgSpeed[id] = 0.0;
-	g_RunMaxSpeed[id] = 0.0;
-	g_RunCurrSpeed[id] = 0.0;
-	g_RunAvgFps[id] = 0.0;
-	g_RunMinFps[id] = 0.0;
-	g_RunDistance2D[id] = 0.0;
-	g_RunDistance3D[id] = 0.0;
-	g_RunJumps[id] = 0;
-	g_RunDucktaps[id] = 0;
-	g_RunStrafes[id] = 0;
-	g_RunSync[id] = 0;
-	g_RunSlowdowns[id] = 0;
+	ClearRunStats(g_RunStats[id]);
 	g_RunSlowdownLastFrameChecked[id] = 0;
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownOrigin[id]);
 	arrayset(g_LastSlowdownStats[id], 0.0, RS_DISTANCE_3D);
@@ -2119,10 +2077,6 @@ public client_disconnect(id)
 	g_LastSlowdownStats[id][RS_DUCKTAPS] = 0;
 	g_LastSlowdownStats[id][RS_SLOWDOWNS] = 0;
 	g_LastSlowdownTime[id] = 0.0;
-	g_RunLostStartTime[id] = 0.0;
-	g_RunLostEndTime[id] = 0.0;
-	g_RunStartPrestrafeSpeed[id] = 0.0;
-	g_RunStartPrestrafeTime[id] = 0.0;
 
 	g_RunStatsEndHudStartTime[id] = -RUN_STATS_HUD_MAX_HOLD_TIME;
 	g_RunStatsEndHudShown[id] = false;
@@ -2475,8 +2429,8 @@ ResetPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 InitPlayer(id, bool:onDisconnectOrAgstart = false, bool:onlyTimer = false)
 {
 	new Float:kztime = get_gametime() - g_PlayerTime[id];
-	if (get_bit(g_baIsClimbing, id) && kztime >= REAL_RUN_ATTEMPT_TIME_THRESHOLD && g_RunDistance3D[id] >= 100.0
-		&& (g_RunJumps[id] > 0 || g_RunDucktaps[id] > 0))
+	if (get_bit(g_baIsClimbing, id) && kztime >= REAL_RUN_ATTEMPT_TIME_THRESHOLD && g_RunStats[id][RS_DISTANCE_3D] >= 100.0
+		&& (g_RunStats[id][RS_JUMPS] > 0 || g_RunStats[id][RS_DUCKTAPS] > 0))
 	{
 		new RECORD_STORAGE_TYPE:storageType = RECORD_STORAGE_TYPE:get_pcvar_num(pcvar_kz_mysql);
 		new bool:storeInMySql = storageType == STORE_IN_DB || storageType == STORE_IN_FILE_AND_DB;
@@ -2589,25 +2543,10 @@ InitPlayer(id, bool:onDisconnectOrAgstart = false, bool:onlyTimer = false)
 
 InitPlayerVariables(id)
 {
-	g_RunAvgSpeed[id] = 0.0;
-	g_RunMaxSpeed[id] = 0.0;
-	g_RunCurrSpeed[id] = 0.0;
-	g_RunAvgFps[id] = 0.0;
-	g_RunMinFps[id] = 0.0;
-	g_RunDistance2D[id] = 0.0;
-	g_RunDistance3D[id] = 0.0;
-	g_RunJumps[id] = 0;
-	g_RunDucktaps[id] = 0;
-	g_RunStrafes[id] = 0;
-	g_RunSync[id] = 0;
-	g_RunSlowdowns[id] = 0;
+	ClearRunStats(g_RunStats[id]);
 	g_RunSlowdownLastFrameChecked[id] = 0;
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownOrigin[id]);
 	g_LastSlowdownTime[id] = 0.0;
-	g_RunLostStartTime[id] = 0.0;
-	g_RunLostEndTime[id] = 0.0;
-	g_RunStartPrestrafeSpeed[id] = 0.0;
-	g_RunStartPrestrafeTime[id] = 0.0;
 
 	g_IdleTime[id] = 0.0;
 	g_AntiResetIdleTime[id] = 0.0;
@@ -4858,26 +4797,26 @@ FinishTimer(id)
 
 		if (g_RunStatsConsoleDetailLevel[id] >= 1)
 		{
-			console_print(id, "Avg speed: %.2f",             g_RunAvgSpeed[id]);
+			console_print(id, "Avg speed: %.2f",             g_RunStats[id][RS_AVG_SPEED]);
 		}
 
-		console_print(id, "Max speed: %.2f",                 g_RunMaxSpeed[id]);
-		console_print(id, "End speed: %.2f",                 g_RunCurrSpeed[id]);
+		console_print(id, "Max speed: %.2f",                 g_RunStats[id][RS_MAX_SPEED]);
+		console_print(id, "End speed: %.2f",                 g_RunStats[id][RS_END_SPEED]);
 
 		if (g_RunStatsConsoleDetailLevel[id] >= 1)
 		{
-			console_print(id, "Avg fps: %.2f",               g_RunAvgFps[id]);
-			console_print(id, "Min fps: %.2f",               g_RunMinFps[id]);
+			console_print(id, "Avg fps: %.2f",               g_RunStats[id][RS_AVG_FPS]);
+			console_print(id, "Min fps: %.2f",               g_RunStats[id][RS_MIN_FPS]);
 		}
-		console_print(id, "Distance: %.2f",                  g_RunDistance2D[id]);
+		console_print(id, "Distance: %.2f",                  g_RunStats[id][RS_DISTANCE_2D]);
 
 		if (g_RunStatsConsoleDetailLevel[id] >= 2)
 		{
-			console_print(id, "Distance 3D: %.2f",           g_RunDistance3D[id]);
+			console_print(id, "Distance 3D: %.2f",           g_RunStats[id][RS_DISTANCE_3D]);
 		}
 
-		console_print(id, "Jumps: %d",                       g_RunJumps[id]);
-		console_print(id, "Ducktaps: %d",                    g_RunDucktaps[id]);
+		console_print(id, "Jumps: %d",                       g_RunStats[id][RS_JUMPS]);
+		console_print(id, "Ducktaps: %d",                    g_RunStats[id][RS_DUCKTAPS]);
 
 		//if (g_RunStatsConsoleDetailLevel[id] >= 2)
 		//{
@@ -4889,14 +4828,14 @@ FinishTimer(id)
 		//	console_print(id, "Sync: %d",                    g_RunSync[id]);
 		//}
 
-		console_print(id, "Slowdowns: %d",                   g_RunSlowdowns[id]);
+		console_print(id, "Slowdowns: %d",                   g_RunStats[id][RS_SLOWDOWNS]);
 
 		if (g_RunStatsConsoleDetailLevel[id] >= 2)
 		{
-			console_print(id, "Time lost at start: %.4f",    g_RunLostStartTime[id]);
-			console_print(id, "Time lost at end: %.4f",      g_RunLostEndTime[id]);
-			console_print(id, "Start prestrafe speed: %.2f", g_RunStartPrestrafeSpeed[id]);
-			console_print(id, "Start prestrafe time: %.4f",  g_RunStartPrestrafeTime[id]);
+			console_print(id, "Time lost at start: %.4f",    g_RunStats[id][RS_TIMELOSS_START]);
+			console_print(id, "Time lost at end: %.4f",      g_RunStats[id][RS_TIMELOSS_END]);
+			console_print(id, "Start prestrafe speed: %.2f", g_RunStats[id][RS_PRESTRAFE_SPEED]);
+			console_print(id, "Start prestrafe time: %.4f",  g_RunStats[id][RS_PRESTRAFE_TIME]);
 		}
 		console_print(id, "------------------------------------------------");
 	}
@@ -6085,7 +6024,7 @@ BuildRunStats(id)
 		// FIXME: we take the second frame's time because for some reason the first one doesn't work for this purpose,
 		// even if we start with some prespeed it would still say 0.004 seconds lost at the start with 250 fps; so we
 		// gotta investigate why at some point
-		g_RunLostStartTime[id] = lastFrameTime - secondFrameTime;
+		g_RunStats[id][RS_TIMELOSS_START] = lastFrameTime - secondFrameTime;
 
 		// TODO: make this stat available for pro runs that for some reason don't start with prespeed
 	}
@@ -6096,29 +6035,29 @@ BuildRunStats(id)
 
 		if (!(prevButtons & IN_JUMP) && (buttons & IN_JUMP))
 		{
-			if (g_RunJumps[id] == 0 && g_RunDucktaps[id] == 0)
+			if (g_RunStats[id][RS_JUMPS] == 0 && g_RunStats[id][RS_DUCKTAPS] == 0)
 				isInitialPrestrafeDone = true;
 
 			g_Movement[id] = MOVEMENT_JUMPING;
-			g_RunJumps[id]++;
+			g_RunStats[id][RS_JUMPS]++;
 		}
 		else if ((prevButtons & IN_DUCK) && !(buttons & IN_DUCK))
 		{
-			if (g_RunJumps[id] == 0 && g_RunDucktaps[id] == 0)
+			if (g_RunStats[id][RS_JUMPS] == 0 && g_RunStats[id][RS_DUCKTAPS] == 0)
 			{
 				// Probably an initial countjump
 				isInitialPrestrafeDone = true;
 			}
 
 			g_Movement[id] = MOVEMENT_DUCKTAPPING;
-			g_RunDucktaps[id]++;
+			g_RunStats[id][RS_DUCKTAPS]++;
 		}
 
 		if (isInitialPrestrafeDone)
 		{
 			// TODO: handle pure starts with prespeed, like in the hl1_bhop maps, with a start trigger instead button
-			g_RunStartPrestrafeSpeed[id] = xs_vec_len_2d(g_Velocity[id]);
-			g_RunStartPrestrafeTime[id]  = get_gametime() - g_PlayerTime[id];
+			g_RunStats[id][RS_PRESTRAFE_SPEED] = xs_vec_len_2d(g_Velocity[id]);
+			g_RunStats[id][RS_PRESTRAFE_TIME]  = get_gametime() - g_PlayerTime[id];
 		}
 	}
 	else
@@ -6126,21 +6065,21 @@ BuildRunStats(id)
 		g_Movement[id] = MOVEMENT_OTHER;
 	}
 
-	g_RunDistance2D[id] += xs_vec_distance_2d(g_PrevOrigin[id], g_Origin[id]);
-	g_RunDistance3D[id] += get_distance_f(g_PrevOrigin[id], g_Origin[id]);
+	g_RunStats[id][RS_DISTANCE_2D] += xs_vec_distance_2d(g_PrevOrigin[id], g_Origin[id]);
+	g_RunStats[id][RS_DISTANCE_3D] += get_distance_f(g_PrevOrigin[id], g_Origin[id]);
 
-	g_RunCurrSpeed[id] = xs_vec_len_2d(g_Velocity[id]);
+	g_RunStats[id][RS_END_SPEED] = xs_vec_len_2d(g_Velocity[id]);
 
-	if (g_RunMaxSpeed[id] < g_RunCurrSpeed[id])
-		g_RunMaxSpeed[id] = g_RunCurrSpeed[id];
+	if (g_RunStats[id][RS_MAX_SPEED] < g_RunStats[id][RS_END_SPEED])
+		g_RunStats[id][RS_MAX_SPEED] = g_RunStats[id][RS_END_SPEED];
 
 	new Float:kzTime = get_gametime() - g_PlayerTime[id];
 	if (kzTime)
 	{
-		g_RunAvgSpeed[id] = g_RunDistance2D[id] / kzTime;
+		g_RunStats[id][RS_AVG_SPEED] = g_RunStats[id][RS_DISTANCE_2D] / kzTime;
 
 		if (g_RunFrameCount[id])
-			g_RunAvgFps[id] = g_RunFrameCount[id] / kzTime;
+			g_RunStats[id][RS_AVG_FPS] = g_RunFrameCount[id] / kzTime;
 	}
 
 	// Get the last 30th frame and the last one, to get the average of the last frames
@@ -6155,13 +6094,13 @@ BuildRunStats(id)
 		ArrayGetArray(g_RunFrames[id], ArraySize(g_RunFrames[id]) - RUN_STATS_MIN_FPS_AVG_FRAMES - 1, frameState);
 
 		new Float:fpsAvg = 1.0 / ((get_gametime() - frameState[RP_TIME]) / float(RUN_STATS_MIN_FPS_AVG_FRAMES));
-		if (!g_RunMinFps[id] || (g_RunMinFps[id] > fpsAvg))
-			g_RunMinFps[id] = fpsAvg;
+		if (!g_RunStats[id][RS_MIN_FPS] || (g_RunStats[id][RS_MIN_FPS] > fpsAvg))
+			g_RunStats[id][RS_MIN_FPS] = fpsAvg;
 	}
 
 	if (xs_vec_distance(g_Origin[id], g_EndButtonOrigin) <= PLAYER_USE_RADIUS)
 	{
-		g_RunLostEndTime[id] += (get_gametime() - prevTime);
+		g_RunStats[id][RS_TIMELOSS_END] += (get_gametime() - prevTime);
 	}
 
 	if (frameNumberForSpeed > RUN_STATS_SPEED_FRAME_OFFSET)
@@ -6169,7 +6108,7 @@ BuildRunStats(id)
 		if (!g_RunSlowdownLastFrameChecked[id]
 			|| frameNumberForSpeed > (g_RunSlowdownLastFrameChecked[id] + RUN_STATS_SPEED_FRAME_COOLDOWN))
 		{
-			new Float:speedLoss = prevSpeed - g_RunCurrSpeed[id];
+			new Float:speedLoss = prevSpeed - g_RunStats[id][RS_END_SPEED];
 
 			if (speedLoss > 0.0)
 			{
@@ -6178,7 +6117,7 @@ BuildRunStats(id)
 
 				if (prevSpeed >= 300.0 && (lossFraction >= 0.1 || speedLoss >= 30.0))
 				{
-					g_RunSlowdowns[id]++;
+					g_RunStats[id][RS_SLOWDOWNS]++;
 					g_RunSlowdownLastFrameChecked[id] = frameNumberForSpeed;
 
 					// We copy the previous origin because the current one may be the frame after going through a teleport,
@@ -6193,10 +6132,7 @@ BuildRunStats(id)
 
 						g_LastSlowdownTime[id] = prevFrameState[RP_TIME];
 
-						g_LastSlowdownStats[id][RS_MAX_SPEED] = g_RunMaxSpeed[id];
-						g_LastSlowdownStats[id][RS_JUMPS]     = g_RunJumps[id];
-						g_LastSlowdownStats[id][RS_DUCKTAPS]  = g_RunDucktaps[id];
-						g_LastSlowdownStats[id][RS_SLOWDOWNS] = g_RunSlowdowns[id];
+						datacopy(g_LastSlowdownStats[id], g_RunStats[id], RUNSTATS);
 					}
 					else  // shouldn't happen?
 						g_LastSlowdownTime[id] = get_gametime();
@@ -6210,26 +6146,26 @@ GetRunStatsHudText(id, text[], len, detailLevel)
 {
 	if (detailLevel >= 1)
 	{
-		format(text, len, "%sAvg speed: %.2f\n",             text, g_RunAvgSpeed[id]);
+		format(text, len, "%sAvg speed: %.2f\n",             text, g_RunStats[id][RS_AVG_SPEED]);
 	}
 
-	format(text, len, "%sMax speed: %.2f\n",                 text, g_RunMaxSpeed[id]);
-	format(text, len, "%sEnd speed: %.2f\n",                 text, g_RunCurrSpeed[id]);
+	format(text, len, "%sMax speed: %.2f\n",                 text, g_RunStats[id][RS_MAX_SPEED]);
+	format(text, len, "%sEnd speed: %.2f\n",                 text, g_RunStats[id][RS_END_SPEED]);
 
 	if (detailLevel >= 1)
 	{
-		format(text, len, "%sAvg fps: %.2f\n",               text, g_RunAvgFps[id]);
-		format(text, len, "%sMin fps: %.2f\n",               text, g_RunMinFps[id]);
+		format(text, len, "%sAvg fps: %.2f\n",               text, g_RunStats[id][RS_AVG_FPS]);
+		format(text, len, "%sMin fps: %.2f\n",               text, g_RunStats[id][RS_MIN_FPS]);
 	}
-	format(text, len, "%sDistance: %.2f\n",                  text, g_RunDistance2D[id]);
+	format(text, len, "%sDistance: %.2f\n",                  text, g_RunStats[id][RS_DISTANCE_2D]);
 
 	if (detailLevel >= 2)
 	{
-		format(text, len, "%sDistance 3D: %.2f\n",           text, g_RunDistance3D[id]);
+		format(text, len, "%sDistance 3D: %.2f\n",           text, g_RunStats[id][RS_DISTANCE_3D]);
 	}
 
-	format(text, len, "%sJumps: %d\n",                       text, g_RunJumps[id]);
-	format(text, len, "%sDucktaps: %d\n",                    text, g_RunDucktaps[id]);
+	format(text, len, "%sJumps: %d\n",                       text, g_RunStats[id][RS_JUMPS]);
+	format(text, len, "%sDucktaps: %d\n",                    text, g_RunStats[id][RS_DUCKTAPS]);
 
 	//if (detailLevel >= 2)
 	//{
@@ -6241,14 +6177,14 @@ GetRunStatsHudText(id, text[], len, detailLevel)
 	//	format(text, len, "%sSync: %d\n",                    text, g_RunSync[id]);
 	//}
 
-	format(text, len, "%sSlowdowns: %d\n",                   text, g_RunSlowdowns[id]);
+	format(text, len, "%sSlowdowns: %d\n",                   text, g_RunStats[id][RS_SLOWDOWNS]);
 
 	if (detailLevel >= 1)
 	{
-		format(text, len, "%sTime lost at start: %.4f\n",    text, g_RunLostStartTime[id]);
-		format(text, len, "%sTime lost at end: %.4f\n",      text, g_RunLostEndTime[id]);
-		format(text, len, "%sStart prestrafe speed: %.2f\n", text, g_RunStartPrestrafeSpeed[id]);
-		format(text, len, "%sStart prestrafe time: %.4f\n",  text, g_RunStartPrestrafeTime[id]);
+		format(text, len, "%sTime lost at start: %.4f\n",    text, g_RunStats[id][RS_TIMELOSS_START]);
+		format(text, len, "%sTime lost at end: %.4f\n",      text, g_RunStats[id][RS_TIMELOSS_END]);
+		format(text, len, "%sStart prestrafe speed: %.2f\n", text, g_RunStats[id][RS_PRESTRAFE_SPEED]);
+		format(text, len, "%sStart prestrafe time: %.4f\n",  text, g_RunStats[id][RS_PRESTRAFE_TIME]);
 	}
 }
 
@@ -7019,10 +6955,7 @@ public Fw_FmPlayerPreThinkPost(id)
 				g_LastRunIdleTimeStart[id] = get_gametime() - g_LastRunIdleTime[id];
 				xs_vec_copy(g_AntiResetIdleOrigin[id], g_LastRunIdleOrigin[id]);
 
-				g_LastRunIdleStats[id][RS_MAX_SPEED] = g_RunMaxSpeed[id];
-				g_LastRunIdleStats[id][RS_JUMPS]     = g_RunJumps[id];
-				g_LastRunIdleStats[id][RS_DUCKTAPS]  = g_RunDucktaps[id];
-				g_LastRunIdleStats[id][RS_SLOWDOWNS] = g_RunSlowdowns[id];
+				datacopy(g_LastRunIdleStats[id], g_RunStats[id], RUNSTATS);
 			}
 
 			g_AntiResetIdleTime[id] = 0.0;
@@ -9108,19 +9041,7 @@ FillQueryData(id, queryData[QUERY], RUN_TYPE:topType, stats[STATS])
 	copy(queryData[QUERY_HLKZ_VERSION], charsmax(queryData[QUERY_HLKZ_VERSION]), VERSION);
 	datacopy(queryData[QUERY_STATS], stats, sizeof(stats));
 
-	queryData[QUERY_RUNSTATS][RS_AVG_FPS]         = g_RunAvgFps[id];
-	queryData[QUERY_RUNSTATS][RS_AVG_SPEED]       = g_RunAvgSpeed[id];
-	queryData[QUERY_RUNSTATS][RS_MAX_SPEED]       = g_RunMaxSpeed[id];
-	queryData[QUERY_RUNSTATS][RS_END_SPEED]       = g_RunCurrSpeed[id];
-	queryData[QUERY_RUNSTATS][RS_PRESTRAFE_SPEED] = g_RunStartPrestrafeSpeed[id];
-	queryData[QUERY_RUNSTATS][RS_PRESTRAFE_TIME]  = g_RunStartPrestrafeTime[id];
-	queryData[QUERY_RUNSTATS][RS_TIMELOSS_START]  = g_RunLostStartTime[id];
-	queryData[QUERY_RUNSTATS][RS_TIMELOSS_END]    = g_RunLostEndTime[id];
-	queryData[QUERY_RUNSTATS][RS_DISTANCE_2D]     = g_RunDistance2D[id];
-	queryData[QUERY_RUNSTATS][RS_DISTANCE_3D]     = g_RunDistance3D[id];
-	queryData[QUERY_RUNSTATS][RS_JUMPS]           = g_RunJumps[id];
-	queryData[QUERY_RUNSTATS][RS_DUCKTAPS]        = g_RunDucktaps[id];
-	queryData[QUERY_RUNSTATS][RS_SLOWDOWNS]       = g_RunSlowdowns[id];
+	datacopy(queryData[QUERY_RUNSTATS], g_RunStats[id], RUNSTATS);
 }
 
 SaveFailedAttemptDB(id, RUN_TYPE:topType, stats[STATS])
@@ -9137,15 +9058,11 @@ SaveFailedAttemptDB(id, RUN_TYPE:topType, stats[STATS])
 	new Float:currTime = get_gametime();
 	if (g_LastSlowdownTime[id] && currTime < (g_LastSlowdownTime[id] + 3.0))
 	{
+		datacopy(queryData[QUERY_RUNSTATS], g_LastSlowdownStats[id], RUNSTATS);
+
 		// A slowdown happened close enough, so consider it as the run killer and save its position
 		xs_vec_copy(g_LastSlowdownOrigin[id], queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN]);
 		queryData[QUERY_STATS][STATS_TIME] = g_LastSlowdownTime[id] - g_PlayerTime[id];
-
-		// TODO: copy the whole runstats array with datacopy when the individual global variables (g_RunJumps etc.) are refactored to a RUNSTATS array
-		queryData[QUERY_RUNSTATS][RS_MAX_SPEED] = g_LastSlowdownStats[id][RS_MAX_SPEED];
-		queryData[QUERY_RUNSTATS][RS_JUMPS]     = g_LastSlowdownStats[id][RS_JUMPS];
-		queryData[QUERY_RUNSTATS][RS_DUCKTAPS]  = g_LastSlowdownStats[id][RS_DUCKTAPS];
-		queryData[QUERY_RUNSTATS][RS_SLOWDOWNS] = g_LastSlowdownStats[id][RS_SLOWDOWNS];
 	}
 	else if (g_AntiResetIdleTime[id] >= SIGNIFICANT_RUN_IDLE_TIME_THRESHOLD)
 	{
@@ -9156,16 +9073,12 @@ SaveFailedAttemptDB(id, RUN_TYPE:topType, stats[STATS])
 	}
 	else if (g_LastRunIdleTimeStart[id] && g_LastRunIdleTime[id] >= SIGNIFICANT_RUN_IDLE_TIME_THRESHOLD)
 	{
+		datacopy(queryData[QUERY_RUNSTATS], g_LastRunIdleStats[id], RUNSTATS);
+
 		// Same as for the other idle time, but this is for idle time mid-run, where the player continued running after that idle time
 		// and the attempt didn't really end with the player being idle
 		xs_vec_copy(g_LastRunIdleOrigin[id], queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN]);
 		queryData[QUERY_STATS][STATS_TIME] = g_LastRunIdleTimeStart[id] - g_PlayerTime[id];
-
-		// TODO: copy the whole runstats array with datacopy when the individual global variables (g_RunJumps etc.) are refactored to a RUNSTATS array
-		queryData[QUERY_RUNSTATS][RS_MAX_SPEED] = g_LastRunIdleStats[id][RS_MAX_SPEED];
-		queryData[QUERY_RUNSTATS][RS_JUMPS]     = g_LastRunIdleStats[id][RS_JUMPS];
-		queryData[QUERY_RUNSTATS][RS_DUCKTAPS]  = g_LastRunIdleStats[id][RS_DUCKTAPS];
-		queryData[QUERY_RUNSTATS][RS_SLOWDOWNS] = g_LastRunIdleStats[id][RS_SLOWDOWNS];
 	}
 	else
 		xs_vec_copy(g_PrevOrigin[id], queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN]);

@@ -128,6 +128,7 @@ enum _:STATS
 enum _:RUNSTATS
 {
 	Float:RS_AVG_FPS,
+	Float:RS_MIN_FPS,
 	Float:RS_AVG_SPEED,
 	Float:RS_MAX_SPEED,
 	Float:RS_END_SPEED,
@@ -781,4 +782,24 @@ stock Float:GetPlayerSpeed(id)
 	new Float:velocity[3];
 	pev(id, pev_velocity, velocity);
 	return xs_vec_len_2d(velocity);
+}
+
+ClearRunStats(runstats[RUNSTATS])
+{
+	// TODO: see if there's a way to do this with less code
+	runstats[RS_AVG_FPS] = 0.0;
+	runstats[RS_MIN_FPS] = 0.0;
+	runstats[RS_AVG_SPEED] = 0.0;
+	runstats[RS_MAX_SPEED] = 0.0;
+	runstats[RS_END_SPEED] = 0.0;
+	runstats[RS_PRESTRAFE_SPEED] = 0.0;
+	runstats[RS_PRESTRAFE_TIME] = 0.0;
+	runstats[RS_TIMELOSS_START] = 0.0;
+	runstats[RS_TIMELOSS_END] = 0.0;
+	runstats[RS_DISTANCE_2D] = 0.0;
+	runstats[RS_DISTANCE_3D] = 0.0;
+	xs_vec_copy(Float:{0.0, 0.0, 0.0}, runstats[RS_LAST_FAIL_ORIGIN]);
+	runstats[RS_JUMPS] = 0;
+	runstats[RS_DUCKTAPS] = 0;
+	runstats[RS_SLOWDOWNS] = 0;
 }
