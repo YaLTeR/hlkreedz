@@ -1996,13 +1996,11 @@ public client_putinserver(id)
 	g_KzVoteCaller[id] = 0;
 
 	ClearRunStats(g_RunStats[id]);
+	ClearRunStats(g_LastSlowdownStats[id]);
+	ClearRunStats(g_LastRunIdleStats[id]);
+	
 	g_RunSlowdownLastFrameChecked[id] = 0;
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownOrigin[id]);
-	arrayset(g_LastSlowdownStats[id], 0.0, RS_DISTANCE_3D);
-	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownStats[id][RS_LAST_FAIL_ORIGIN]);
-	g_LastSlowdownStats[id][RS_JUMPS] = 0;
-	g_LastSlowdownStats[id][RS_DUCKTAPS] = 0;
-	g_LastSlowdownStats[id][RS_SLOWDOWNS] = 0;
 	g_LastSlowdownTime[id] = 0.0;
 
 	g_RunStatsEndHudStartTime[id] = -RUN_STATS_HUD_MAX_HOLD_TIME;
@@ -2072,13 +2070,11 @@ public client_disconnect(id)
 	g_KzVoteCaller[id] = 0;
 
 	ClearRunStats(g_RunStats[id]);
+	ClearRunStats(g_LastSlowdownStats[id]);
+	ClearRunStats(g_LastRunIdleStats[id]);
+
 	g_RunSlowdownLastFrameChecked[id] = 0;
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownOrigin[id]);
-	arrayset(g_LastSlowdownStats[id], 0.0, RS_DISTANCE_3D);
-	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownStats[id][RS_LAST_FAIL_ORIGIN]);
-	g_LastSlowdownStats[id][RS_JUMPS] = 0;
-	g_LastSlowdownStats[id][RS_DUCKTAPS] = 0;
-	g_LastSlowdownStats[id][RS_SLOWDOWNS] = 0;
 	g_LastSlowdownTime[id] = 0.0;
 
 	g_RunStatsEndHudStartTime[id] = -RUN_STATS_HUD_MAX_HOLD_TIME;
@@ -2090,11 +2086,6 @@ public client_disconnect(id)
 	g_LastRunIdleTimeStart[id] = 0.0;
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_AntiResetIdleOrigin[id]);
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastRunIdleOrigin[id]);
-	arrayset(g_LastRunIdleStats[id], 0.0, RS_DISTANCE_3D);
-	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastRunIdleStats[id][RS_LAST_FAIL_ORIGIN]);
-	g_LastRunIdleStats[id][RS_JUMPS] = 0;
-	g_LastRunIdleStats[id][RS_DUCKTAPS] = 0;
-	g_LastRunIdleStats[id][RS_SLOWDOWNS] = 0;
 
 	g_HadInvisPreSpec[id] = false;
 
@@ -2547,6 +2538,9 @@ InitPlayer(id, bool:onDisconnectOrAgstart = false, bool:onlyTimer = false)
 InitPlayerVariables(id)
 {
 	ClearRunStats(g_RunStats[id]);
+	ClearRunStats(g_LastSlowdownStats[id]);
+	ClearRunStats(g_LastRunIdleStats[id]);
+
 	g_RunSlowdownLastFrameChecked[id] = 0;
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownOrigin[id]);
 	g_LastSlowdownTime[id] = 0.0;
@@ -2557,11 +2551,6 @@ InitPlayerVariables(id)
 	g_LastRunIdleTimeStart[id] = 0.0;
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_AntiResetIdleOrigin[id]);
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastRunIdleOrigin[id]);
-	arrayset(g_LastRunIdleStats[id], 0.0, RS_DISTANCE_3D);
-	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastRunIdleStats[id][RS_LAST_FAIL_ORIGIN]);
-	g_LastRunIdleStats[id][RS_JUMPS] = 0;
-	g_LastRunIdleStats[id][RS_DUCKTAPS] = 0;
-	g_LastRunIdleStats[id][RS_SLOWDOWNS] = 0;
 	g_LastStartAttempt[id] = 0.0;
 
 	if (g_ShowRunStatsOnHud[id] >= 2)
