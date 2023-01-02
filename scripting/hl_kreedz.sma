@@ -82,9 +82,12 @@
 #define START_BUTTON_ALLOWED_PRESPEED   50.0
 #define MAX_MAP_INSERTIONS_AT_ONCE      7
 #define DEFAULT_HLKZ_NOCLIP_SPEED       800.0
+
 // TODO: make this configurable
-#define DOUBLEPRESS_THRESHOLD           0.3   // in seconds, max time between keypresses to consider it a doublepress (like doubleclick)
-#define ANTIRESET_AFK_THRESHOLD         0.05  // in seconds, idle time after which we allow a single keypress to reset
+#define DOUBLEPRESS_THRESHOLD               0.3   // in seconds, max time between keypresses to consider it a doublepress (like doubleclick)
+#define ANTIRESET_AFK_THRESHOLD             0.05  // in seconds, idle time after which we allow a single keypress to reset
+#define REAL_RUN_ATTEMPT_TIME_THRESHOLD     1.3   // in seconds, how much time has to pass to consider smething as a real run attempt (a lot of people restart within a few frames)
+#define SIGNIFICANT_RUN_IDLE_TIME_THRESHOLD 0.5
 
 // https://github.com/ValveSoftware/halflife/blob/c7240b965743a53a29491dd49320c88eecf6257b/dlls/triggers.cpp#L1013
 #define TRIGGER_HURT_DAMAGE_TIME        0.5
@@ -396,6 +399,11 @@ new CHAT_TYPE:g_ChatStatus[MAX_PLAYERS + 1]; // bit field, see CHAT_* in CHAT_TY
 new Float:g_AntiResetThreshold[MAX_PLAYERS + 1];
 new Float:g_IdleTime[MAX_PLAYERS + 1];
 new Float:g_AntiResetIdleTime[MAX_PLAYERS + 1];
+new Float:g_AntiResetIdleOrigin[MAX_PLAYERS + 1][3];  // position where the player started idling. TODO: change the antiresetIdle naming for something else
+new Float:g_LastRunIdleTime[MAX_PLAYERS];       // continuous time spent idling
+new Float:g_LastRunIdleTimeStart[MAX_PLAYERS];  // gametime where the idling started
+new Float:g_LastRunIdleOrigin[MAX_PLAYERS + 1][3];
+new g_LastRunIdleStats[MAX_PLAYERS + 1][RUNSTATS];
 new bool:g_HadInvisPreSpec[MAX_PLAYERS + 1];
 
 // FIXME: not working for agstart yet, you should be able to move if you really want to? and tp to start on countdown end
@@ -470,6 +478,9 @@ new g_RunStrafes[MAX_PLAYERS + 1];
 new g_RunSync[MAX_PLAYERS + 1];
 new g_RunSlowdowns[MAX_PLAYERS + 1];  // times you crash into a wall, turn too much losing speed, tap +back, or have any other significant slowdown
 new g_RunSlowdownLastFrameChecked[MAX_PLAYERS + 1];
+new Float:g_LastSlowdownOrigin[MAX_PLAYERS + 1][3];
+new Float:g_LastSlowdownTime[MAX_PLAYERS + 1];
+new g_LastSlowdownStats[MAX_PLAYERS + 1][RUNSTATS];
 new Float:g_RunLostStartTime[MAX_PLAYERS + 1];  // how many frames passed since you pressed the start button until you started moving
 new Float:g_RunLostEndTime[MAX_PLAYERS + 1];  // how many frames passed since you could press the end button, until you actually pressed it
 new Float:g_RunStartPrestrafeSpeed[MAX_PLAYERS + 1];  // what was the speed you had in the first jump (or ducktap if it came before the first jump)
@@ -2010,6 +2021,13 @@ public client_putinserver(id)
 	g_RunSync[id] = 0;
 	g_RunSlowdowns[id] = 0;
 	g_RunSlowdownLastFrameChecked[id] = 0;
+	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownOrigin[id]);
+	arrayset(g_LastSlowdownStats[id], 0.0, RS_DISTANCE_3D);
+	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownStats[id][RS_LAST_FAIL_ORIGIN]);
+	g_LastSlowdownStats[id][RS_JUMPS] = 0;
+	g_LastSlowdownStats[id][RS_DUCKTAPS] = 0;
+	g_LastSlowdownStats[id][RS_SLOWDOWNS] = 0;
+	g_LastSlowdownTime[id] = 0.0;
 	g_RunLostStartTime[id] = 0.0;
 	g_RunLostEndTime[id] = 0.0;
 	g_RunStartPrestrafeSpeed[id] = 0.0;
@@ -2026,13 +2044,21 @@ public client_putinserver(id)
 	g_DamagedTimeEntity[id] = ArrayCreate();
 	g_DamagedPreSpeed[id] = ArrayCreate();
 
-	// Link this player to the cup player
 	new uniqueId[32];
 	GetUserUniqueId(id, uniqueId, charsmax(uniqueId));
 	copy(g_UniqueId[id], charsmax(g_UniqueId[]), uniqueId);
 
 	if (get_pcvar_num(pcvar_kz_mysql) && !IsBot(id))
-		SelectPlayerId(uniqueId, charsmax(uniqueId));
+	{
+		new pid;
+		TrieGetCell(g_DbPlayerId, uniqueId, pid);
+
+		if (!pid)
+		{
+			// Get the player id from database for future queries
+			InsertOrSelectPlayerId(uniqueId, charsmax(uniqueId));
+		}
+	}
 
 	LoadPlayerSettings(id);
 
@@ -2086,6 +2112,13 @@ public client_disconnect(id)
 	g_RunSync[id] = 0;
 	g_RunSlowdowns[id] = 0;
 	g_RunSlowdownLastFrameChecked[id] = 0;
+	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownOrigin[id]);
+	arrayset(g_LastSlowdownStats[id], 0.0, RS_DISTANCE_3D);
+	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownStats[id][RS_LAST_FAIL_ORIGIN]);
+	g_LastSlowdownStats[id][RS_JUMPS] = 0;
+	g_LastSlowdownStats[id][RS_DUCKTAPS] = 0;
+	g_LastSlowdownStats[id][RS_SLOWDOWNS] = 0;
+	g_LastSlowdownTime[id] = 0.0;
 	g_RunLostStartTime[id] = 0.0;
 	g_RunLostEndTime[id] = 0.0;
 	g_RunStartPrestrafeSpeed[id] = 0.0;
@@ -2096,6 +2129,15 @@ public client_disconnect(id)
 
 	g_IdleTime[id] = 0.0;
 	g_AntiResetIdleTime[id] = 0.0;
+	g_LastRunIdleTime[id] = 0.0;
+	g_LastRunIdleTimeStart[id] = 0.0;
+	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_AntiResetIdleOrigin[id]);
+	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastRunIdleOrigin[id]);
+	arrayset(g_LastRunIdleStats[id], 0.0, RS_DISTANCE_3D);
+	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastRunIdleStats[id][RS_LAST_FAIL_ORIGIN]);
+	g_LastRunIdleStats[id][RS_JUMPS] = 0;
+	g_LastRunIdleStats[id][RS_DUCKTAPS] = 0;
+	g_LastRunIdleStats[id][RS_SLOWDOWNS] = 0;
 
 	g_HadInvisPreSpec[id] = false;
 
@@ -2432,7 +2474,28 @@ ResetPlayer(id, bool:onDisconnect = false, bool:onlyTimer = false)
 
 InitPlayer(id, bool:onDisconnectOrAgstart = false, bool:onlyTimer = false)
 {
-	new i;
+	new Float:kztime = get_gametime() - g_PlayerTime[id];
+	if (get_bit(g_baIsClimbing, id) && kztime >= REAL_RUN_ATTEMPT_TIME_THRESHOLD && g_RunDistance3D[id] >= 100.0
+		&& (g_RunJumps[id] > 0 || g_RunDucktaps[id] > 0))
+	{
+		new RECORD_STORAGE_TYPE:storageType = RECORD_STORAGE_TYPE:get_pcvar_num(pcvar_kz_mysql);
+		new bool:storeInMySql = storageType == STORE_IN_DB || storageType == STORE_IN_FILE_AND_DB;
+		if (storeInMySql)
+		{
+			new failedStats[STATS], uniqueId[32], name[32];
+			GetUserUniqueId(id, uniqueId, charsmax(uniqueId));
+			GetColorlessName(id, name, charsmax(name));
+
+			copy(failedStats[STATS_ID], charsmax(failedStats[STATS_ID]), uniqueId);
+			copy(failedStats[STATS_NAME], charsmax(failedStats[STATS_NAME]), name);
+			failedStats[STATS_CP] = g_CpCounters[id][COUNTER_CP];
+			failedStats[STATS_TP] = g_CpCounters[id][COUNTER_TP];
+			failedStats[STATS_TIME] = kztime;
+			failedStats[STATS_TIMESTAMP] = get_systime();
+
+			SaveFailedAttemptDB(id, GetTopType(id), failedStats);
+		}
+	}
 
 	// Reset timer
 	clr_bit(g_baIsClimbing, id);
@@ -2468,6 +2531,7 @@ InitPlayer(id, bool:onDisconnectOrAgstart = false, bool:onlyTimer = false)
 
 	g_RunFrameCount[id] = 0;
 
+	new i;
 	if (!onDisconnectOrAgstart)
 	{
 		// Clear the timer hud
@@ -2538,10 +2602,25 @@ InitPlayerVariables(id)
 	g_RunSync[id] = 0;
 	g_RunSlowdowns[id] = 0;
 	g_RunSlowdownLastFrameChecked[id] = 0;
+	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownOrigin[id]);
+	g_LastSlowdownTime[id] = 0.0;
 	g_RunLostStartTime[id] = 0.0;
 	g_RunLostEndTime[id] = 0.0;
 	g_RunStartPrestrafeSpeed[id] = 0.0;
 	g_RunStartPrestrafeTime[id] = 0.0;
+
+	g_IdleTime[id] = 0.0;
+	g_AntiResetIdleTime[id] = 0.0;
+	g_LastRunIdleTime[id] = 0.0;
+	g_LastRunIdleTimeStart[id] = 0.0;
+	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_AntiResetIdleOrigin[id]);
+	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastRunIdleOrigin[id]);
+	arrayset(g_LastRunIdleStats[id], 0.0, RS_DISTANCE_3D);
+	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastRunIdleStats[id][RS_LAST_FAIL_ORIGIN]);
+	g_LastRunIdleStats[id][RS_JUMPS] = 0;
+	g_LastRunIdleStats[id][RS_DUCKTAPS] = 0;
+	g_LastRunIdleStats[id][RS_SLOWDOWNS] = 0;
+	g_LastStartAttempt[id] = 0.0;
 
 	if (g_ShowRunStatsOnHud[id] >= 2)
 	{
@@ -4420,7 +4499,7 @@ ClientCommandSpectatePost(id)
 		}
 		else
 		{
-			g_HadInvisPreSpec[id] = get_bit(g_bit_invis, id);
+			g_HadInvisPreSpec[id] = bool:get_bit(g_bit_invis, id);
 
 			// TODO: make a player setting to decide whether to undo invis or not
 			clr_bit(g_bit_invis, id);
@@ -6101,10 +6180,29 @@ BuildRunStats(id)
 				{
 					g_RunSlowdowns[id]++;
 					g_RunSlowdownLastFrameChecked[id] = frameNumberForSpeed;
+
+					// We copy the previous origin because the current one may be the frame after going through a teleport,
+					// and there may be multiple triggers that lead to that point, so we want the previous location to be more accurate
+					xs_vec_copy(g_PrevOrigin[id], g_LastSlowdownOrigin[id]);
+
+					if (g_RunFrames[id] && ArraySize(g_RunFrames[id]) >= 2)
+					{
+						// Get the time from the previous frame
+						new prevFrameState[REPLAY];
+						ArrayGetArray(g_RunFrames[id], ArraySize(g_RunFrames[id]) - 2, prevFrameState);
+
+						g_LastSlowdownTime[id] = prevFrameState[RP_TIME];
+
+						g_LastSlowdownStats[id][RS_MAX_SPEED] = g_RunMaxSpeed[id];
+						g_LastSlowdownStats[id][RS_JUMPS]     = g_RunJumps[id];
+						g_LastSlowdownStats[id][RS_DUCKTAPS]  = g_RunDucktaps[id];
+						g_LastSlowdownStats[id][RS_SLOWDOWNS] = g_RunSlowdowns[id];
+					}
+					else  // shouldn't happen?
+						g_LastSlowdownTime[id] = get_gametime();
 				}
 			}
 		}
-
 	}
 }
 
@@ -6878,6 +6976,7 @@ public Fw_FmPlayerPreThinkPost(id)
 
 	//console_print(id, "sequence: %d, pev_gaitsequence: %d", pev(id, pev_sequence), pev(id, pev_gaitsequence));
 
+	// TODO: move this to a new function CheckIdleTime() and only apply the antireset idle time if player is in a run
 	if (xs_vec_equal(g_PrevAngles[id], g_Angles[id])
 		&& xs_vec_equal(g_PrevViewOfs[id], g_ViewOfs[id]))
 	{
@@ -6894,6 +6993,9 @@ public Fw_FmPlayerPreThinkPost(id)
 			// they're gonna fail the jump. They wanna reset while falling and they only stop holding spacebar
 			// the very moment they hit reset, so we ignore spacebar (+jump) for this kind of idle time
 			g_AntiResetIdleTime[id] += g_FrameTime[id];
+			
+			if (!xs_vec_len(g_AntiResetIdleOrigin[id]))
+				xs_vec_copy(g_PrevOrigin[id], g_AntiResetIdleOrigin[id]);
 		}
 	}
 	else
@@ -6904,9 +7006,28 @@ public Fw_FmPlayerPreThinkPost(id)
 			// If you're moving the camera but you are not moving the character,
 			// then we still consider it for the anti-reset
 			g_AntiResetIdleTime[id] += g_FrameTime[id];
+
+			if (!xs_vec_len(g_AntiResetIdleOrigin[id]))
+				xs_vec_copy(g_PrevOrigin[id], g_AntiResetIdleOrigin[id]);
 		}
 		else
+		{
+			// Before resetting the idle time, save it in case we need it, like for storing a failed attempt in database
+			if (g_AntiResetIdleTime[id] > SIGNIFICANT_RUN_IDLE_TIME_THRESHOLD)
+			{
+				g_LastRunIdleTime[id] = g_AntiResetIdleTime[id];
+				g_LastRunIdleTimeStart[id] = get_gametime() - g_LastRunIdleTime[id];
+				xs_vec_copy(g_AntiResetIdleOrigin[id], g_LastRunIdleOrigin[id]);
+
+				g_LastRunIdleStats[id][RS_MAX_SPEED] = g_RunMaxSpeed[id];
+				g_LastRunIdleStats[id][RS_JUMPS]     = g_RunJumps[id];
+				g_LastRunIdleStats[id][RS_DUCKTAPS]  = g_RunDucktaps[id];
+				g_LastRunIdleStats[id][RS_SLOWDOWNS] = g_RunSlowdowns[id];
+			}
+
 			g_AntiResetIdleTime[id] = 0.0;
+			xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_AntiResetIdleOrigin[id]);
+		}
 
 		g_IdleTime[id] = 0.0;
 	}
@@ -8983,6 +9104,7 @@ FillQueryData(id, queryData[QUERY], RUN_TYPE:topType, stats[STATS])
 	queryData[QUERY_RUN_TYPE] = topType;
 	queryData[QUERY_NO_RESET] = g_RunMode[id] == MODE_NORESET;
 	queryData[QUERY_PID] = pid;
+	// TODO: get the id of the HLKZ version in database, change the column to smallint and use that id number to insert
 	copy(queryData[QUERY_HLKZ_VERSION], charsmax(queryData[QUERY_HLKZ_VERSION]), VERSION);
 	datacopy(queryData[QUERY_STATS], stats, sizeof(stats));
 
@@ -9001,35 +9123,69 @@ FillQueryData(id, queryData[QUERY], RUN_TYPE:topType, stats[STATS])
 	queryData[QUERY_RUNSTATS][RS_SLOWDOWNS]       = g_RunSlowdowns[id];
 }
 
-// Here instead of writing the whole file again, we just insert a few rows in the DB, so it's much less expensive in this case
-SaveRunDB(queryData[QUERY])
+SaveFailedAttemptDB(id, RUN_TYPE:topType, stats[STATS])
 {
-	new escapedUniqueId[64];
-	mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), queryData[QUERY_STATS][STATS_ID]);
-
-	if (queryData[QUERY_PID])
+	new queryData[QUERY];
+	FillQueryData(id, queryData, topType, stats);
+	
+	if (!queryData[QUERY_PID])
 	{
-		PlayerNameInsert(queryData, sizeof(queryData));
+		ShowMessage(id, "Unable to save the run attempt! Try to reconnect");
+		return;
+	}
+
+	new Float:currTime = get_gametime();
+	if (g_LastSlowdownTime[id] && currTime < (g_LastSlowdownTime[id] + 3.0))
+	{
+		// A slowdown happened close enough, so consider it as the run killer and save its position
+		xs_vec_copy(g_LastSlowdownOrigin[id], queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN]);
+		queryData[QUERY_STATS][STATS_TIME] = g_LastSlowdownTime[id] - g_PlayerTime[id];
+
+		// TODO: copy the whole runstats array with datacopy when the individual global variables (g_RunJumps etc.) are refactored to a RUNSTATS array
+		queryData[QUERY_RUNSTATS][RS_MAX_SPEED] = g_LastSlowdownStats[id][RS_MAX_SPEED];
+		queryData[QUERY_RUNSTATS][RS_JUMPS]     = g_LastSlowdownStats[id][RS_JUMPS];
+		queryData[QUERY_RUNSTATS][RS_DUCKTAPS]  = g_LastSlowdownStats[id][RS_DUCKTAPS];
+		queryData[QUERY_RUNSTATS][RS_SLOWDOWNS] = g_LastSlowdownStats[id][RS_SLOWDOWNS];
+	}
+	else if (g_AntiResetIdleTime[id] >= SIGNIFICANT_RUN_IDLE_TIME_THRESHOLD)
+	{
+		// Attempt ends with player being idle
+		// Save the position where we started being idle, the run was probably killed due to failing right before that point
+		xs_vec_copy(g_AntiResetIdleOrigin[id], queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN]);
+		queryData[QUERY_STATS][STATS_TIME] -= g_AntiResetIdleTime[id];
+	}
+	else if (g_LastRunIdleTimeStart[id] && g_LastRunIdleTime[id] >= SIGNIFICANT_RUN_IDLE_TIME_THRESHOLD)
+	{
+		// Same as for the other idle time, but this is for idle time mid-run, where the player continued running after that idle time
+		// and the attempt didn't really end with the player being idle
+		xs_vec_copy(g_LastRunIdleOrigin[id], queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN]);
+		queryData[QUERY_STATS][STATS_TIME] = g_LastRunIdleTimeStart[id] - g_PlayerTime[id];
+
+		// TODO: copy the whole runstats array with datacopy when the individual global variables (g_RunJumps etc.) are refactored to a RUNSTATS array
+		queryData[QUERY_RUNSTATS][RS_MAX_SPEED] = g_LastRunIdleStats[id][RS_MAX_SPEED];
+		queryData[QUERY_RUNSTATS][RS_JUMPS]     = g_LastRunIdleStats[id][RS_JUMPS];
+		queryData[QUERY_RUNSTATS][RS_DUCKTAPS]  = g_LastRunIdleStats[id][RS_DUCKTAPS];
+		queryData[QUERY_RUNSTATS][RS_SLOWDOWNS] = g_LastRunIdleStats[id][RS_SLOWDOWNS];
 	}
 	else
-	{
-		new query[384];
-		formatex(query, charsmax(query), "\
-		    INSERT INTO player (unique_id) \
-		    SELECT '%s' \
-		    FROM (select 1) as a \
-		    WHERE NOT EXISTS( \
-		        SELECT unique_id \
-		        FROM player \
-		        WHERE unique_id = '%s' \
-		    ) \
-		    LIMIT 1", escapedUniqueId, escapedUniqueId);
+		xs_vec_copy(g_PrevOrigin[id], queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN]);
 
-		// Here one callback will call another, and that one will call another, and another...
-		// because we have to wait until the previous data has been inserted, and only if it has been inserted at all
-		// so we insert the player if doesn't exist, then the name they were using at that time, then the run corresponding to that player
-		mysql_query(g_DbConnection, "RunnerIdSelect", query, queryData, sizeof(queryData));
+	FailedAttemptInsert(queryData, sizeof(queryData));
+}
+
+// Here instead of writing the whole file again, we just insert a few rows in the DB, so it's much less expensive in this case
+SaveRunDB(id, RUN_TYPE:topType, stats[STATS])
+{
+	new queryData[QUERY];
+	FillQueryData(id, queryData, topType, stats);
+
+	if (!queryData[QUERY_PID])
+	{
+		client_print(id, print_chat, "[%s] Unable to save the run! Try to reconnect", PLUGIN_TAG);
+		log_amx("ERROR @ SaveRunDB(): No pid for player %s", stats[STATS_ID]);  // should've been set on client_putinserver()
+		return;
 	}
+	PlayerNameInsert(queryData, sizeof(queryData));
 }
 
 // Refactor if somehow more than 2 tops have to be passed
@@ -9079,13 +9235,10 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 				copy(failedStats[STATS_NAME], charsmax(failedStats[STATS_NAME]), name);
 				failedStats[STATS_CP] = g_CpCounters[id][COUNTER_CP];
 				failedStats[STATS_TP] = g_CpCounters[id][COUNTER_TP];
-				failedStats[STATS_TIME] = _:kztime;
+				failedStats[STATS_TIME] = kztime;
 				failedStats[STATS_TIMESTAMP] = get_systime();
 
-				new queryData[QUERY];
-				FillQueryData(id, queryData, topType, failedStats);
-
-				SaveRunDB(queryData);
+				SaveRunDB(id, topType, failedStats);
 			}
 
 			return;
@@ -9109,7 +9262,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
 	stats[STATS_CP] = g_CpCounters[id][COUNTER_CP];
 	stats[STATS_TP] = g_CpCounters[id][COUNTER_TP];
-	stats[STATS_TIME] = _:kztime;
+	stats[STATS_TIME] = kztime;
 	stats[STATS_TIMESTAMP] = get_systime();
 
 	if (insertItemId != -1)
@@ -9140,10 +9293,7 @@ UpdateRecords(id, Float:kztime, RUN_TYPE:topType)
 	if (storeInMySql)
 	{
 		// Every No-Reset pure run is saved in DB, so it's been already saved before, right before where failed runs are discarded
-		new queryData[QUERY];
-		FillQueryData(id, queryData, topType, stats);
-
-		SaveRunDB(queryData);
+		SaveRunDB(id, topType, stats);
 	}
 
 	if (storageType == STORE_IN_FILE || storageType == STORE_IN_FILE_AND_DB)
@@ -9670,22 +9820,13 @@ public DefaultInsertHandler(failstate, error[], errNo, what[], size, Float:queue
 }
 
 // TODO: big SQL handling refactor
-public SelectPlayerId(uniqueId[], size)
+public InsertOrSelectPlayerId(uniqueId[], size)
 {
 	new escapedUniqueId[64];
 	mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), uniqueId);
 
-	new query[384];
-	formatex(query, charsmax(query), "\
-	    INSERT INTO player (unique_id) \
-	    SELECT '%s' \
-	    FROM (select 1) as a \
-	    WHERE NOT EXISTS( \
-	        SELECT unique_id \
-	        FROM player \
-	        WHERE unique_id = '%s' \
-	    ) \
-	    LIMIT 1", escapedUniqueId, escapedUniqueId);
+	new query[64];
+	formatex(query, charsmax(query), "CALL InsertPlayer('%s')", escapedUniqueId);
 
 	mysql_query(g_DbConnection, "PlayerIdInsertHandler", query, uniqueId, size);
 }
@@ -9698,33 +9839,21 @@ public PlayerIdInsertHandler(failstate, error[], errNo, uniqueId[], size, Float:
 		return;
 	}
 
-	// The last insert ID might not be reliable (I haven't checked the inner workings of this MySQL driver)
-	// That's why we will do a SELECT to get the player ID from database
-	if (mysql_affected_rows())
-		server_print("[%s] [%.3f] Inserted runner (#%d?) with unique id %s, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), mysql_get_insert_id(), uniqueId, queuetime);
-
-	new escapedUniqueId[64], query[112];
-	mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), uniqueId);
-	formatex(query, charsmax(query), "SELECT id FROM player WHERE unique_id = '%s'", escapedUniqueId);
-
-	mysql_query(g_DbConnection, "PlayerIdSelectHandler", query, uniqueId, size);
-}
-
-public PlayerIdSelectHandler(failstate, error[], errNo, uniqueId[], size, Float:queuetime)
-{
-	if (failstate != TQUERY_SUCCESS)
+	new pid = mysql_read_result(0);
+	if (!pid)
 	{
-		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ PlayerIdSelectHandler(): [%d] - [%s] - [%s]", errNo, error, uniqueId);
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ PlayerIdInsertHandler(): Stored procedure didn't return a player id? unique_id: %s", uniqueId);
 		return;
 	}
-
-	new pid = mysql_read_result(0);
 	TrieSetCell(g_DbPlayerId, uniqueId, pid);
 
-	new id = GetPlayerFromUniqueId(uniqueId);
-	InitPlayerSplits(TASKID_INIT_PLAYER_GOLDS + id);
+	server_print("[%s] [%.3f] Selected runner (#%d) with unique id %s, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), pid, uniqueId, queuetime);
 
-	server_print("[%s] [%.3f] Selected runner #%d with unique id %s, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), pid, uniqueId, queuetime);
+	new id = GetPlayerFromUniqueId(uniqueId);
+	if (!id)
+		return;  // player disconnected right before this query returned?
+
+	InitPlayerSplits(TASKID_INIT_PLAYER_GOLDS + id);
 }
 
 public RunSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime)
@@ -9769,7 +9898,7 @@ public RunSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime
 		copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
 		stats[STATS_CP] = cp;
 		stats[STATS_TP] = tp;
-		stats[STATS_TIME] = _:kztime;
+		stats[STATS_TIME] = kztime;
 
 		ArrayPushArray(arr, stats);
 
@@ -9811,54 +9940,6 @@ public SelectNoResetRunsHandler(failstate, error[], errNo, data[], size, Float:q
 	}
 
 	server_print("[%s] [%.3f] Selected No-Reset runs, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), queuetime);
-}
-
-// Gets the player id from the `player` table so we can use it to insert stuff in the `player_name` table
-public RunnerIdSelect(failstate, error[], errNo, queryData[], size, Float:queuetime)
-{
-	if (failstate != TQUERY_SUCCESS)
-	{
-		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ RunnerIdSelect(): [%d] - [%s] - [%s]", errNo, error, queryData);
-		return;
-	}
-
-	server_print("[%s] [%.3f] Inserted runner %s, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), queryData[QUERY_STATS][STATS_ID], queuetime);
-
-	if (queryData[QUERY_STATS][STATS_ID])
-	{
-		new escapedUniqueId[64], query[112];
-		mysql_escape_string(escapedUniqueId, charsmax(escapedUniqueId), queryData[QUERY_STATS][STATS_ID]);
-		formatex(query, charsmax(query), "SELECT id FROM player WHERE unique_id = '%s'", escapedUniqueId);
-
-		// Here one callback will call another, and that one will call another, and another...
-		// because we have to wait until the previous data has been inserted, and only if it has been inserted at all
-		// so we insert the player if doesn't exist, then the name they were using at that time, then the run corresponding to that player
-		mysql_query(g_DbConnection, "RunnerIdSelectHandler", query, queryData, size);
-	}
-	else
-	{
-		// Something new must have been inserted in SaveRunDB() because there's no unique_id...
-		// so we get directly the last inserted id
-		queryData[QUERY_PID] = mysql_get_insert_id();
-		PlayerNameInsert(queryData, size);
-	}
-}
-
-// Gets the player id from the SELECT query result
-public RunnerIdSelectHandler(failstate, error[], errNo, queryData[], size, Float:queuetime)
-{
-	if (failstate != TQUERY_SUCCESS)
-	{
-		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ RunnerIdSelectHandler(): [%d] - [%s] - [%s]", errNo, error, queryData);
-		return;
-	}
-
-	if (mysql_more_results())
-		queryData[QUERY_PID] = mysql_read_result(0);
-
-	server_print("[%s] [%.3f] Selected runner #%d, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), queryData[QUERY_PID], queuetime);
-
-	PlayerNameInsert(queryData, size);
 }
 
 // Launches the query to insert the player name that was in use when the record was done
@@ -9938,6 +10019,34 @@ public RunInsertHandler(failstate, error[], errNo, queryData[], size, Float:queu
 
 	if (queryData[QUERY_NO_RESET])
 		LoadNoResetRecords();
+}
+
+public FailedAttemptInsert(queryData[], size)
+{
+	new query[320];
+	// This stored procedure inserts the run and then updates the corresponding splits so that they have the ID of this run
+	// For this to work the splits should be inserted first. Right now they are because there's the player_name insert and
+	// the run insert queries before this one, so it would be weird to have the splits update query run before the splits insert one,
+	// but it's a race condition and has to be tackled at some moment... FIXME: make sure the run is inserted only after the splits insert
+	formatex(query, charsmax(query), "\
+	    CALL InsertFailedAttempt(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %.6f, %.6f, %.6f, %.2f, %.2f, %.6f, %d, %d, %d, '%s')",
+	    queryData[QUERY_PID], g_MapId, g_TopType[queryData[QUERY_RUN_TYPE]], queryData[QUERY_STATS][STATS_TIME], queryData[QUERY_RUN_START_TS],
+	    queryData[QUERY_STATS][STATS_TIMESTAMP], queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN][0], queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN][1],
+	    queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN][2], queryData[QUERY_RUNSTATS][RS_MAX_SPEED], queryData[QUERY_RUNSTATS][RS_PRESTRAFE_SPEED],
+	    queryData[QUERY_RUNSTATS][RS_PRESTRAFE_TIME], queryData[QUERY_RUNSTATS][RS_JUMPS],queryData[QUERY_RUNSTATS][RS_DUCKTAPS],
+	    queryData[QUERY_RUNSTATS][RS_SLOWDOWNS], queryData[QUERY_HLKZ_VERSION]
+	);
+	mysql_query(g_DbConnection, "FailedAttemptInsertHandler", query, queryData, size);
+}
+
+public FailedAttemptInsertHandler(failstate, error[], errNo, queryData[], size, Float:queuetime)
+{
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ FailedAttemptInsertHandler(): [%d] - [%s] - [%d]", errNo, error, queryData[QUERY_RUN_TYPE]);
+		return;
+	}
+	server_print("[%s] [%.3f] Inserted failed attempt with id #%d, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), mysql_read_result(0), queuetime);
 }
 
 public MapInsertHandler(failstate, error[], errNo, escapedMapName[], size, Float:queuetime)
