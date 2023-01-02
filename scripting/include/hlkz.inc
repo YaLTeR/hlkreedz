@@ -184,7 +184,7 @@ enum _:QUERY
 	QUERY_STATS[STATS],       // steam ID, nickname, cps, tps, run duration, end date
 	QUERY_RUN_START_TS,	      // timestamp of the time the run was started, might have to put this into STATS instead
 	QUERY_RUNSTATS[RUNSTATS], // start/end/average speed, average fps
-	QUERY_HLKZ_VERSION[32]
+	QUERY_HLKZ_VERSION        // id in database for the HLKZ version
 }
 
 enum _:NORESET

@@ -323,6 +323,8 @@ new g_bit_is_hltv, g_bit_is_bot;
 new g_baIsClimbing, g_baIsPaused, g_baIsFirstSpawn, g_baIsPureRunning;
 new g_baIsAgFrozen;    // only used when we're running on an AG server, because it unfreezes on player PreThink()
 
+new g_HLKZVersionId;  // for database, when inserting runs or failed attempts
+
 new g_RunStartTimestamp[MAX_PLAYERS + 1];
 new Float:g_PlayerTime[MAX_PLAYERS + 1];
 new Float:g_PlayerTimePause[MAX_PLAYERS + 1];
@@ -1293,6 +1295,7 @@ InitTopsAndDB()
 		new threadThinkTime = 1000 / threadFPS;
 		mysql_performance(get_pcvar_num(pcvar_kz_mysql_collect_time_ms), threadThinkTime, get_pcvar_num(pcvar_kz_mysql_threads));
 
+		InsertOrSelectHLKZVersionId();
 		GetMapIdAndLeaderboards();
 
 		// TODO: Insert server location data
@@ -9037,10 +9040,9 @@ FillQueryData(id, queryData[QUERY], RUN_TYPE:topType, stats[STATS])
 	queryData[QUERY_RUN_TYPE] = topType;
 	queryData[QUERY_NO_RESET] = g_RunMode[id] == MODE_NORESET;
 	queryData[QUERY_PID] = pid;
-	// TODO: get the id of the HLKZ version in database, change the column to smallint and use that id number to insert
-	copy(queryData[QUERY_HLKZ_VERSION], charsmax(queryData[QUERY_HLKZ_VERSION]), VERSION);
-	datacopy(queryData[QUERY_STATS], stats, sizeof(stats));
+	queryData[QUERY_HLKZ_VERSION] = g_HLKZVersionId;
 
+	datacopy(queryData[QUERY_STATS], stats, sizeof(stats));
 	datacopy(queryData[QUERY_RUNSTATS], g_RunStats[id], RUNSTATS);
 }
 
@@ -9732,6 +9734,31 @@ public DefaultInsertHandler(failstate, error[], errNo, what[], size, Float:queue
 	server_print("[%s] [%.3f] Inserted %s, QueueTime:[%.3f]", PLUGIN_TAG, get_gametime(), what, queuetime);
 }
 
+public InsertOrSelectHLKZVersionId()
+{
+	new query[64];
+	formatex(query, charsmax(query), "CALL InsertHLKZVersion('%s')", VERSION);
+
+	mysql_query(g_DbConnection, "HLKZVersionIdInsertHandler", query);
+}
+
+public HLKZVersionIdInsertHandler(failstate, error[], errNo, uniqueId[], size, Float:queuetime)
+{
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ HLKZVersionIdInsertHandler(): [%d] - [%s] - [%s]", errNo, error, uniqueId);
+		return;
+	}
+
+	new versionId = mysql_read_result(0);
+	if (!versionId)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ HLKZVersionIdInsertHandler(): Stored procedure didn't return the HLKZ version id?: %s", VERSION);
+		return;
+	}
+	g_HLKZVersionId = versionId;
+}
+
 // TODO: big SQL handling refactor
 public InsertOrSelectPlayerId(uniqueId[], size)
 {
@@ -9894,7 +9921,7 @@ public PlayerNameInsertHandler(failstate, error[], errNo, queryData[], size, Flo
 	// the run insert queries before this one, so it would be weird to have the splits update query run before the splits insert one,
 	// but it's a race condition and has to be tackled at some moment... FIXME: make sure the run is inserted only after the splits insert
 	formatex(query, charsmax(query), "\
-	    CALL InsertRunWithStatsAndUpdateSplits(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %d, %d, %d, %.4f, %.2f, %.2f, %.2f, %.2f, %.6f, %.6f, %.6f, %.2f, %.2f, %d, %d, %d, '%s')",
+	    CALL InsertRunWithStatsAndUpdateSplits(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %d, %d, %d, %.4f, %.2f, %.2f, %.2f, %.2f, %.6f, %.6f, %.6f, %.2f, %.2f, %d, %d, %d, %d)",
 	    queryData[QUERY_PID],
 	    g_MapId,
 	    g_TopType[queryData[QUERY_RUN_TYPE]],
@@ -9958,7 +9985,7 @@ public FailedAttemptInsert(queryData[], size)
 	// the run insert queries before this one, so it would be weird to have the splits update query run before the splits insert one,
 	// but it's a race condition and has to be tackled at some moment... FIXME: make sure the run is inserted only after the splits insert
 	formatex(query, charsmax(query), "\
-	    CALL InsertFailedAttempt(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %.6f, %.6f, %.6f, %.4f, %.2f, %.2f, %.6f, %.6f, %.2f, %.2f, %d, %d, %d, '%s')",
+	    CALL InsertFailedAttempt(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %.6f, %.6f, %.6f, %.4f, %.2f, %.2f, %.6f, %.6f, %.2f, %.2f, %d, %d, %d, %d)",
 	    queryData[QUERY_PID],
 	    g_MapId,
 	    g_TopType[queryData[QUERY_RUN_TYPE]],
