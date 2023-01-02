@@ -9895,12 +9895,28 @@ public PlayerNameInsertHandler(failstate, error[], errNo, queryData[], size, Flo
 	// but it's a race condition and has to be tackled at some moment... FIXME: make sure the run is inserted only after the splits insert
 	formatex(query, charsmax(query), "\
 	    CALL InsertRunWithStatsAndUpdateSplits(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %d, %d, %d, %.4f, %.2f, %.2f, %.2f, %.2f, %.6f, %.6f, %.6f, %.2f, %.2f, %d, %d, %d, '%s')",
-	    queryData[QUERY_PID], g_MapId, g_TopType[queryData[QUERY_RUN_TYPE]], queryData[QUERY_STATS][STATS_TIME], queryData[QUERY_RUN_START_TS],
-	    queryData[QUERY_STATS][STATS_TIMESTAMP], queryData[QUERY_STATS][STATS_CP], queryData[QUERY_STATS][STATS_TP], queryData[QUERY_NO_RESET],
-	    queryData[QUERY_RUNSTATS][RS_AVG_FPS], queryData[QUERY_RUNSTATS][RS_AVG_SPEED], queryData[QUERY_RUNSTATS][RS_MAX_SPEED],
-	    queryData[QUERY_RUNSTATS][RS_END_SPEED], queryData[QUERY_RUNSTATS][RS_PRESTRAFE_SPEED], queryData[QUERY_RUNSTATS][RS_PRESTRAFE_TIME],
-	    queryData[QUERY_RUNSTATS][RS_TIMELOSS_START], queryData[QUERY_RUNSTATS][RS_TIMELOSS_END], queryData[QUERY_RUNSTATS][RS_DISTANCE_2D],
-	    queryData[QUERY_RUNSTATS][RS_DISTANCE_3D], queryData[QUERY_RUNSTATS][RS_JUMPS], queryData[QUERY_RUNSTATS][RS_DUCKTAPS], queryData[QUERY_RUNSTATS][RS_SLOWDOWNS],
+	    queryData[QUERY_PID],
+	    g_MapId,
+	    g_TopType[queryData[QUERY_RUN_TYPE]],
+	    queryData[QUERY_STATS][STATS_TIME],
+	    queryData[QUERY_RUN_START_TS],
+	    queryData[QUERY_STATS][STATS_TIMESTAMP],
+	    queryData[QUERY_STATS][STATS_CP],
+	    queryData[QUERY_STATS][STATS_TP],
+	    queryData[QUERY_NO_RESET],
+	    queryData[QUERY_RUNSTATS][RS_AVG_FPS],
+	    queryData[QUERY_RUNSTATS][RS_AVG_SPEED],
+	    queryData[QUERY_RUNSTATS][RS_MAX_SPEED],
+	    queryData[QUERY_RUNSTATS][RS_END_SPEED],
+	    queryData[QUERY_RUNSTATS][RS_PRESTRAFE_SPEED],
+	    queryData[QUERY_RUNSTATS][RS_PRESTRAFE_TIME],
+	    queryData[QUERY_RUNSTATS][RS_TIMELOSS_START],
+	    queryData[QUERY_RUNSTATS][RS_TIMELOSS_END],
+	    queryData[QUERY_RUNSTATS][RS_DISTANCE_2D],
+	    queryData[QUERY_RUNSTATS][RS_DISTANCE_3D],
+	    queryData[QUERY_RUNSTATS][RS_JUMPS],
+	    queryData[QUERY_RUNSTATS][RS_DUCKTAPS],
+	    queryData[QUERY_RUNSTATS][RS_SLOWDOWNS],
 	    queryData[QUERY_HLKZ_VERSION]
 	);
 
@@ -9936,18 +9952,33 @@ public RunInsertHandler(failstate, error[], errNo, queryData[], size, Float:queu
 
 public FailedAttemptInsert(queryData[], size)
 {
-	new query[320];
+	new query[480];
 	// This stored procedure inserts the run and then updates the corresponding splits so that they have the ID of this run
 	// For this to work the splits should be inserted first. Right now they are because there's the player_name insert and
 	// the run insert queries before this one, so it would be weird to have the splits update query run before the splits insert one,
 	// but it's a race condition and has to be tackled at some moment... FIXME: make sure the run is inserted only after the splits insert
 	formatex(query, charsmax(query), "\
-	    CALL InsertFailedAttempt(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %.6f, %.6f, %.6f, %.2f, %.2f, %.6f, %d, %d, %d, '%s')",
-	    queryData[QUERY_PID], g_MapId, g_TopType[queryData[QUERY_RUN_TYPE]], queryData[QUERY_STATS][STATS_TIME], queryData[QUERY_RUN_START_TS],
-	    queryData[QUERY_STATS][STATS_TIMESTAMP], queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN][0], queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN][1],
-	    queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN][2], queryData[QUERY_RUNSTATS][RS_MAX_SPEED], queryData[QUERY_RUNSTATS][RS_PRESTRAFE_SPEED],
-	    queryData[QUERY_RUNSTATS][RS_PRESTRAFE_TIME], queryData[QUERY_RUNSTATS][RS_JUMPS],queryData[QUERY_RUNSTATS][RS_DUCKTAPS],
-	    queryData[QUERY_RUNSTATS][RS_SLOWDOWNS], queryData[QUERY_HLKZ_VERSION]
+	    CALL InsertFailedAttempt(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %.6f, %.6f, %.6f, %.4f, %.2f, %.2f, %.6f, %.6f, %.2f, %.2f, %d, %d, %d, '%s')",
+	    queryData[QUERY_PID],
+	    g_MapId,
+	    g_TopType[queryData[QUERY_RUN_TYPE]],
+	    queryData[QUERY_STATS][STATS_TIME],
+	    queryData[QUERY_RUN_START_TS],
+	    queryData[QUERY_STATS][STATS_TIMESTAMP],
+	    queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN][0],
+	    queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN][1],
+	    queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN][2],
+	    queryData[QUERY_RUNSTATS][RS_AVG_FPS],
+	    queryData[QUERY_RUNSTATS][RS_MAX_SPEED],
+	    queryData[QUERY_RUNSTATS][RS_PRESTRAFE_SPEED],
+	    queryData[QUERY_RUNSTATS][RS_PRESTRAFE_TIME],
+	    queryData[QUERY_RUNSTATS][RS_TIMELOSS_START],
+	    queryData[QUERY_RUNSTATS][RS_DISTANCE_2D],
+	    queryData[QUERY_RUNSTATS][RS_DISTANCE_3D],
+	    queryData[QUERY_RUNSTATS][RS_JUMPS],
+	    queryData[QUERY_RUNSTATS][RS_DUCKTAPS],
+	    queryData[QUERY_RUNSTATS][RS_SLOWDOWNS],
+	    queryData[QUERY_HLKZ_VERSION]
 	);
 	mysql_query(g_DbConnection, "FailedAttemptInsertHandler", query, queryData, size);
 }
