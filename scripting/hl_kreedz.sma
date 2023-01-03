@@ -426,6 +426,7 @@ new g_ConsolePrintNextFrames[MAX_PLAYERS + 1];
 new g_ReplayFpsMultiplier[MAX_PLAYERS + 1]; // atm not gonna implement custom fps replays, just ability to multiply demo fps by an integer up to 4
 //new Float:g_ArtificialFrames[MAX_PLAYERS + 1][MAX_FPS_MULTIPLIER]; // when will the calculated extra frames happen
 new Float:g_LastFrameTime[MAX_PLAYERS + 1];
+new g_BotRunStats[MAX_PLAYERS + 1][RUNSTATS];
 
 new g_RunFrameCount[MAX_PLAYERS + 1];
 new g_LastSpawnedBot;
@@ -2014,6 +2015,10 @@ public client_putinserver(id)
 	g_DamagedTimeEntity[id] = ArrayCreate();
 	g_DamagedPreSpeed[id] = ArrayCreate();
 
+	// We don't clear this on FinishReplay() because we want it to be available after the replay ends,
+	// when the player is still on spectator mode and hasn't changed the target player since finishing it
+	ClearRunStats(g_BotRunStats[id]);
+
 	new uniqueId[32];
 	GetUserUniqueId(id, uniqueId, charsmax(uniqueId));
 	copy(g_UniqueId[id], charsmax(g_UniqueId[]), uniqueId);
@@ -3052,7 +3057,8 @@ CmdReplay(id, RUN_TYPE:runType)
 		fclose(file);
 
 	// TODO: refactor these replayingMsg params
-	RunReplayFile(id, replayFile, replayingMsg, charsmax(replayingMsg));
+	new botId = RunReplayFile(id, replayFile, replayingMsg, charsmax(replayingMsg));
+	datacopy(g_BotRunStats[botId], stats[STATS_RS], RUNSTATS);
 
 	return PLUGIN_HANDLED;
 }
@@ -3064,7 +3070,7 @@ RunReplayFile(id, replayFileName[], replayingMsg[] = "", lenMsg = 0)
 	{
 		client_print(id, print_chat, "[%s] Sorry, that replay is not available.", PLUGIN_TAG);
 		server_print("[%s] Replay not found: %s.", PLUGIN_TAG, replayFileName);
-		return;
+		return 0;
 	}
 	new Float:setupTime = get_pcvar_float(pcvar_kz_replay_setup_time);
 	new bool:canceled = false;
@@ -3082,13 +3088,13 @@ RunReplayFile(id, replayFileName[], replayingMsg[] = "", lenMsg = 0)
 	{
 		client_print(id, print_chat, "[%s] Sorry, there are too many replays running! Please, wait until one of the %d replays finish", PLUGIN_TAG, g_ReplayNum);
 		fclose(file);
-		return;
+		return 0;
 	}
 	else if (GetOwnersBot(id))
 	{
 		client_print(id, print_chat, "[%s] Your previous bot is still setting up. Please, wait %.1f seconds to start a new replay", PLUGIN_TAG, setupTime);
 		fclose(file);
-		return;
+		return 0;
 	}
 
 	if (canceled)
@@ -3099,6 +3105,7 @@ RunReplayFile(id, replayFileName[], replayingMsg[] = "", lenMsg = 0)
 
 	client_print(id, print_chat, "%s", replayingMsg);
 
+	new botId;
 	if (!g_ReplayFramesIdx[id])
 	{
 		new replay[REPLAY], replay0[REPLAY];
@@ -3125,14 +3132,16 @@ RunReplayFile(id, replayFileName[], replayingMsg[] = "", lenMsg = 0)
 		//console_print(id, "%.3f = 1.0 / ((%.3f - %.3f) / %.3f) * %.3f", demoFramerate, replay[RP_TIME], replay0[RP_TIME], float(i), float(g_ReplayFpsMultiplier[id]));
 
 		g_ReplayNum++;
-		SpawnBot(id);
+		botId = SpawnBot(id);
 		client_print(id, print_chat, "[%s] Your bot will start running at %.2f fps (on average) in %.1f seconds", PLUGIN_TAG, demoFramerate, setupTime);
 		//console_print(1, "replayft=%.3f, replay0t=%.2f, i=%d, mult=%d", replay[RP_TIME], replay0[RP_TIME], i, g_ReplayFpsMultiplier[id]);
 	}
+	return botId;
 }
 
 SpawnBot(id)
 {
+	new bot;
 	if (get_playersnum(1) < g_MaxPlayers - 4) // leave at least 4 slots available
 	{
 		new botName[33];
@@ -3143,7 +3152,6 @@ SpawnBot(id)
 			num_to_str(random_num(0, 9), str, charsmax(str));
 			add(botName, charsmax(botName), str);
 		}
-		new bot;
 		bot = engfunc(EngFunc_CreateFakeClient, botName);
 		if (bot)
 		{
@@ -3220,7 +3228,7 @@ SpawnBot(id)
 	else
 		client_print(id, print_chat, "[%s] Sorry, won't spawn the bot since there are only 4 slots left for players", PLUGIN_TAG);
 
-	return PLUGIN_HANDLED;
+	return bot;
 }
 
 SpawnDummyBot(id)
@@ -5743,10 +5751,23 @@ UpdateHud(Float:currGameTime)
 				ClearSyncHud(id, g_SyncHudRunStats);
 			}
 
-			new runStats[768];
-			GetRunStatsHudText(targetId, runStats, charsmax(runStats), g_RunStatsHudDetailLevel[id]);
+			new runStatsText[576];
+			// Check if it's a replay that has runstats saved
+			if (IsBot(targetId) && g_BotRunStats[targetId][RS_PRESTRAFE_TIME] > 0.0)
+			{
+				copy(runStatsText, charsmax(runStatsText), "(Accurate runstats)\n");
+				GetRunStatsHudText(targetId, runStatsText, charsmax(runStatsText), g_RunStatsHudDetailLevel[id], g_BotRunStats[targetId]);
+			}
+			else
+			{
+				if (IsBot(targetId))
+					copy(runStatsText, charsmax(runStatsText), "(Innacurate/estimated runstats)\n");
+
+				GetRunStatsHudText(targetId, runStatsText, charsmax(runStatsText), g_RunStatsHudDetailLevel[id], g_RunStats[targetId]);
+			}
+
 			set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], g_RunStatsHudX[id], g_RunStatsHudY[id], _, 0.0, 999999.0, _, 0.5);
-			ShowSyncHudMsg(id, g_SyncHudRunStats, runStats);
+			ShowSyncHudMsg(id, g_SyncHudRunStats, runStatsText);
 		}
 		else if (
 		    g_ShowRunStatsOnHud[id] == 1
@@ -6134,30 +6155,32 @@ BuildRunStats(id)
 	}
 }
 
-GetRunStatsHudText(id, text[], len, detailLevel)
+GetRunStatsHudText(id, text[], len, detailLevel, runStats[RUNSTATS])
 {
 	if (detailLevel >= 1)
 	{
-		format(text, len, "%sAvg speed: %.2f\n",             text, g_RunStats[id][RS_AVG_SPEED]);
+		format(text, len, "%sAvg speed: %.2f\n",             text, runStats[RS_AVG_SPEED]);
 	}
 
-	format(text, len, "%sMax speed: %.2f\n",                 text, g_RunStats[id][RS_MAX_SPEED]);
-	format(text, len, "%sEnd speed: %.2f\n",                 text, g_RunStats[id][RS_END_SPEED]);
+	format(text, len, "%sMax speed: %.2f\n",                 text, runStats[RS_MAX_SPEED]);
+	format(text, len, "%sEnd speed: %.2f\n",                 text, runStats[RS_END_SPEED]);
 
 	if (detailLevel >= 1)
 	{
-		format(text, len, "%sAvg fps: %.2f\n",               text, g_RunStats[id][RS_AVG_FPS]);
-		format(text, len, "%sMin fps: %.2f\n",               text, g_RunStats[id][RS_MIN_FPS]);
+		format(text, len, "%sAvg fps: %.2f\n",               text, runStats[RS_AVG_FPS]);
+
+		if (!IsBot(id))
+			format(text, len, "%sMin fps: %.2f\n",               text, runStats[RS_MIN_FPS]);
 	}
-	format(text, len, "%sDistance: %.2f\n",                  text, g_RunStats[id][RS_DISTANCE_2D]);
+	format(text, len, "%sDistance: %.2f\n",                  text, runStats[RS_DISTANCE_2D]);
 
 	if (detailLevel >= 2)
 	{
-		format(text, len, "%sDistance 3D: %.2f\n",           text, g_RunStats[id][RS_DISTANCE_3D]);
+		format(text, len, "%sDistance 3D: %.2f\n",           text, runStats[RS_DISTANCE_3D]);
 	}
 
-	format(text, len, "%sJumps: %d\n",                       text, g_RunStats[id][RS_JUMPS]);
-	format(text, len, "%sDucktaps: %d\n",                    text, g_RunStats[id][RS_DUCKTAPS]);
+	format(text, len, "%sJumps: %d\n",                       text, runStats[RS_JUMPS]);
+	format(text, len, "%sDucktaps: %d\n",                    text, runStats[RS_DUCKTAPS]);
 
 	//if (detailLevel >= 2)
 	//{
@@ -6169,14 +6192,14 @@ GetRunStatsHudText(id, text[], len, detailLevel)
 	//	format(text, len, "%sSync: %d\n",                    text, g_RunSync[id]);
 	//}
 
-	format(text, len, "%sSlowdowns: %d\n",                   text, g_RunStats[id][RS_SLOWDOWNS]);
+	format(text, len, "%sSlowdowns: %d\n",                   text, runStats[RS_SLOWDOWNS]);
 
 	if (detailLevel >= 1)
 	{
-		format(text, len, "%sTime lost at start: %.4f\n",    text, g_RunStats[id][RS_TIMELOSS_START]);
-		format(text, len, "%sTime lost at end: %.4f\n",      text, g_RunStats[id][RS_TIMELOSS_END]);
-		format(text, len, "%sStart prestrafe speed: %.2f\n", text, g_RunStats[id][RS_PRESTRAFE_SPEED]);
-		format(text, len, "%sStart prestrafe time: %.4f\n",  text, g_RunStats[id][RS_PRESTRAFE_TIME]);
+		format(text, len, "%sTime lost at start: %.4f\n",    text, runStats[RS_TIMELOSS_START]);
+		format(text, len, "%sTime lost at end: %.4f\n",      text, runStats[RS_TIMELOSS_END]);
+		format(text, len, "%sStart prestrafe speed: %.2f\n", text, runStats[RS_PRESTRAFE_SPEED]);
+		format(text, len, "%sStart prestrafe time: %.4f\n",  text, runStats[RS_PRESTRAFE_TIME]);
 	}
 }
 
@@ -8807,7 +8830,21 @@ LoadRecords(RUN_TYPE:topType)
 			        r.checkpoints, \
 			        r.teleports, \
 			        r.time, \
-			        UNIX_TIMESTAMP(r.date) \
+			        UNIX_TIMESTAMP(r.date), \
+			        r.fps, \
+			        r.avg_speed, \
+			        r.max_speed, \
+			        r.end_speed, \
+			        r.pre_speed, \
+			        r.pre_time, \
+			        r.timeloss_start, \
+			        r.timeloss_end, \
+			        r.distance_2d, \
+			        r.distance_3d, \
+			        r.jumps, \
+			        r.ducktaps, \
+			        r.slowdowns, \
+			        r.hlkz_version \
 			    FROM run r \
 			    INNER JOIN player p ON p.id = r.player \
 			    INNER JOIN player_name pn ON pn.player = r.player AND pn.date = r.date \
@@ -8841,7 +8878,21 @@ LoadRecords(RUN_TYPE:topType)
 			        r.checkpoints, \
 			        r.teleports, \
 			        r.time, \
-			        UNIX_TIMESTAMP(r.date) \
+			        UNIX_TIMESTAMP(r.date), \
+			        r.fps, \
+			        r.avg_speed, \
+			        r.max_speed, \
+			        r.end_speed, \
+			        r.pre_speed, \
+			        r.pre_time, \
+			        r.timeloss_start, \
+			        r.timeloss_end, \
+			        r.distance_2d, \
+			        r.distance_3d, \
+			        r.jumps, \
+			        r.ducktaps, \
+			        r.slowdowns, \
+			        r.hlkz_version \
 			    FROM \
 			        run r \
 			    INNER JOIN player p ON \
@@ -9798,7 +9849,7 @@ public RunSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime
 		return;
 	}
 
-	new stats[STATS], rid, uniqueId[32], name[32], cp, tp, Float:kztime, timestamp;
+	new stats[STATS];
 
 	new Array:arr = g_ArrayStats[topType];
 	if (!arr)
@@ -9811,23 +9862,28 @@ public RunSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime
 
 	while (mysql_more_results())
 	{
-		rid = mysql_read_result(0);
-		mysql_read_result(1, uniqueId, charsmax(uniqueId));
-		mysql_read_result(2, name, charsmax(name));
-		cp = mysql_read_result(3);
-		tp = mysql_read_result(4);
-		mysql_read_result(5, kztime);
-		timestamp = mysql_read_result(6);
+		stats[STATS_RUN_ID] = mysql_read_result(0);
+		mysql_read_result(1, stats[STATS_ID], charsmax(stats[STATS_ID]));
+		mysql_read_result(2, stats[STATS_NAME], charsmax(stats[STATS_NAME]));
+		stats[STATS_CP] = mysql_read_result(3);
+		stats[STATS_TP] = mysql_read_result(4);
+		mysql_read_result(5, stats[STATS_TIME]);
+		stats[STATS_TIMESTAMP] = mysql_read_result(6);
 
-		// TODO check if this language allows to dump the data directly to the stats array
-
-		stats[STATS_RUN_ID] = rid;
-		stats[STATS_TIMESTAMP] = timestamp;
-		copy(stats[STATS_ID], charsmax(stats[STATS_ID]), uniqueId);
-		copy(stats[STATS_NAME], charsmax(stats[STATS_NAME]), name);
-		stats[STATS_CP] = cp;
-		stats[STATS_TP] = tp;
-		stats[STATS_TIME] = kztime;
+		mysql_read_result(7,  stats[STATS_RS][RS_AVG_FPS]);
+		mysql_read_result(8,  stats[STATS_RS][RS_AVG_SPEED]);
+		mysql_read_result(9,  stats[STATS_RS][RS_MAX_SPEED]);
+		mysql_read_result(10, stats[STATS_RS][RS_END_SPEED]);
+		mysql_read_result(11, stats[STATS_RS][RS_PRESTRAFE_SPEED]);
+		mysql_read_result(12, stats[STATS_RS][RS_PRESTRAFE_TIME]);
+		mysql_read_result(13, stats[STATS_RS][RS_TIMELOSS_START]);
+		mysql_read_result(14, stats[STATS_RS][RS_TIMELOSS_END]);
+		mysql_read_result(15, stats[STATS_RS][RS_DISTANCE_2D]);
+		mysql_read_result(16, stats[STATS_RS][RS_DISTANCE_3D]);
+		stats[STATS_RS][RS_JUMPS]     = mysql_read_result(17);
+		stats[STATS_RS][RS_DUCKTAPS]  = mysql_read_result(18);
+		stats[STATS_RS][RS_SLOWDOWNS] = mysql_read_result(19);
+		stats[STATS_HLKZ_VERSION]     = mysql_read_result(20);
 
 		ArrayPushArray(arr, stats);
 

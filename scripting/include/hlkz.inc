@@ -113,18 +113,6 @@ enum _:CP_TYPES
 	CP_TYPE_DEFAULT_START // Standard spawn
 }
 
-// TODO: maybe rename to something more accurate
-enum _:STATS
-{
-	STATS_RUN_ID,
-	STATS_ID[32],
-	STATS_NAME[32],
-	STATS_CP,
-	STATS_TP,
-	Float:STATS_TIME,	// Timer value
-	STATS_TIMESTAMP 	// Date
-}
-
 enum _:RUNSTATS
 {
 	Float:RS_AVG_FPS,
@@ -142,6 +130,20 @@ enum _:RUNSTATS
 	RS_JUMPS,
 	RS_DUCKTAPS,
 	RS_SLOWDOWNS
+}
+
+// TODO: maybe rename to something more accurate
+enum _:STATS
+{
+	STATS_RUN_ID,
+	STATS_ID[32],
+	STATS_NAME[32],
+	STATS_CP,
+	STATS_TP,
+	Float:STATS_TIME,	// Timer value
+	STATS_TIMESTAMP, 	// Date
+	STATS_RS[RUNSTATS],
+	STATS_HLKZ_VERSION
 }
 
 enum RUN_TYPE
