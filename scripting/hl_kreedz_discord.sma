@@ -63,8 +63,6 @@ public plugin_cfg()
 		server_print("[%.4f] Invalid Webhook URL", get_gametime());
 		log_amx("[%s] Invalid Webhook URL? -> %s", g_szPluginTag, szURL);
 	}
-	else
-		server_print("[%s] Discord webhook: %s", g_szPluginTag, szURL);
 }
 
 public plugin_end()
