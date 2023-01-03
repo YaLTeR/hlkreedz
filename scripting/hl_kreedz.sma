@@ -4881,6 +4881,11 @@ FinishTimer(id)
 	}
 
 	g_RunFrameCount[id] = 0;
+
+	// Stop the timer here because it makes sense according to the function name,
+	// and because otherwise a failed run attempt will be inserted on InitPlayer
+	g_PlayerTime[id] = 0.0;
+	clr_bit(g_baIsClimbing, id);
 }
 
 RUN_TYPE:GetTopType(id)
