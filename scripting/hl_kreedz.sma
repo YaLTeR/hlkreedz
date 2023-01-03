@@ -399,13 +399,6 @@ new g_RunStatsHudDetailLevel[MAX_PLAYERS + 1];
 new bool:g_FocusMode[MAX_PLAYERS + 1];
 new CHAT_TYPE:g_ChatStatus[MAX_PLAYERS + 1]; // bit field, see CHAT_* in CHAT_TYPE enum
 new Float:g_AntiResetThreshold[MAX_PLAYERS + 1];
-new Float:g_IdleTime[MAX_PLAYERS + 1];
-new Float:g_AntiResetIdleTime[MAX_PLAYERS + 1];
-new Float:g_AntiResetIdleOrigin[MAX_PLAYERS + 1][3];  // position where the player started idling. TODO: change the antiresetIdle naming for something else
-new Float:g_LastRunIdleTime[MAX_PLAYERS];       // continuous time spent idling
-new Float:g_LastRunIdleTimeStart[MAX_PLAYERS];  // gametime where the idling started
-new Float:g_LastRunIdleOrigin[MAX_PLAYERS + 1][3];
-new g_LastRunIdleStats[MAX_PLAYERS + 1][RUNSTATS];
 new bool:g_HadInvisPreSpec[MAX_PLAYERS + 1];
 
 // FIXME: not working for agstart yet, you should be able to move if you really want to? and tp to start on countdown end
@@ -471,6 +464,13 @@ new g_RunSlowdownLastFrameChecked[MAX_PLAYERS + 1];
 new Float:g_LastSlowdownOrigin[MAX_PLAYERS + 1][3];
 new Float:g_LastSlowdownTime[MAX_PLAYERS + 1];
 new g_LastSlowdownStats[MAX_PLAYERS + 1][RUNSTATS];
+new Float:g_IdleTime[MAX_PLAYERS + 1];
+new Float:g_RunIdleTime[MAX_PLAYERS + 1];
+new Float:g_RunIdleOrigin[MAX_PLAYERS + 1][3];  // position where the player started idling during a run
+new Float:g_LastRunIdleTime[MAX_PLAYERS];       // continuous time spent idling
+new Float:g_LastRunIdleTimeStart[MAX_PLAYERS];  // gametime where the idling started
+new Float:g_LastRunIdleOrigin[MAX_PLAYERS + 1][3];
+new g_LastRunIdleStats[MAX_PLAYERS + 1][RUNSTATS];
 
 new g_MapWeapons[MAX_ENTITIES][WEAPON];  // weapons that are in the map, with their origin and angles
 new g_HideableEntity[MAX_ENTITIES];
@@ -1998,7 +1998,7 @@ public client_putinserver(id)
 	ClearRunStats(g_RunStats[id]);
 	ClearRunStats(g_LastSlowdownStats[id]);
 	ClearRunStats(g_LastRunIdleStats[id]);
-	
+
 	g_RunSlowdownLastFrameChecked[id] = 0;
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownOrigin[id]);
 	g_LastSlowdownTime[id] = 0.0;
@@ -2081,10 +2081,10 @@ public client_disconnect(id)
 	g_RunStatsEndHudShown[id] = false;
 
 	g_IdleTime[id] = 0.0;
-	g_AntiResetIdleTime[id] = 0.0;
+	g_RunIdleTime[id] = 0.0;
 	g_LastRunIdleTime[id] = 0.0;
 	g_LastRunIdleTimeStart[id] = 0.0;
-	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_AntiResetIdleOrigin[id]);
+	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_RunIdleOrigin[id]);
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastRunIdleOrigin[id]);
 
 	g_HadInvisPreSpec[id] = false;
@@ -2546,10 +2546,10 @@ InitPlayerVariables(id)
 	g_LastSlowdownTime[id] = 0.0;
 
 	g_IdleTime[id] = 0.0;
-	g_AntiResetIdleTime[id] = 0.0;
+	g_RunIdleTime[id] = 0.0;
 	g_LastRunIdleTime[id] = 0.0;
 	g_LastRunIdleTimeStart[id] = 0.0;
-	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_AntiResetIdleOrigin[id]);
+	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_RunIdleOrigin[id]);
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastRunIdleOrigin[id]);
 	g_LastStartAttempt[id] = 0.0;
 
@@ -2747,7 +2747,7 @@ CmdStart(id)
 			// The player has doublepressed the start bind fast enough, so we let them reset
 			g_LastStartAttempt[id] = -9999999.9;
 		}
-		else if (g_AntiResetIdleTime[id] < ANTIRESET_AFK_THRESHOLD)
+		else if (g_RunIdleTime[id] < ANTIRESET_AFK_THRESHOLD)
 		{
 			// Avoid resetting, doesn't seem like a doublepress of the start bind (yet)
 			// Also if they have been idle for a while now, we let them reset with just 1 keypress instead of 2
@@ -6920,10 +6920,10 @@ public Fw_FmPlayerPreThinkPost(id)
 			// because there's a case where people still hold spacebar but stop using movement keys when they see
 			// they're gonna fail the jump. They wanna reset while falling and they only stop holding spacebar
 			// the very moment they hit reset, so we ignore spacebar (+jump) for this kind of idle time
-			g_AntiResetIdleTime[id] += g_FrameTime[id];
+			g_RunIdleTime[id] += g_FrameTime[id];
 			
-			if (!xs_vec_len(g_AntiResetIdleOrigin[id]))
-				xs_vec_copy(g_PrevOrigin[id], g_AntiResetIdleOrigin[id]);
+			if (!xs_vec_len(g_RunIdleOrigin[id]))
+				xs_vec_copy(g_PrevOrigin[id], g_RunIdleOrigin[id]);
 		}
 	}
 	else
@@ -6933,25 +6933,25 @@ public Fw_FmPlayerPreThinkPost(id)
 		{
 			// If you're moving the camera but you are not moving the character,
 			// then we still consider it for the anti-reset
-			g_AntiResetIdleTime[id] += g_FrameTime[id];
+			g_RunIdleTime[id] += g_FrameTime[id];
 
-			if (!xs_vec_len(g_AntiResetIdleOrigin[id]))
-				xs_vec_copy(g_PrevOrigin[id], g_AntiResetIdleOrigin[id]);
+			if (!xs_vec_len(g_RunIdleOrigin[id]))
+				xs_vec_copy(g_PrevOrigin[id], g_RunIdleOrigin[id]);
 		}
 		else
 		{
 			// Before resetting the idle time, save it in case we need it, like for storing a failed attempt in database
-			if (g_AntiResetIdleTime[id] > SIGNIFICANT_RUN_IDLE_TIME_THRESHOLD)
+			if (g_RunIdleTime[id] > SIGNIFICANT_RUN_IDLE_TIME_THRESHOLD)
 			{
-				g_LastRunIdleTime[id] = g_AntiResetIdleTime[id];
+				g_LastRunIdleTime[id] = g_RunIdleTime[id];
 				g_LastRunIdleTimeStart[id] = get_gametime() - g_LastRunIdleTime[id];
-				xs_vec_copy(g_AntiResetIdleOrigin[id], g_LastRunIdleOrigin[id]);
+				xs_vec_copy(g_RunIdleOrigin[id], g_LastRunIdleOrigin[id]);
 
 				datacopy(g_LastRunIdleStats[id], g_RunStats[id], RUNSTATS);
 			}
 
-			g_AntiResetIdleTime[id] = 0.0;
-			xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_AntiResetIdleOrigin[id]);
+			g_RunIdleTime[id] = 0.0;
+			xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_RunIdleOrigin[id]);
 		}
 
 		g_IdleTime[id] = 0.0;
@@ -9055,12 +9055,12 @@ SaveFailedAttemptDB(id, RUN_TYPE:topType, stats[STATS])
 		xs_vec_copy(g_LastSlowdownOrigin[id], queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN]);
 		queryData[QUERY_STATS][STATS_TIME] = g_LastSlowdownTime[id] - g_PlayerTime[id];
 	}
-	else if (g_AntiResetIdleTime[id] >= SIGNIFICANT_RUN_IDLE_TIME_THRESHOLD)
+	else if (g_RunIdleTime[id] >= SIGNIFICANT_RUN_IDLE_TIME_THRESHOLD)
 	{
 		// Attempt ends with player being idle
 		// Save the position where we started being idle, the run was probably killed due to failing right before that point
-		xs_vec_copy(g_AntiResetIdleOrigin[id], queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN]);
-		queryData[QUERY_STATS][STATS_TIME] -= g_AntiResetIdleTime[id];
+		xs_vec_copy(g_RunIdleOrigin[id], queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN]);
+		queryData[QUERY_STATS][STATS_TIME] -= g_RunIdleTime[id];
 	}
 	else if (g_LastRunIdleTimeStart[id] && g_LastRunIdleTime[id] >= SIGNIFICANT_RUN_IDLE_TIME_THRESHOLD)
 	{
