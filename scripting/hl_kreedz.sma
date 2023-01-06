@@ -111,6 +111,9 @@
 
 #define TE_EXPLOSION                    3
 
+#define NO_FRICTION                     1.0  // friction is a multiplier, so 1.0 means no effect
+
+
 enum _:REPLAY
 {
   //RP_VERSION,
@@ -191,7 +194,7 @@ enum _:CUP_REPLAY_ITEM
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.49";
+new const VERSION[] = "0.50";
 //new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the replay format changes
 new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, execut4ble, naz, mxpph";
 
@@ -437,17 +440,24 @@ new Float:g_FrameTime[MAX_PLAYERS + 1];
 new g_ControlPoints[MAX_PLAYERS + 1][CP_TYPES][CP_DATA];
 new g_CpCounters[MAX_PLAYERS + 1][COUNTERS];
 new g_RunType[MAX_PLAYERS + 1][5];
+
+// Player state on previous frame
 new Float:g_PrevVelocity[MAX_PLAYERS + 1][3];
-new Float:g_Velocity[MAX_PLAYERS + 1][3];
 new Float:g_PrevOrigin[MAX_PLAYERS + 1][3];
+new Float:g_PrevAngles[MAX_PLAYERS + 1][3];
+new Float:g_PrevViewOfs[MAX_PLAYERS + 1][3];
+new g_PrevButtons[MAX_PLAYERS + 1];
+new g_PrevFlags[MAX_PLAYERS + 1];
+
+// Player state on current frame
+new Float:g_Velocity[MAX_PLAYERS + 1][3];
 new Float:g_Origin[MAX_PLAYERS + 1][3];
-new Float:g_PrevAngles[MAX_PLAYERS + 1];
 new Float:g_Angles[MAX_PLAYERS + 1][3];
-new Float:g_PrevViewOfs[MAX_PLAYERS + 1];
 new Float:g_ViewOfs[MAX_PLAYERS + 1][3];
 //new g_Impulses[MAX_PLAYERS + 1];
-new g_PrevButtons[MAX_PLAYERS + 1];
 new g_Buttons[MAX_PLAYERS + 1];
+new g_Flags[MAX_PLAYERS + 1];
+
 new bool:g_bIsSurfing[MAX_PLAYERS + 1];
 new bool:g_bWasSurfing[MAX_PLAYERS + 1];
 new bool:g_bIsSurfingWithFeet[MAX_PLAYERS + 1];
@@ -456,7 +466,6 @@ new bool:g_hasSlopebugged[MAX_PLAYERS + 1];
 new bool:g_StoppedSlidingRamp[MAX_PLAYERS + 1];
 new g_RampFrameCounter[MAX_PLAYERS + 1];
 new MOVEMENT_STATE:g_Movement[MAX_PLAYERS + 1];
-new g_PrevFlags[MAX_PLAYERS + 1];
 new Float:g_LastStartAttempt[MAX_PLAYERS + 1];
 
 // Run stats
@@ -472,6 +481,10 @@ new Float:g_LastRunIdleTime[MAX_PLAYERS];       // continuous time spent idling
 new Float:g_LastRunIdleTimeStart[MAX_PLAYERS];  // gametime where the idling started
 new Float:g_LastRunIdleOrigin[MAX_PLAYERS + 1][3];
 new g_LastRunIdleStats[MAX_PLAYERS + 1][RUNSTATS];
+new g_RunSyncFrames[MAX_PLAYERS + 1];           // how many frames you got with correct sync between mouse and keyboard, turning the same direction
+new g_RunSyncFramesMax[MAX_PLAYERS + 1];        // how many frames qualify for sync tracking; e.g.: we track when ground/airstrafing but not when surfing
+new Float:g_RunSpeedgain[MAX_PLAYERS + 1];      // how much speed you gained during the run when ground/airstrafing
+new Float:g_RunSpeedgainMax[MAX_PLAYERS + 1];   // how much speed you could have gained if you ground/airstrafed perfectly
 
 new g_MapWeapons[MAX_ENTITIES][WEAPON];  // weapons that are in the map, with their origin and angles
 new g_HideableEntity[MAX_ENTITIES];
@@ -557,7 +570,6 @@ new g_KzVoteCaller[MAX_PLAYERS + 1];
 new g_EndButton;
 new Float:g_EndButtonOrigin[3];
 
-new pcvar_allow_spectators;
 new pcvar_kz_uniqueid;
 new pcvar_kz_messages;
 new pcvar_kz_hud_rgb;
@@ -615,6 +627,16 @@ new pcvar_kz_noclip_speed;
 new pcvar_kz_fireworks_on_wr;
 new pcvar_kz_default_antireset_threshold;
 
+// Pinters to game/engine cvars
+new pcvar_allow_spectators;
+new pcvar_edgefriction;
+new pcvar_sv_accelerate;
+new pcvar_sv_ag_match_running;
+new pcvar_sv_airaccelerate;
+new pcvar_sv_friction;
+new pcvar_sv_maxspeed;
+new pcvar_sv_stopspeed;
+
 new Handle:g_DbHost;
 new Handle:g_DbConnection;
 
@@ -625,8 +647,6 @@ new Array:g_AgAllowedGamemodes;
 new bool:g_AgVoteRunning;
 new bool:g_AgInterruptingVoteRunning;
 new g_MsgCountdown;
-
-new pcvar_sv_ag_match_running;
 
 new mfwd_hlkz_cheating;
 new mfwd_hlkz_worldrecord;
@@ -752,9 +772,14 @@ public plugin_init()
 
 	pcvar_kz_spec_unfreeze = register_cvar("kz_spec_unfreeze", "1");  // unfreeze spectator cam when watching a replaybot teleport
 
-	pcvar_allow_spectators = get_cvar_pointer("allow_spectators");
-
+	pcvar_allow_spectators    = get_cvar_pointer("allow_spectators");
+	pcvar_edgefriction        = get_cvar_pointer("edgefriction");
+	pcvar_sv_accelerate       = get_cvar_pointer("sv_accelerate");
 	pcvar_sv_ag_match_running = get_cvar_pointer("sv_ag_match_running");
+	pcvar_sv_airaccelerate    = get_cvar_pointer("sv_airaccelerate");
+	pcvar_sv_friction         = get_cvar_pointer("sv_friction");
+	pcvar_sv_maxspeed         = get_cvar_pointer("sv_maxspeed");
+	pcvar_sv_stopspeed        = get_cvar_pointer("sv_stopspeed");
 
 	pcvar_kz_denied_sound = register_cvar("kz_denied_sound", "0");
 
@@ -2003,6 +2028,10 @@ public client_putinserver(id)
 	g_RunSlowdownLastFrameChecked[id] = 0;
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownOrigin[id]);
 	g_LastSlowdownTime[id] = 0.0;
+	g_RunSyncFrames[id] = 0;
+	g_RunSyncFramesMax[id] = 0;
+	g_RunSpeedgain[id] = 0.0;
+	g_RunSpeedgainMax[id] = 0.0;
 
 	g_RunStatsEndHudStartTime[id] = -RUN_STATS_HUD_MAX_HOLD_TIME;
 	g_RunStatsEndHudShown[id] = false;
@@ -2081,6 +2110,10 @@ public client_disconnect(id)
 	g_RunSlowdownLastFrameChecked[id] = 0;
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownOrigin[id]);
 	g_LastSlowdownTime[id] = 0.0;
+	g_RunSyncFrames[id] = 0;
+	g_RunSyncFramesMax[id] = 0;
+	g_RunSpeedgain[id] = 0.0;
+	g_RunSpeedgainMax[id] = 0.0;
 
 	g_RunStatsEndHudStartTime[id] = -RUN_STATS_HUD_MAX_HOLD_TIME;
 	g_RunStatsEndHudShown[id] = false;
@@ -2549,6 +2582,10 @@ InitPlayerVariables(id)
 	g_RunSlowdownLastFrameChecked[id] = 0;
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastSlowdownOrigin[id]);
 	g_LastSlowdownTime[id] = 0.0;
+	g_RunSyncFrames[id] = 0;
+	g_RunSyncFramesMax[id] = 0;
+	g_RunSpeedgain[id] = 0.0;
+	g_RunSpeedgainMax[id] = 0.0;
 
 	g_IdleTime[id] = 0.0;
 	g_RunIdleTime[id] = 0.0;
@@ -2557,6 +2594,13 @@ InitPlayerVariables(id)
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_RunIdleOrigin[id]);
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastRunIdleOrigin[id]);
 	g_LastStartAttempt[id] = 0.0;
+
+	pev(id, pev_origin,   g_Origin[id]);
+	pev(id, pev_angles,   g_Angles[id]);
+	pev(id, pev_view_ofs, g_ViewOfs[id]);
+	pev(id, pev_velocity, g_Velocity[id]);
+	g_Buttons[id] = pev(id, pev_button);
+	g_Flags[id]   = pev(id, pev_flags);
 
 	if (g_ShowRunStatsOnHud[id] >= 2)
 	{
@@ -2680,7 +2724,7 @@ CmdNoclipSpeed(id)
 	else if (desiredSpeed <= 0.0)
 	{
 		g_NoclipTargetSpeed[id] = 0.0;
-		ShowMessage(id, "Your horizontal noclip max speed is back to normal (%.2f?)", get_cvar_float("sv_maxspeed"));
+		ShowMessage(id, "Your horizontal noclip max speed is back to normal (%.2f?)", get_pcvar_float(pcvar_sv_maxspeed));
 	}
 	else
 	{
@@ -4204,6 +4248,11 @@ Teleport(id, cp)
 	}
 	ExecuteHamB(Ham_AddPoints, id, -1, true);
 
+	pev(id, pev_origin,   g_Origin[id]);
+	pev(id, pev_angles,   g_Angles[id]);
+	pev(id, pev_view_ofs, g_ViewOfs[id]);
+	pev(id, pev_velocity, g_Velocity[id]);
+
 	// Inform
 	if (cp == CP_TYPE_SPEC)
 	{
@@ -4795,42 +4844,34 @@ FinishTimer(id)
 		console_print(id, "Stats for your run with time %02d:%09.6f", minutes, seconds);
 		console_print(id, "------------------------------------------------");
 
-		if (g_RunStatsConsoleDetailLevel[id] >= 1)
-		{
-			console_print(id, "Avg speed: %.2f",             g_RunStats[id][RS_AVG_SPEED]);
-		}
-
-		console_print(id, "Max speed: %.2f",                 g_RunStats[id][RS_MAX_SPEED]);
-		console_print(id, "End speed: %.2f",                 g_RunStats[id][RS_END_SPEED]);
+		console_print(id, "Avg speed: %.2f",                 g_RunStats[id][RS_AVG_SPEED]);
 
 		if (g_RunStatsConsoleDetailLevel[id] >= 1)
 		{
+			console_print(id, "Max speed: %.2f",             g_RunStats[id][RS_MAX_SPEED]);
+			console_print(id, "End speed: %.2f",             g_RunStats[id][RS_END_SPEED]);
 			console_print(id, "Avg fps: %.2f",               g_RunStats[id][RS_AVG_FPS]);
 			console_print(id, "Min fps: %.2f",               g_RunStats[id][RS_MIN_FPS]);
+		}
+
+		if (g_RunStatsConsoleDetailLevel[id] >= 2)
+		{
+			console_print(id, "Time on ground: %.4f",        g_RunStats[id][RS_GROUND_TIME]);
+			console_print(id, "Distance on ground: %.2f",    g_RunStats[id][RS_GROUND_DISTANCE]);
 		}
 		console_print(id, "Distance: %.2f",                  g_RunStats[id][RS_DISTANCE_2D]);
 
 		if (g_RunStatsConsoleDetailLevel[id] >= 2)
-		{
 			console_print(id, "Distance 3D: %.2f",           g_RunStats[id][RS_DISTANCE_3D]);
-		}
+
+		console_print(id, "Sync: %.2f%%%%",                  g_RunStats[id][RS_SYNC]);
+		console_print(id, "Speedgain: %.2f%%%%",             g_RunStats[id][RS_SPEEDGAIN]);
 
 		console_print(id, "Jumps: %d",                       g_RunStats[id][RS_JUMPS]);
 		console_print(id, "Ducktaps: %d",                    g_RunStats[id][RS_DUCKTAPS]);
-
-		//if (g_RunStatsConsoleDetailLevel[id] >= 2)
-		//{
-		//	console_print(id, "Strafes: %d",                 g_RunStrafes[id]);
-		//}
-
-		//if (g_RunStatsConsoleDetailLevel[id] >= 1)
-		//{
-		//	console_print(id, "Sync: %d",                    g_RunSync[id]);
-		//}
-
 		console_print(id, "Slowdowns: %d",                   g_RunStats[id][RS_SLOWDOWNS]);
 
-		if (g_RunStatsConsoleDetailLevel[id] >= 2)
+		if (g_RunStatsConsoleDetailLevel[id] >= 1)
 		{
 			console_print(id, "Time lost at start: %.4f",    g_RunStats[id][RS_TIMELOSS_START]);
 			console_print(id, "Time lost at end: %.4f",      g_RunStats[id][RS_TIMELOSS_END]);
@@ -5756,9 +5797,9 @@ UpdateHud(Float:currGameTime)
 				ClearSyncHud(id, g_SyncHudRunStats);
 			}
 
-			new runStatsText[576];
+			new runStatsText[720];
 			// Check if it's a replay that has runstats saved
-			if (IsBot(targetId) && g_BotRunStats[targetId][RS_PRESTRAFE_TIME] > 0.0)
+			if (IsBot(targetId) && g_BotRunStats[targetId][RS_PRESTRAFE_TIME] > 0.0 && g_BotRunStats[targetId][RS_DISTANCE_3D] > 0.0)
 			{
 				copy(runStatsText, charsmax(runStatsText), "(Accurate runstats)\n");
 				GetRunStatsHudText(targetId, runStatsText, charsmax(runStatsText), g_RunStatsHudDetailLevel[id], g_BotRunStats[targetId]);
@@ -6001,39 +6042,49 @@ bool:areColorsZeroed(id)
 
 BuildRunStats(id)
 {
+	new numFrames = g_RunFrames[id] ? ArraySize(g_RunFrames[id]) : 0;
+
 	new frameNumberForSpeed = -1;
 	if (g_RunFrames[id])
-		frameNumberForSpeed = ArraySize(g_RunFrames[id]) - RUN_STATS_SPEED_FRAME_OFFSET - 1;
+		frameNumberForSpeed = numFrames - RUN_STATS_SPEED_FRAME_OFFSET - 1;
 
 	// Get some stuff from frames that have already been stored for the replay
-	new prevButtons, Float:prevTime, Float:prevSpeed;
-	if (g_RunFrames[id] && ArraySize(g_RunFrames[id]) > 1)
+	new prevButtons, Float:prevTime, Float:prevSpeedForSlowdown;
+	if (g_RunFrames[id] && numFrames > 1)
 	{
 		new frameState[REPLAY];
-		ArrayGetArray(g_RunFrames[id], ArraySize(g_RunFrames[id]) - 2, frameState);
+		ArrayGetArray(g_RunFrames[id], numFrames - 2, frameState);
 
 		prevButtons = frameState[RP_BUTTONS];
 		prevTime    = frameState[RP_TIME];
 
-		if (ArraySize(g_RunFrames[id]) > RUN_STATS_SPEED_FRAME_OFFSET)
+		if (numFrames > RUN_STATS_SPEED_FRAME_OFFSET)
 		{
 			ArrayGetArray(g_RunFrames[id], frameNumberForSpeed, frameState);
-			prevSpeed = frameState[RP_SPEED];
+			prevSpeedForSlowdown = frameState[RP_SPEED];
 		}
 	}
 
-	new flags    = pev(id, pev_flags);
-	new buttons  = pev(id, pev_button);
+	new Float:currSpeed2D = xs_vec_len_2d(g_Velocity[id]);
+
+	new flags    = g_Flags[id];
+	new buttons  = g_Buttons[id];
 	new moveType = pev(id, pev_movetype);
+
+	new bool:hasTeleported = false;
+	if (currSpeed2D == 0.0 && xs_vec_distance(g_Origin[id], g_PrevOrigin[id]) > 100.0)
+	{
+		hasTeleported = true;
+	}
 
 	if (get_bit(g_baIsPureRunning, id) && xs_vec_equal(g_ControlPoints[id][CP_TYPE_START][CP_ORIGIN], g_Origin[id]))
 	{
 		// Not moving yet, we're losing time at the start button!
 		new Float:secondFrameTime, Float:lastFrameTime;
-		if (g_RunFrames[id] && ArraySize(g_RunFrames[id]) > 1)
+		if (g_RunFrames[id] && numFrames > 1)
 		{
 			new frameState[REPLAY];
-			ArrayGetArray(g_RunFrames[id], ArraySize(g_RunFrames[id]) - 1, frameState);
+			ArrayGetArray(g_RunFrames[id], numFrames - 1, frameState);
 			lastFrameTime = frameState[RP_TIME];
 
 			ArrayGetArray(g_RunFrames[id], 1, frameState);
@@ -6047,7 +6098,8 @@ BuildRunStats(id)
 		// TODO: make this stat available for pro runs that for some reason don't start with prespeed
 	}
 
-	if ((moveType == MOVETYPE_WALK) && (g_PrevFlags[id] & FL_ONGROUND_ALL && !(flags & FL_ONGROUND_ALL)))
+	new bool:removeGroundStatsLastFrame = false;
+	if ((moveType == MOVETYPE_WALK) && (g_PrevFlags[id] & FL_ONGROUND && !(flags & FL_ONGROUND)))
 	{
 		new bool:isInitialPrestrafeDone = false;
 
@@ -6058,6 +6110,8 @@ BuildRunStats(id)
 
 			g_Movement[id] = MOVEMENT_JUMPING;
 			g_RunStats[id][RS_JUMPS]++;
+
+			removeGroundStatsLastFrame = true;
 		}
 		else if ((prevButtons & IN_DUCK) && !(buttons & IN_DUCK))
 		{
@@ -6069,12 +6123,14 @@ BuildRunStats(id)
 
 			g_Movement[id] = MOVEMENT_DUCKTAPPING;
 			g_RunStats[id][RS_DUCKTAPS]++;
+
+			removeGroundStatsLastFrame = true;
 		}
 
 		if (isInitialPrestrafeDone)
 		{
 			// TODO: handle pure starts with prespeed, like in the hl1_bhop maps, with a start trigger instead button
-			g_RunStats[id][RS_PRESTRAFE_SPEED] = xs_vec_len_2d(g_Velocity[id]);
+			g_RunStats[id][RS_PRESTRAFE_SPEED] = currSpeed2D;
 			g_RunStats[id][RS_PRESTRAFE_TIME]  = get_gametime() - g_PlayerTime[id];
 		}
 	}
@@ -6083,10 +6139,36 @@ BuildRunStats(id)
 		g_Movement[id] = MOVEMENT_OTHER;
 	}
 
-	g_RunStats[id][RS_DISTANCE_2D] += xs_vec_distance_2d(g_PrevOrigin[id], g_Origin[id]);
-	g_RunStats[id][RS_DISTANCE_3D] += get_distance_f(g_PrevOrigin[id], g_Origin[id]);
+	if (removeGroundStatsLastFrame && (g_PrevFlags[id] & FL_ONGROUND) && numFrames > 2)
+	{
+		// Haven't found a good way to avoid adding onground stats, so we undo them here
+		// because we don't want them to be contaminated with the onground frame of
+		// every jump, in order to be more useful and see where you can actually improve
+		// or reduce the time/distance where you get slowed down by friction
+		new prevFrameState[REPLAY], prev2FrameState[REPLAY];
+		ArrayGetArray(g_RunFrames[id], numFrames - 2, prevFrameState);
+		ArrayGetArray(g_RunFrames[id], numFrames - 3, prev2FrameState);
 
-	g_RunStats[id][RS_END_SPEED] = xs_vec_len_2d(g_Velocity[id]);
+		new Float:distance2D = xs_vec_distance_2d(prev2FrameState[RP_ORIGIN], prevFrameState[RP_ORIGIN]);
+
+		g_RunStats[id][RS_GROUND_TIME]     -= (prevFrameState[RP_TIME] - prev2FrameState[RP_TIME]);
+		g_RunStats[id][RS_GROUND_DISTANCE] -= distance2D;
+	}
+
+	if (!hasTeleported)
+	{
+		new Float:distance2D = xs_vec_distance_2d(g_PrevOrigin[id], g_Origin[id]);
+		if ((flags & FL_ONGROUND))
+		{
+			g_RunStats[id][RS_GROUND_TIME]     += (get_gametime() - prevTime);
+			g_RunStats[id][RS_GROUND_DISTANCE] += distance2D;
+		}
+
+		g_RunStats[id][RS_DISTANCE_2D] += distance2D;
+		g_RunStats[id][RS_DISTANCE_3D] += get_distance_f(g_PrevOrigin[id], g_Origin[id]);
+	}
+
+	g_RunStats[id][RS_END_SPEED] = currSpeed2D;
 
 	if (g_RunStats[id][RS_MAX_SPEED] < g_RunStats[id][RS_END_SPEED])
 		g_RunStats[id][RS_MAX_SPEED] = g_RunStats[id][RS_END_SPEED];
@@ -6100,16 +6182,56 @@ BuildRunStats(id)
 			g_RunStats[id][RS_AVG_FPS] = g_RunFrameCount[id] / kzTime;
 	}
 
+	new Float:prevSpeed3D = xs_vec_len(g_PrevVelocity[id]);
+	new Float:currSpeed3D = xs_vec_len(g_Velocity[id]);
+
+	// Calculate Sync% and Speedgain%
+	if ((prevSpeed3D > 0.0 || currSpeed3D > 0.0)
+		&& pev(id, pev_movetype) == MOVETYPE_WALK
+		&& !g_bIsSurfing[id]
+		&& !(flags & (FL_WATERJUMP|FL_ONTRAIN|FL_INWATER|FL_BASEVELOCITY)))
+	{
+		new Float:prevSpeed2D = xs_vec_len_2d(g_PrevVelocity[id]);
+		// TODO: calculate max possible speedgain in ladders (MOVETYPE_FLY), water, surfing, wallstrafing, conveyors, and others
+		new Float:currAccel = currSpeed2D - prevSpeed2D;
+
+		new Float:maxAccel = GetMaxAccel(id);
+		if (maxAccel > 0.0)
+		{
+			new Float:cappedGainedSpeed = currAccel;
+			if (currAccel > maxAccel)
+			{
+				// Cap it for the Speedgain% stat, don't touch the actual player's velocity
+				// There are cases that are not handled yet, like weapon boosting, so we mark 100% speedgain for those but not more than that
+				cappedGainedSpeed = maxAccel;
+			}
+
+			if (cappedGainedSpeed > 0.0)
+				g_RunSpeedgain[id] += cappedGainedSpeed;
+
+			g_RunSpeedgainMax[id] += maxAccel;
+			g_RunStats[id][RS_SPEEDGAIN] = (g_RunSpeedgain[id] / g_RunSpeedgainMax[id]) * 100.0;
+
+			// Sync%
+			g_RunSyncFramesMax[id]++;
+
+			if (currAccel > 0.0)
+				g_RunSyncFrames[id]++;
+
+			g_RunStats[id][RS_SYNC] = (float(g_RunSyncFrames[id]) / float(g_RunSyncFramesMax[id])) * 100.0;
+		}
+	}
+
 	// Get the last 30th frame and the last one, to get the average of the last frames
 	// TODO: this won't work if the run is less than 30 frames long, but getting an average of less frames might yield bad results,
 	// lower min fps, because shit happens like getting a frame that is the same time as the previous one which brings down the average
 	// a lot, so the min fps of the first frames (when there aren't 30 frames yet) might never get overwritten afterwards as it would
 	// be hard to have a lower min fps when taking more frames into account. This is only my guess anyways
-	if (g_RunFrames[id] && ArraySize(g_RunFrames[id]) > RUN_STATS_MIN_FPS_AVG_FRAMES)
+	if (g_RunFrames[id] && numFrames > RUN_STATS_MIN_FPS_AVG_FRAMES)
 	{
 		// FIXME: this feature only works if demo recording is ON... so it won't show for bots?
 		new frameState[REPLAY];
-		ArrayGetArray(g_RunFrames[id], ArraySize(g_RunFrames[id]) - RUN_STATS_MIN_FPS_AVG_FRAMES - 1, frameState);
+		ArrayGetArray(g_RunFrames[id], numFrames - RUN_STATS_MIN_FPS_AVG_FRAMES - 1, frameState);
 
 		new Float:fpsAvg = 1.0 / ((get_gametime() - frameState[RP_TIME]) / float(RUN_STATS_MIN_FPS_AVG_FRAMES));
 		if (!g_RunStats[id][RS_MIN_FPS] || (g_RunStats[id][RS_MIN_FPS] > fpsAvg))
@@ -6126,14 +6248,14 @@ BuildRunStats(id)
 		if (!g_RunSlowdownLastFrameChecked[id]
 			|| frameNumberForSpeed > (g_RunSlowdownLastFrameChecked[id] + RUN_STATS_SPEED_FRAME_COOLDOWN))
 		{
-			new Float:speedLoss = prevSpeed - g_RunStats[id][RS_END_SPEED];
+			new Float:speedLoss = prevSpeedForSlowdown - g_RunStats[id][RS_END_SPEED];
 
 			if (speedLoss > 0.0)
 			{
 				// Lost some speed, check if it should be considered a slowdown
-				new Float:lossFraction = speedLoss / prevSpeed;
+				new Float:lossFraction = speedLoss / prevSpeedForSlowdown;
 
-				if (prevSpeed >= 300.0 && (lossFraction >= 0.1 || speedLoss >= 30.0))
+				if (prevSpeedForSlowdown >= 300.0 && (lossFraction >= 0.1 || speedLoss >= 30.0))
 				{
 					g_RunStats[id][RS_SLOWDOWNS]++;
 					g_RunSlowdownLastFrameChecked[id] = frameNumberForSpeed;
@@ -6142,11 +6264,11 @@ BuildRunStats(id)
 					// and there may be multiple triggers that lead to that point, so we want the previous location to be more accurate
 					xs_vec_copy(g_PrevOrigin[id], g_LastSlowdownOrigin[id]);
 
-					if (g_RunFrames[id] && ArraySize(g_RunFrames[id]) >= 2)
+					if (g_RunFrames[id] && numFrames >= 2)
 					{
 						// Get the time from the previous frame
 						new prevFrameState[REPLAY];
-						ArrayGetArray(g_RunFrames[id], ArraySize(g_RunFrames[id]) - 2, prevFrameState);
+						ArrayGetArray(g_RunFrames[id], numFrames - 2, prevFrameState);
 
 						g_LastSlowdownTime[id] = prevFrameState[RP_TIME];
 
@@ -6160,51 +6282,198 @@ BuildRunStats(id)
 	}
 }
 
-GetRunStatsHudText(id, text[], len, detailLevel, runStats[RUNSTATS])
+// Get the max speed a player can possibly gain from strafing in the current frame
+// https://www.jwchong.com/hl/strafing.html
+Float:GetMaxAccel(id)
 {
-	if (detailLevel >= 1)
+	// TODO: account for ladders, water, conveyors or moving platforms that give you base velocity
+	new bool:isOnGround = !!(pev(id, pev_flags) & FL_ONGROUND);
+
+	new Float:maxSpeed  = get_pcvar_float(pcvar_sv_maxspeed);
+	new Float:speed     = xs_vec_len_2d(g_PrevVelocity[id]);
+
+	new Float:frictionedSpeed = speed;
+	new Float:friction = 1.0;
+
+	new Float:funcFrictionMultiplier;
+	pev(id, pev_friction, funcFrictionMultiplier);
+
+	if (speed >= 0.1 && isOnGround)
 	{
-		format(text, len, "%sAvg speed: %.2f\n",             text, runStats[RS_AVG_SPEED]);
+		friction = get_pcvar_float(pcvar_sv_friction) * funcFrictionMultiplier * GetEdgeFrictionFactor(id);
+
+		new Float:stopSpeed = get_pcvar_float(pcvar_sv_stopspeed);
+		new Float:factor = speed;
+		if (factor < stopSpeed)
+			factor = stopSpeed;
+
+		frictionedSpeed = speed - (factor * friction * g_FrameTime[id]);
+		if (frictionedSpeed < 0.0)
+			frictionedSpeed = 0.0;
 	}
 
-	format(text, len, "%sMax speed: %.2f\n",                 text, runStats[RS_MAX_SPEED]);
-	format(text, len, "%sEnd speed: %.2f\n",                 text, runStats[RS_END_SPEED]);
+	new Float:accel = isOnGround ? get_pcvar_float(pcvar_sv_accelerate) : get_pcvar_float(pcvar_sv_airaccelerate);
+	new Float:wishSpeedCapped = isOnGround ? maxSpeed : 30.0;
+	new Float:duckFactor = (pev(id, pev_flags) & FL_DUCKING) ? 0.333 : 1.0;
+
+	new Float:ktMA = funcFrictionMultiplier * g_FrameTime[id] * maxSpeed * accel * duckFactor;
+
+	new Float:maxAccel = floatsqroot(floatpower(frictionedSpeed, 2.0) + ktMA * ((2 * wishSpeedCapped) - ktMA)) - frictionedSpeed;
+
+	return maxAccel;
+}
+
+Float:GetEdgeFrictionFactor(id)
+{
+	new Float:start[3], Float:end[3], Float:speed, Float:playerFeetZ, hull;
+
+	if (pev(id, pev_flags) & FL_DUCKING)
+	{
+		// The hull probably doesn't matter for vertical tracing, but just in case
+		hull = HULL_HEAD;
+		playerFeetZ = -18.0;
+	}
+	else
+	{
+		hull = HULL_HUMAN;
+		playerFeetZ = -36.0;
+	}
+	speed = xs_vec_len(g_Velocity[id]);
+
+	start[0] = g_Origin[id][0] + (g_Velocity[id][0] / speed * 16.0);
+	start[1] = g_Origin[id][1] + (g_Velocity[id][1] / speed * 16.0);
+	start[2] = g_Origin[id][2] + playerFeetZ;
+
+	end[0] = start[0];
+	end[1] = start[1];
+	end[2] = start[2] - 34.0;
+
+	new tr = create_tr2();
+	engfunc(EngFunc_TraceHull, start, end, DONT_IGNORE_MONSTERS, hull, id, tr);
+
+	new Float:fraction;
+	get_tr2(tr, TR_flFraction, fraction);
+	free_tr2(tr);
+
+	if (fraction == 1.0)
+		return get_pcvar_float(pcvar_edgefriction);
+
+	return NO_FRICTION;
+}
+
+stock Float:GetNormalizeAngle(Float:angle)
+{
+	new Float:newAngle = angle;
+	while (newAngle <= -180.0) newAngle += 360.0;
+	while (newAngle > 180.0) newAngle -= 360.0;
+	return newAngle;
+}
+
+stock Float:GetMaxAccelTheta(id, Float:paramSpeed = 0.0)
+{
+	new flags = pev(id, pev_flags);
+
+	new Float:currSpeed = xs_vec_len_2d(g_Velocity[id]);
+	if (paramSpeed != 0.0)
+		currSpeed = paramSpeed;
+
+	if (currSpeed == 0.0)
+		return 0.0;
+
+	new Float:wishSpeed = get_pcvar_float(pcvar_sv_maxspeed);
+
+	new onground = flags & FL_ONGROUND;
+	new Float:accel = onground ? get_pcvar_float(pcvar_sv_accelerate) : get_pcvar_float(pcvar_sv_airaccelerate);
+	new Float:accelSpeed = accel * wishSpeed * g_FrameTime[id];
+
+	if (accelSpeed <= 0.0)
+		return M_PI;
+
+	new Float:wishSpeedCapped = onground ? wishSpeed : 30.0;
+	new Float:tmp = wishSpeedCapped - accelSpeed;
+
+	if (tmp <= 0.0)
+		return M_PI / 2.0;
+
+	if (tmp < currSpeed)
+		return floatacos(tmp / currSpeed, radian);
+
+	return 0.0;
+}
+
+stock Float:ButtonsPhi(buttons)
+{
+	if (buttons & IN_FORWARD)
+	{
+		if (buttons & IN_MOVELEFT)
+			return M_PI / 4.0;
+		else if (buttons & IN_MOVERIGHT)
+			return -M_PI / 4.0;
+		else
+			return 0.0;
+	}
+	else if (buttons & IN_BACK)
+	{
+		if (buttons & IN_MOVELEFT)
+			return 3.0 * M_PI / 4.0;
+		else if (buttons & IN_MOVERIGHT)
+			return -3.0 * M_PI / 4.0;
+		else
+			return -M_PI;
+	}
+	else if (buttons & IN_MOVELEFT)
+	{
+		if (buttons & IN_MOVERIGHT)
+			return 0.0;
+		else
+			return M_PI / 2.0;
+	}
+	else if (buttons & IN_MOVERIGHT)
+		return -M_PI / 2.0;
+
+	return 0.0;
+}
+
+GetRunStatsHudText(id, text[], len, detailLevel, runStats[RUNSTATS])
+{
+	format(text, len, "%sAvg speed: %.2f\n",             text, runStats[RS_AVG_SPEED]);
 
 	if (detailLevel >= 1)
 	{
+		format(text, len, "%sMax speed: %.2f\n",             text, runStats[RS_MAX_SPEED]);
+		format(text, len, "%sEnd speed: %.2f\n",             text, runStats[RS_END_SPEED]);
 		format(text, len, "%sAvg fps: %.2f\n",               text, runStats[RS_AVG_FPS]);
 
 		if (!IsBot(id))
-			format(text, len, "%sMin fps: %.2f\n",               text, runStats[RS_MIN_FPS]);
+			format(text, len, "%sMin fps: %.2f\n",           text, runStats[RS_MIN_FPS]);
+	}
+	// TODO: refactor detail levels, replace with a menu where you choose what you want to show/hide,
+	// maybe with different presets that you can save, so that you can quickly switch between them,
+	// like one with all the info that you use for microoptimizing/grinding and one with minimal info
+	// when you don't really care about the map
+	if (detailLevel >= 2)
+	{
+		format(text, len, "%sTime on ground: %.3f\n",        text, runStats[RS_GROUND_TIME]);
+		format(text, len, "%sDistance on ground: %.2f\n",    text, runStats[RS_GROUND_DISTANCE]);
 	}
 	format(text, len, "%sDistance: %.2f\n",                  text, runStats[RS_DISTANCE_2D]);
 
 	if (detailLevel >= 2)
-	{
 		format(text, len, "%sDistance 3D: %.2f\n",           text, runStats[RS_DISTANCE_3D]);
-	}
+
+	format(text, len, "%sSync: %.2f%%%%\n",                  text, runStats[RS_SYNC]);
+	format(text, len, "%sSpeedgain: %.2f%%%%\n",             text, runStats[RS_SPEEDGAIN]);
 
 	format(text, len, "%sJumps: %d\n",                       text, runStats[RS_JUMPS]);
 	format(text, len, "%sDucktaps: %d\n",                    text, runStats[RS_DUCKTAPS]);
-
-	//if (detailLevel >= 2)
-	//{
-	//	format(text, len, "%sStrafes: %d\n",                 text, g_RunStrafes[id]);
-	//}
-
-	//if (detailLevel >= 1)
-	//{
-	//	format(text, len, "%sSync: %d\n",                    text, g_RunSync[id]);
-	//}
-
 	format(text, len, "%sSlowdowns: %d\n",                   text, runStats[RS_SLOWDOWNS]);
 
 	if (detailLevel >= 1)
 	{
-		format(text, len, "%sTime lost at start: %.4f\n",    text, runStats[RS_TIMELOSS_START]);
-		format(text, len, "%sTime lost at end: %.4f\n",      text, runStats[RS_TIMELOSS_END]);
+		format(text, len, "%sTime lost at start: %.3f\n",    text, runStats[RS_TIMELOSS_START]);
+		format(text, len, "%sTime lost at end: %.3f\n",      text, runStats[RS_TIMELOSS_END]);
 		format(text, len, "%sStart prestrafe speed: %.2f\n", text, runStats[RS_PRESTRAFE_SPEED]);
-		format(text, len, "%sStart prestrafe time: %.4f\n",  text, runStats[RS_PRESTRAFE_TIME]);
+		format(text, len, "%sStart prestrafe time: %.3f\n",  text, runStats[RS_PRESTRAFE_TIME]);
 	}
 }
 
@@ -6918,20 +7187,6 @@ public Fw_FmPlayerPreThinkPost(id)
 	g_PrevHudRGB[id][1] = g_HudRGB[id][1];
 	g_PrevHudRGB[id][2] = g_HudRGB[id][2];
 
-	xs_vec_copy(g_Origin[id],   g_PrevOrigin[id]);
-	xs_vec_copy(g_Velocity[id], g_PrevVelocity[id]);
-	xs_vec_copy(g_Angles[id],   g_PrevAngles[id]);
-	xs_vec_copy(g_ViewOfs[id],  g_PrevViewOfs[id]);
-	g_PrevButtons[id] = g_Buttons[id];
-
-	pev(id, pev_origin, g_Origin[id]);
-	pev(id, pev_angles, g_Angles[id]);
-	pev(id, pev_view_ofs, g_ViewOfs[id]);
-	pev(id, pev_velocity, g_Velocity[id]);
-	g_Buttons[id] = pev(id, pev_button);
-
-	//console_print(id, "sequence: %d, pev_gaitsequence: %d", pev(id, pev_sequence), pev(id, pev_gaitsequence));
-
 	// TODO: move this to a new function CheckIdleTime() and only apply the antireset idle time if player is in a run
 	if (xs_vec_equal(g_PrevAngles[id], g_Angles[id])
 		&& xs_vec_equal(g_PrevViewOfs[id], g_ViewOfs[id]))
@@ -7011,9 +7266,7 @@ public Fw_FmPlayerPreThinkPost(id)
 	// they don't want to or in a way that it can be abused
 	HandleNoclipCheating(id);
 
-	if (g_IsInNoclip[id] || pev(id, pev_iuser1) == OBS_ROAMING)
-		CheckNoclipSpeed(id);
-	else
+	if (!g_IsInNoclip[id] && pev(id, pev_iuser1) != OBS_ROAMING)
 		CheckSpeedcap(id);
 
 	if (IsHltv(id) || !get_pcvar_num(pcvar_kz_semiclip) || pev(id, pev_iuser1))
@@ -7200,7 +7453,7 @@ CheckNoclipSpeed(id)
 		// movement for the remaining 700 speed
 		// But spectator mode's Free Roaming is handled differently, we don't
 		// need to do anything for that apparently, we handle the whole thing
-		auxSpeed -= get_cvar_float("sv_maxspeed");
+		auxSpeed -= get_pcvar_float(pcvar_sv_maxspeed);
 	}
 	
 	// If you're pressing forward and right with a noclip maxspeed of 800, the x velocity should be 565
@@ -7291,37 +7544,54 @@ CheckSpeedcap(id, bool:isAtStart = false)
 
 public Fw_FmPlayerPostThinkPre(id)
 {
-	if ((pev(id, pev_button) & IN_JUMP) && hl_get_user_longjump(id))
+	xs_vec_copy(g_Origin[id],   g_PrevOrigin[id]);
+	xs_vec_copy(g_Velocity[id], g_PrevVelocity[id]);
+	xs_vec_copy(g_Angles[id],   g_PrevAngles[id]);
+	xs_vec_copy(g_ViewOfs[id],  g_PrevViewOfs[id]);
+	g_PrevButtons[id] = g_Buttons[id];
+	g_PrevFlags[id]   = g_Flags[id];
+
+	pev(id, pev_origin,   g_Origin[id]);
+	pev(id, pev_angles,   g_Angles[id]);
+	pev(id, pev_view_ofs, g_ViewOfs[id]);
+	pev(id, pev_velocity, g_Velocity[id]);
+	g_Buttons[id] = pev(id, pev_button);
+	g_Flags[id]   = pev(id, pev_flags);
+
+	//if (xs_vec_len(g_PrevVelocity[id]) > 0.0 || xs_vec_len(g_Velocity[id]) > 0.0)
+	//	server_print("postthink prev %.2f vs curr %.2f", xs_vec_len_2d(g_PrevVelocity[id]), xs_vec_len_2d(g_Velocity[id]));
+
+	if ((g_Buttons[id] & IN_JUMP) && hl_get_user_longjump(id))
 	{
 		// TODO: check whether the player has really longjumped, not if it has the LJ module
 		// and has performed a jump that may be just a normal jump and not a longjump-assisted one
 		clr_bit(g_baIsPureRunning, id);
 	}
 
-	new Float:currVelocity[3];
-	pev(id, pev_velocity, currVelocity);
-	new Float:endSpeed = xs_vec_len_2d(currVelocity);
+	new Float:endSpeed = xs_vec_len_2d(g_Velocity[id]);
 	if (g_Slopefix[id])
 	{
 		new Float:currOrigin[3], Float:futureOrigin[3], Float:futureVelocity[3];
 		pev(id, pev_origin, currOrigin);
-		new Float:startSpeed = xs_vec_len_2d(g_Velocity[id]);
+		new Float:startSpeed = xs_vec_len_2d(g_PrevVelocity[id]);
 
 		new Float:svGravity = get_cvar_float("sv_gravity");
 		new Float:pGravity;
 		pev(id, pev_gravity, pGravity);
 
-		futureOrigin[0] = currOrigin[0] + g_Velocity[id][0] * g_FrameTime[id];
-		futureOrigin[1] = currOrigin[1] + g_Velocity[id][1] * g_FrameTime[id];
-		futureOrigin[2] = currOrigin[2] + 0.4 + g_FrameTime[id] * (g_Velocity[id][2] - pGravity * svGravity * g_FrameTime[id] / 2);
+		// We use the velocity from before physics stuff ran, because the new velocity may have been decreased after the slopebug
+		futureOrigin[0] = currOrigin[0] + g_PrevVelocity[id][0] * g_FrameTime[id];
+		futureOrigin[1] = currOrigin[1] + g_PrevVelocity[id][1] * g_FrameTime[id];
+		futureOrigin[2] = currOrigin[2] + 0.4 + g_FrameTime[id] * (g_PrevVelocity[id][2] - pGravity * svGravity * g_FrameTime[id] / 2);
 
-		futureVelocity = g_Velocity[id];
+		futureVelocity = g_PrevVelocity[id];
 		futureVelocity[2] += 0.1;
 
 		if (g_bIsSurfing[id] && startSpeed > 1.0 && endSpeed <= 0.0)
 		{
 			// We restore the velocity that the player had before occurring the slopebug
 			set_pev(id, pev_velocity, futureVelocity);
+			xs_vec_copy(futureVelocity, g_Velocity[id]);
 
 			// We move the player to the position where they would be if they were not blocked by the bug,
 			// only if they're not gonna get stuck inside a wall
@@ -7342,17 +7612,24 @@ public Fw_FmPlayerPostThinkPre(id)
 					futureOrigin[1] = collisionPoint[1] - y;
 				}
 				if (!IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
+				{
 					set_pev(id, pev_origin, futureOrigin); // else player is not teleported, just keeps velocity
+					xs_vec_copy(futureOrigin, g_Origin[id]);
+				}
 				// Tried to do a while to continue checking if player's inside a wall, but crashed with reliable channel overflowed
 			}
 			else
+			{
 				set_pev(id, pev_origin, futureOrigin);
+				xs_vec_copy(futureOrigin, g_Origin[id]);
+			}
 
 			g_hasSurfbugged[id] = true;
 		}
 		if ((g_StoppedSlidingRamp[id] || g_RampFrameCounter[id] > 0) && startSpeed > 1.0 && endSpeed <= 0.0)
 		{
 			set_pev(id, pev_velocity, futureVelocity);
+			xs_vec_copy(futureVelocity, g_Velocity[id]);
 			new Float:leadingBoundary[3], Float:collisionPoint[3];
 			if (IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
 			{
@@ -7370,16 +7647,24 @@ public Fw_FmPlayerPostThinkPre(id)
 					futureOrigin[1] = collisionPoint[1] - y;
 				}
 				if (!IsPlayerInsideWall(id, futureOrigin, leadingBoundary, collisionPoint))
+				{
 					set_pev(id, pev_origin, futureOrigin); // else player is not teleported, just keeps velocity
+					xs_vec_copy(futureOrigin, g_Origin[id]);
+				}
 			}
 			else
+			{
 				set_pev(id, pev_origin, futureOrigin);
+				xs_vec_copy(futureOrigin, g_Origin[id]);
+			}
 
 			g_hasSlopebugged[id] = true;
 		}
 	}
 	
-	if (!g_IsInNoclip[id] && pev(id, pev_iuser1) != OBS_ROAMING)
+	if (g_IsInNoclip[id] || pev(id, pev_iuser1) == OBS_ROAMING)
+		CheckNoclipSpeed(id);
+	else
 		CheckSpeedcap(id);
 
 	// TODO: refactor, same code in StartClimb(), but sometimes it doesn't work there...
@@ -7400,8 +7685,6 @@ public Fw_FmPlayerPostThinkPre(id)
 		BuildRunStats(id);
 	}
 
-	g_PrevFlags[id] = pev(id, pev_flags);
-
 	if (!g_RestoreSolidStates)
 		return;
 
@@ -7413,25 +7696,7 @@ public Fw_FmPlayerPostThinkPre(id)
 		if (IsConnected(i) && g_SolidState[i] >= 0)
 			set_pev(i, pev_solid, g_SolidState[i]);
 	}
-
-	//pev(id, pev_velocity, g_Velocity[id]);
-	//pev(id, pev_angles, g_Angles[id]);
 }
-
-/* TODO: Review this dead code. There's NOT a forward pointing here, so it's never called and I don't know it should be
-public Fw_FmAddToFullPackPre(es, e, ent, host, hostflags, player, pSet)
-{
-	if (!player || ent == host)
-		return FMRES_IGNORED;
-
-	if(get_bit(g_bit_invis, host))
-	{
-		forward_return(FMV_CELL, 0);
-		return FMRES_SUPERCEDE;
-	}
-	return FMRES_HANDLED;
-}
-*/
 
 /*
 (Documentaion copied from HLSDK -> client.cpp -> AddToFullPack())
@@ -8821,7 +9086,8 @@ LoadRecords(RUN_TYPE:topType)
 {
 	if (get_pcvar_num(pcvar_kz_mysql))
 	{
-		new query[1184];
+		// TODO: make a stored procedure
+		new query[1668];
 		if (topType == PRO)
 		{
 			// Pure records no longer will generate an equivalent pro record in database,
@@ -8844,8 +9110,12 @@ LoadRecords(RUN_TYPE:topType)
 			        r.pre_time, \
 			        r.timeloss_start, \
 			        r.timeloss_end, \
+			        r.ground_time, \
+			        r.ground_distance, \
 			        r.distance_2d, \
 			        r.distance_3d, \
+			        r.sync, \
+			        r.speedgain, \
 			        r.jumps, \
 			        r.ducktaps, \
 			        r.slowdowns, \
@@ -8892,8 +9162,12 @@ LoadRecords(RUN_TYPE:topType)
 			        r.pre_time, \
 			        r.timeloss_start, \
 			        r.timeloss_end, \
+			        r.ground_time, \
+			        r.ground_distance, \
 			        r.distance_2d, \
 			        r.distance_3d, \
+			        r.sync, \
+			        r.speedgain, \
 			        r.jumps, \
 			        r.ducktaps, \
 			        r.slowdowns, \
@@ -9883,12 +10157,16 @@ public RunSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime
 		mysql_read_result(12, stats[STATS_RS][RS_PRESTRAFE_TIME]);
 		mysql_read_result(13, stats[STATS_RS][RS_TIMELOSS_START]);
 		mysql_read_result(14, stats[STATS_RS][RS_TIMELOSS_END]);
-		mysql_read_result(15, stats[STATS_RS][RS_DISTANCE_2D]);
-		mysql_read_result(16, stats[STATS_RS][RS_DISTANCE_3D]);
-		stats[STATS_RS][RS_JUMPS]     = mysql_read_result(17);
-		stats[STATS_RS][RS_DUCKTAPS]  = mysql_read_result(18);
-		stats[STATS_RS][RS_SLOWDOWNS] = mysql_read_result(19);
-		stats[STATS_HLKZ_VERSION]     = mysql_read_result(20);
+		mysql_read_result(15, stats[STATS_RS][RS_GROUND_TIME]);
+		mysql_read_result(16, stats[STATS_RS][RS_GROUND_DISTANCE]);
+		mysql_read_result(17, stats[STATS_RS][RS_DISTANCE_2D]);
+		mysql_read_result(18, stats[STATS_RS][RS_DISTANCE_3D]);
+		mysql_read_result(19, stats[STATS_RS][RS_SYNC]);
+		mysql_read_result(20, stats[STATS_RS][RS_SPEEDGAIN]);
+		stats[STATS_RS][RS_JUMPS]     = mysql_read_result(21);
+		stats[STATS_RS][RS_DUCKTAPS]  = mysql_read_result(22);
+		stats[STATS_RS][RS_SLOWDOWNS] = mysql_read_result(23);
+		stats[STATS_HLKZ_VERSION]     = mysql_read_result(24);
 
 		ArrayPushArray(arr, stats);
 
@@ -9971,7 +10249,7 @@ public PlayerNameInsertHandler(failstate, error[], errNo, queryData[], size, Flo
 	// the run insert queries before this one, so it would be weird to have the splits update query run before the splits insert one,
 	// but it's a race condition and has to be tackled at some moment... FIXME: make sure the run is inserted only after the splits insert
 	formatex(query, charsmax(query), "\
-	    CALL InsertRunWithStatsAndUpdateSplits(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %d, %d, %d, %.4f, %.2f, %.2f, %.2f, %.2f, %.6f, %.6f, %.6f, %.2f, %.2f, %d, %d, %d, %d)",
+	    CALL InsertRunWithStatsAndUpdateSplits(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %d, %d, %d, %.4f, %.2f, %.2f, %.2f, %.2f, %.6f, %.6f, %.6f, %.6f, %.4f, %.2f, %.2f, %.6f, %.6f, %d, %d, %d, %d)",
 	    queryData[QUERY_PID],
 	    g_MapId,
 	    g_TopType[queryData[QUERY_RUN_TYPE]],
@@ -9989,8 +10267,12 @@ public PlayerNameInsertHandler(failstate, error[], errNo, queryData[], size, Flo
 	    queryData[QUERY_RUNSTATS][RS_PRESTRAFE_TIME],
 	    queryData[QUERY_RUNSTATS][RS_TIMELOSS_START],
 	    queryData[QUERY_RUNSTATS][RS_TIMELOSS_END],
+	    queryData[QUERY_RUNSTATS][RS_GROUND_TIME],
+	    queryData[QUERY_RUNSTATS][RS_GROUND_DISTANCE],
 	    queryData[QUERY_RUNSTATS][RS_DISTANCE_2D],
 	    queryData[QUERY_RUNSTATS][RS_DISTANCE_3D],
+	    queryData[QUERY_RUNSTATS][RS_SYNC],
+	    queryData[QUERY_RUNSTATS][RS_SPEEDGAIN],
 	    queryData[QUERY_RUNSTATS][RS_JUMPS],
 	    queryData[QUERY_RUNSTATS][RS_DUCKTAPS],
 	    queryData[QUERY_RUNSTATS][RS_SLOWDOWNS],
@@ -10035,7 +10317,7 @@ public FailedAttemptInsert(queryData[], size)
 	// the run insert queries before this one, so it would be weird to have the splits update query run before the splits insert one,
 	// but it's a race condition and has to be tackled at some moment... FIXME: make sure the run is inserted only after the splits insert
 	formatex(query, charsmax(query), "\
-	    CALL InsertFailedAttempt(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %.6f, %.6f, %.6f, %.4f, %.2f, %.2f, %.6f, %.6f, %.2f, %.2f, %d, %d, %d, %d)",
+	    CALL InsertFailedAttempt(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %.6f, %.6f, %.6f, %.4f, %.2f, %.2f, %.2f, %.6f, %.6f, %.6f, %.4f, %.2f, %.2f, %.6f, %.6f, %d, %d, %d, %d)",
 	    queryData[QUERY_PID],
 	    g_MapId,
 	    g_TopType[queryData[QUERY_RUN_TYPE]],
@@ -10046,12 +10328,17 @@ public FailedAttemptInsert(queryData[], size)
 	    queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN][1],
 	    queryData[QUERY_RUNSTATS][RS_LAST_FAIL_ORIGIN][2],
 	    queryData[QUERY_RUNSTATS][RS_AVG_FPS],
+	    queryData[QUERY_RUNSTATS][RS_AVG_SPEED],
 	    queryData[QUERY_RUNSTATS][RS_MAX_SPEED],
 	    queryData[QUERY_RUNSTATS][RS_PRESTRAFE_SPEED],
 	    queryData[QUERY_RUNSTATS][RS_PRESTRAFE_TIME],
 	    queryData[QUERY_RUNSTATS][RS_TIMELOSS_START],
+	    queryData[QUERY_RUNSTATS][RS_GROUND_TIME],
+	    queryData[QUERY_RUNSTATS][RS_GROUND_DISTANCE],
 	    queryData[QUERY_RUNSTATS][RS_DISTANCE_2D],
 	    queryData[QUERY_RUNSTATS][RS_DISTANCE_3D],
+	    queryData[QUERY_RUNSTATS][RS_SYNC],
+	    queryData[QUERY_RUNSTATS][RS_SPEEDGAIN],
 	    queryData[QUERY_RUNSTATS][RS_JUMPS],
 	    queryData[QUERY_RUNSTATS][RS_DUCKTAPS],
 	    queryData[QUERY_RUNSTATS][RS_SLOWDOWNS],

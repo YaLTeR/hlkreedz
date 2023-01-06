@@ -115,6 +115,7 @@ enum _:CP_TYPES
 
 enum _:RUNSTATS
 {
+	// Note: add another line in ClearRunStats whenever you add something here...
 	Float:RS_AVG_FPS,
 	Float:RS_MIN_FPS,
 	Float:RS_AVG_SPEED,
@@ -124,8 +125,12 @@ enum _:RUNSTATS
 	Float:RS_PRESTRAFE_TIME,
 	Float:RS_TIMELOSS_START,
 	Float:RS_TIMELOSS_END,
+	Float:RS_GROUND_TIME,
+	Float:RS_GROUND_DISTANCE,
 	Float:RS_DISTANCE_2D,
 	Float:RS_DISTANCE_3D,
+	Float:RS_SYNC,
+	Float:RS_SPEEDGAIN,
 	Float:RS_LAST_FAIL_ORIGIN[3],
 	RS_JUMPS,
 	RS_DUCKTAPS,
@@ -798,8 +803,12 @@ ClearRunStats(runstats[RUNSTATS])
 	runstats[RS_PRESTRAFE_TIME] = 0.0;
 	runstats[RS_TIMELOSS_START] = 0.0;
 	runstats[RS_TIMELOSS_END] = 0.0;
+	runstats[RS_GROUND_TIME] = 0.0;
+	runstats[RS_GROUND_DISTANCE] = 0.0;
 	runstats[RS_DISTANCE_2D] = 0.0;
 	runstats[RS_DISTANCE_3D] = 0.0;
+	runstats[RS_SYNC] = 0.0;
+	runstats[RS_SPEEDGAIN] = 0.0;
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, runstats[RS_LAST_FAIL_ORIGIN]);
 	runstats[RS_JUMPS] = 0;
 	runstats[RS_DUCKTAPS] = 0;
