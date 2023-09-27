@@ -6248,8 +6248,11 @@ BuildRunStats(id)
 		new Float:distance2D = xs_vec_distance_2d(g_PrevOrigin[id], g_Origin[id]);
 		if ((flags & FL_ONGROUND))
 		{
-			g_RunStats[id][RS_GROUND_TIME]     += (get_gametime() - prevTime);
-			g_RunStats[id][RS_GROUND_DISTANCE] += distance2D;
+			if (prevTime > 0.0)
+			{
+				g_RunStats[id][RS_GROUND_TIME]     += (get_gametime() - prevTime);
+				g_RunStats[id][RS_GROUND_DISTANCE] += distance2D;
+			}
 		}
 
 		g_RunStats[id][RS_DISTANCE_2D] += distance2D;
@@ -6328,7 +6331,8 @@ BuildRunStats(id)
 
 	if (xs_vec_distance(g_Origin[id], g_EndButtonOrigin) <= PLAYER_USE_RADIUS)
 	{
-		g_RunStats[id][RS_TIMELOSS_END] += (get_gametime() - prevTime);
+		if (prevTime > 0.0)
+			g_RunStats[id][RS_TIMELOSS_END] += (get_gametime() - prevTime);
 	}
 
 	if (frameNumberForSpeed > RUN_STATS_SPEED_FRAME_OFFSET)
