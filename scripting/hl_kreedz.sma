@@ -112,7 +112,9 @@ enum (+=100) {
 	TASKID_CONFIGURE_DB,
 	TASKID_MATCH_START_CHECK,
 	TASKID_INIT_PLAYER_GOLDS,
-	TASKID_RELOAD_PLAYER_SETTINGS
+	TASKID_RELOAD_PLAYER_SETTINGS,
+	TASKID_ASK_MAP_RATING,
+	TASKID_INSERT_MAP_RATING
 }
 
 enum _:REPLAY
@@ -190,6 +192,12 @@ enum _:CUP_REPLAY_ITEM
 	CUP_REPLAY_ITEM_TOP[32],
 	CUP_REPLAY_ITEM_DATE[64],
 	CUP_REPLAY_ITEM_TIMESTAMP
+}
+
+enum _:INSERT_MAP_RATING_DATA
+{
+	IMR_CLIENT_ID,
+	Float:IMR_SCORE
 }
 
 
@@ -487,6 +495,8 @@ new g_RunSyncFramesMax[MAX_PLAYERS + 1];        // how many frames qualify for s
 new Float:g_RunSpeedgain[MAX_PLAYERS + 1];      // how much speed you gained during the run when ground/airstrafing
 new Float:g_RunSpeedgainMax[MAX_PLAYERS + 1];   // how much speed you could have gained if you ground/airstrafed perfectly
 
+new Float:g_MapRating[MAX_PLAYERS + 1];
+
 new g_MapWeapons[MAX_ENTITIES][WEAPON];  // weapons that are in the map, with their origin and angles
 new g_HideableEntity[MAX_ENTITIES];
 
@@ -627,6 +637,7 @@ new pcvar_kz_noclip;
 new pcvar_kz_noclip_speed;
 new pcvar_kz_fireworks_on_wr;
 new pcvar_kz_default_antireset_threshold;
+new pcvar_kz_ask_map_rating_interval;
 
 // Pinters to game/engine cvars
 new pcvar_allow_spectators;
@@ -814,6 +825,8 @@ public plugin_init()
 	pcvar_kz_fireworks_on_wr   = register_cvar("kz_fireworks_on_wr", "1");
 
 	pcvar_kz_default_antireset_threshold = create_cvar("kz_default_antireset_threshold", "0.0", _, "Run time after which you have to do /start twice to restart. 0 = disabled", true, 0.0);
+
+	pcvar_kz_ask_map_rating_interval = create_cvar("kz_ask_map_rating_interval", "15", _, "Minutes to wait before asking (again) about rating the current map, if not rated yet", true, 0.0);
 
 
 	register_dictionary("telemenu.txt");
@@ -1457,6 +1470,25 @@ LoadPlayerPbSplits(id)
 	g_PbSplitsUpToDate[id] = true;
 }
 
+LoadMapRating(id)
+{
+	if (!g_MapId)
+		return;
+
+	new pid;
+	TrieGetCell(g_DbPlayerId, g_UniqueId[id], pid);
+
+	new query[128];
+	formatex(query, charsmax(query), "\
+	    SELECT score \
+	    FROM map_rating \
+	    WHERE map = %d AND player = %d", g_MapId, pid);
+
+	new data[1];
+	data[0] = id;
+	mysql_query(g_DbConnection, "MapRatingSelectHandler", query, data, sizeof(data));
+}
+
 //*******************************************************
 //*                                                     *
 //* Menus                                               *
@@ -2037,6 +2069,8 @@ public client_putinserver(id)
 	g_RunStatsEndHudStartTime[id] = -RUN_STATS_HUD_MAX_HOLD_TIME;
 	g_RunStatsEndHudShown[id] = false;
 
+	g_MapRating[id] = -1;
+
 	g_ControlPoints[id][CP_TYPE_DEFAULT_START] = g_MapDefaultStart;
 
 	g_ReplayFrames[id] = ArrayCreate(REPLAY);
@@ -2068,6 +2102,10 @@ public client_putinserver(id)
 	LoadPlayerSettings(id);
 
 	set_task(1.20, "DisplayWelcomeMessage", id + TASKID_WELCOME);
+
+	new Float:askDelay = get_pcvar_float(pcvar_kz_ask_map_rating_interval) * 60.0;
+	if (askDelay > 0.0)
+		set_task_ex(askDelay, "DisplayMapRatingMessage", id + TASKID_ASK_MAP_RATING, .flags = SetTask_RepeatTimes, .repeat = 2);
 }
 
 public client_disconnect(id)
@@ -2127,6 +2165,8 @@ public client_disconnect(id)
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastRunIdleOrigin[id]);
 
 	g_HadInvisPreSpec[id] = false;
+
+	g_MapRating[id] = -1;
 
 	ArrayClear(g_SplitTimes[id]);
 	ArrayClear(g_LapTimes[id]);
@@ -2189,6 +2229,8 @@ public client_disconnect(id)
 	remove_task(id + TASKID_RELOAD_PLAYER_SETTINGS);
 	remove_task(id + TASKID_ICON);
 	remove_task(id + TASKID_INIT_PLAYER_GOLDS);
+	remove_task(id + TASKID_ASK_MAP_RATING);
+	remove_task(id + TASKID_INSERT_MAP_RATING);
 }
 
 public ClearRecording(id)
@@ -2650,6 +2692,19 @@ public PostWelcome(id)
 	ExecuteForward(mfwd_hlkz_postwelcome, ret, id);
 }
 
+public DisplayMapRatingMessage(id)
+{
+	id -= TASKID_ASK_MAP_RATING;
+
+	if (!pev_valid(id) || !IsPlayer(id) || pev(id, pev_iuser1))
+		return;
+
+	if (g_MapRating[id] != -1)
+		return;  // they already rated the current map; -1 is unrated
+
+	client_print(id, print_chat, "[%s] Are you enjoying this map? Consider rating it by saying /rate and a score from 0 to 10 :) like /rate 6.5", PLUGIN_TAG);
+}
+
 
 //*******************************************************
 //*                                                     *
@@ -2745,6 +2800,35 @@ CmdAntiReset(id)
 	g_AntiResetThreshold[id] = desiredThreshold;
 
 	ShowMessage(id, "Your anti-reset run time threshold is now: %.1f seconds", g_AntiResetThreshold[id]);
+}
+
+CmdRateMap(id)
+{
+	new args[32];
+	read_args(args, charsmax(args));
+	remove_quotes(args);
+	trim(args);
+
+	if (equali(args, "/rate"))
+	{
+		client_print(id, print_chat, "[%s] Please enter a value for the rating", PLUGIN_TAG);
+		return;
+	}
+
+	new Float:score = GetFloatArg();
+
+	if (score < 0.0)
+		score = 0.0;
+
+	if (score > 10.0)
+		score = 10.0;
+
+	InsertMapRating(id, score);
+
+	ShowMessage(id, "You rated the current map with a %.1f score", score);
+
+	remove_task(id + TASKID_ASK_MAP_RATING);
+	remove_task(id + TASKID_INSERT_MAP_RATING);
 }
 
 CmdPracticeCp(id)
@@ -3950,6 +4034,9 @@ public CmdSayHandler(id, level, cid)
 
 	else if (containi(args[1], "antireset") == 0)
 		CmdAntiReset(id);
+
+	else if (containi(args[1], "rate") == 0)
+		CmdRateMap(id);
 
 /*
 	else if (containi(args[1], "pov") == 0)
@@ -10114,6 +10201,7 @@ public PlayerIdInsertHandler(failstate, error[], errNo, uniqueId[], size, Float:
 		return;  // player disconnected right before this query returned?
 
 	InitPlayerSplits(TASKID_INIT_PLAYER_GOLDS + id);
+	LoadMapRating(id);
 }
 
 public RunSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime)
@@ -10924,6 +11012,72 @@ public GoldLapsTopSelectHandler(failstate, error[], errNo, data[], size, Float:q
 	format(buffer, charsmax(buffer), "%s\n%s", subHeader, buffer);
 	show_motd(id, buffer, header);
 }
+
+public DelayedInsertMapRating(data[INSERT_MAP_RATING_DATA])
+{
+	new id = data[IMR_CLIENT_ID];
+	new Float:score = data[IMR_SCORE];
+
+	if (!pev_valid(id) || !IsPlayer(id))
+		return;
+
+	InsertMapRating(id, score);
+}
+
+InsertMapRating(id, Float:score)
+{
+	new pid;
+	TrieGetCell(g_DbPlayerId, g_UniqueId[id], pid);
+
+	if (!pid || !g_MapId)
+	{
+		if (!g_MapId)
+		{
+			log_to_file(HLKZ_LOG_FILENAME, "ERROR | InsertMapRating(%d, %.2f) | Missing map ID for map %s. Player with Steam %s tried to rate the map with a score of %.2f",
+				id, score, g_Map, g_UniqueId[id], score);
+		}
+
+		if (!pid)
+		{
+			log_to_file(HLKZ_LOG_FILENAME, "ERROR | InsertMapRating(%d, %.2f) | Missing player ID. Player with Steam %s tried to rate the map %s with a score of %.2f",
+				id, score, g_UniqueId[id], g_Map, score);
+		}
+
+		new data[INSERT_MAP_RATING_DATA];
+		data[IMR_CLIENT_ID] = id;
+		data[IMR_SCORE] = score;
+
+		set_task(3.0, "DelayedInsertMapRating", id + TASKID_INSERT_MAP_RATING, data, sizeof(data));
+		client_print(id, print_chat, "[%s] Sorry, can't rate the map at this moment. Try later or contact the server maintainer/admins", PLUGIN_TAG);
+		return;
+	}
+
+	new query[256];
+	formatex(query, charsmax(query), "\
+	    INSERT INTO map_rating (map, player, score) \
+	    VALUES (%d, %d, %.6f) \
+	    ON DUPLICATE KEY UPDATE \
+	        score = VALUES(score)", g_MapId, pid, score);
+
+	new what[] = "a map rating";
+	mysql_query(g_DbConnection, "DefaultInsertHandler", query, what, charsmax(what));
+}
+
+public MapRatingSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ MapRatingSelectHandler(): [%d] - [%s]", errNo, error);
+		return;
+	}
+	new id = data[0];
+
+	if (!mysql_more_results())
+		return;
+
+	mysql_read_result(0, g_MapRating[id]);
+}
+
 
 /*
 ------------------------------------------
