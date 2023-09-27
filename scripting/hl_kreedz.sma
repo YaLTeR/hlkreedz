@@ -97,22 +97,23 @@
 #define CHEAT_TAS                       3
 #define CHEAT_NOCLIP                    4
 
-#define TASKID_ICON                     5633445
-#define TASKID_WELCOME                  43321
-#define TASKID_POST_WELCOME             5332178
-#define TASKID_KICK_REPLAYBOT           9572626
-#define TASKID_CAM_UNFREEZE             1622952
-#define TASKID_CONFIGURE_DB             2037262
-#define TASKID_MATCH_START_CHECK        2906871
-#define TASKID_INIT_PLAYER_GOLDS        468261
-#define TASKID_RELOAD_PLAYER_SETTINGS   1975201
-
 #define TASKID_CUP_DELAYED_AGABORT      4357015
 
 #define TE_EXPLOSION                    3
 
 #define NO_FRICTION                     1.0  // friction is a multiplier, so 1.0 means no effect
 
+enum (+=100) {
+	TASKID_ICON = 2037200,
+	TASKID_WELCOME,
+	TASKID_POST_WELCOME,
+	TASKID_KICK_REPLAYBOT,
+	TASKID_CAM_UNFREEZE,
+	TASKID_CONFIGURE_DB,
+	TASKID_MATCH_START_CHECK,
+	TASKID_INIT_PLAYER_GOLDS,
+	TASKID_RELOAD_PLAYER_SETTINGS
+}
 
 enum _:REPLAY
 {
