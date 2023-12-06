@@ -18,6 +18,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <celltrie>
+#include <curl>
 #include <engine>
 #include <fakemeta_util>
 #include <fun>
@@ -53,6 +54,8 @@
 #define IsBot(%1) (get_bit(g_bit_is_bot,%1))
 
 #define FL_ONGROUND_ALL (FL_ONGROUND | FL_PARTIALGROUND | FL_INWATER | FL_CONVEYOR | FL_FLOAT)
+
+#define MAX_INT                         2147483647
 
 #define MAX_RACE_ID                     65535
 #define MAX_FPS_MULTIPLIER              4    // for replaying demos at a max. fps of 250*MAX_FPS_MULTIPLIER
@@ -103,6 +106,9 @@
 
 #define NO_FRICTION                     1.0  // friction is a multiplier, so 1.0 means no effect
 
+#define REPLAY_PATH_LEN                 256
+
+
 enum (+=100) {
 	TASKID_ICON = 2037200,
 	TASKID_WELCOME,
@@ -114,7 +120,8 @@ enum (+=100) {
 	TASKID_INIT_PLAYER_GOLDS,
 	TASKID_RELOAD_PLAYER_SETTINGS,
 	TASKID_ASK_MAP_RATING,
-	TASKID_INSERT_MAP_RATING
+	TASKID_INSERT_MAP_RATING,
+	TASKID_CLEAN_PREVIOUS_REPLAYS
 }
 
 enum _:REPLAY
@@ -203,7 +210,7 @@ enum _:INSERT_MAP_RATING_DATA
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.50";
+new const VERSION[] = "0.51";
 //new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the replay format changes
 new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, execut4ble, naz, mxpph";
 
@@ -214,6 +221,7 @@ new const CONFIGS_SUB_DIR[] = "hl_kreedz";
 new const PLUGIN_CFG_FILENAME[] = "hl_kreedz";
 new const PLUGIN_CFG_SHORTENED[] = "hlkz";
 new const REPLAYS_DIR_NAME[] = "replays";
+new const REPLAYS_DOWNLOADS_DIR[] = "tmp_dl";
 new const MYSQL_LOG_FILENAME[] = "kz_mysql.log";
 new const HUD_SETTINGS[] = "HUD Settings";
 new const GAMEPLAY_SETTINGS[] = "Gameplay Settings";
@@ -536,6 +544,7 @@ new g_Map[64];
 new g_EscapedMap[128];
 new g_ConfigsDir[256];
 new g_ReplaysDir[256];
+new g_ReplaysDownloadsDir[256];
 new g_PlayersDir[256];
 new g_StatsFile[RUN_TYPE][256];
 new g_TopType[RUN_TYPE][32];
@@ -581,6 +590,9 @@ new g_KzVoteCaller[MAX_PLAYERS + 1];
 new g_EndButton;
 new Float:g_EndButtonOrigin[3];
 
+new bool:g_isLeaderboardInitializedFromDb[RUN_TYPE];
+new Trie:g_ReplayCache;
+
 new pcvar_kz_uniqueid;
 new pcvar_kz_messages;
 new pcvar_kz_hud_rgb;
@@ -616,6 +628,9 @@ new pcvar_kz_max_concurrent_replays;
 new pcvar_kz_max_replay_duration;
 new pcvar_kz_replay_setup_time;
 new pcvar_kz_replay_dir_suffix;
+new pcvar_kz_replay_host;
+new pcvar_kz_replay_predownloads;
+new pcvar_kz_replay_local_clean_delay;
 new pcvar_kz_spec_unfreeze;
 new pcvar_kz_denied_sound;
 new pcvar_sv_items_respawn_time;
@@ -782,7 +797,10 @@ public plugin_init()
 	pcvar_kz_max_concurrent_replays = register_cvar("kz_max_concurrent_replays", "5");
 	pcvar_kz_max_replay_duration = register_cvar("kz_max_replay_duration", "1200");  // in seconds (default: 20 minutes)
 	pcvar_kz_replay_setup_time = register_cvar("kz_replay_setup_time", "2");  // in seconds
-	pcvar_kz_replay_dir_suffix = register_cvar("kz_replay_dir_suffix", "");
+	pcvar_kz_replay_dir_suffix = register_cvar("kz_replay_dir_suffix", "", FCVAR_PROTECTED);
+	pcvar_kz_replay_host = register_cvar("kz_replay_host", "", FCVAR_PROTECTED);
+	pcvar_kz_replay_predownloads = register_cvar("kz_replay_predownloads", "3", FCVAR_PROTECTED);  // how many replays to download on map change starting from rank #1
+	pcvar_kz_replay_local_clean_delay = register_cvar("kz_replay_local_clean_delay", "180");  // delay in seconds from the start of the map to purge local replays, to have a time window to sync files
 
 	pcvar_kz_spec_unfreeze = register_cvar("kz_spec_unfreeze", "1");  // unfreeze spectator cam when watching a replaybot teleport
 
@@ -1044,6 +1062,8 @@ public plugin_init()
 	}
 
 	g_ReplayNum = 0;
+
+	g_ReplayCache = TrieCreate();
 }
 
 public plugin_cfg()
@@ -1109,6 +1129,7 @@ public plugin_cfg()
 		new instanceName[sizeof(serverCfgFile) - 4];
 		copy(instanceName, strlen(serverCfgFile) - 4, serverCfgFile);
 		formatex(g_ReplaysDir, charsmax(g_ReplaysDir), "%s/%s_%s", g_ConfigsDir, REPLAYS_DIR_NAME, instanceName);
+
 		// Don't create a folder for the replays of this instance, we expect the admin to create it, because
 		// +servercfgfile is set always (i guess?), so since it always has a value we can't know if you actually
 		// want to separate this instance's replays from the other servers until you indicate it by creating the folder
@@ -1120,7 +1141,15 @@ public plugin_cfg()
 				mkdir(g_ReplaysDir);
 		}
 	}
+	formatex(g_ReplaysDownloadsDir, charsmax(g_ReplaysDownloadsDir), "%s/%s", g_ReplaysDir, REPLAYS_DOWNLOADS_DIR);
+	if (!dir_exists(g_ReplaysDownloadsDir))
+		mkdir(g_ReplaysDownloadsDir);
+
 	server_print("[%s] Replays dir: %s", PLUGIN_TAG, g_ReplaysDir);
+	server_print("[%s] Replays downloads dir: %s", PLUGIN_TAG, g_ReplaysDownloadsDir);
+
+	// Clean up the downloaded replays because the map has just changed
+	CleanDownloadedReplays();
 
 	formatex(g_PlayersDir, charsmax(g_PlayersDir), "%s/%s", g_ConfigsDir, "players");
 	if (!dir_exists(g_PlayersDir))
@@ -1163,6 +1192,15 @@ public plugin_cfg()
 	}
 	InitHudColors();
 	InitTopsAndDB();
+
+	new Float:cleanDelay = get_pcvar_float(pcvar_kz_replay_local_clean_delay);
+	// 0 or anything negative like -1 means this feature is disabled and local replays won't be purged
+	if (cleanDelay > 0.0)
+	{
+		// Give the server a bit of time to start the map properly
+		cleanDelay = floatclamp(cleanDelay, 5.0, cleanDelay);
+		set_task(cleanDelay, "CleanLocalReplays", TASKID_CLEAN_PREVIOUS_REPLAYS);
+	}
 }
 
 public plugin_end()
@@ -1178,6 +1216,8 @@ public plugin_end()
 	TrieDestroy(g_DbPlayerId);
 	TrieDestroy(g_ColorsList);
 	TrieDestroy(g_Splits);
+	TrieDestroy(g_RunReqs);
+	TrieDestroy(g_ReplayCache);
 
 	DestroyForward(mfwd_hlkz_cheating);
 	DestroyForward(mfwd_hlkz_worldrecord);
@@ -1186,6 +1226,10 @@ public plugin_end()
 	DestroyForward(mfwd_hlkz_stop_match);
 	DestroyForward(mfwd_hlkz_run_finish);
 	DestroyForward(mfwd_pre_save_on_disconnect);
+
+	// I don't know if this is necessary (or all of the above) or AMXX does it automatically,
+	// but it doesn't hurt, so just in case...
+	remove_task(TASKID_CLEAN_PREVIOUS_REPLAYS);
 }
 
 public RUN_MODE:native_get_runmode(plugin, params)
@@ -2008,7 +2052,7 @@ public HandleCupReplaysMenu(id, menu, item)
 		return PLUGIN_HANDLED;
 	}
 
-	new replayFilePath[256];
+	new replayFilePath[REPLAY_PATH_LEN];
 	formatex(replayFilePath, charsmax(replayFilePath), "%s/%s", g_ReplaysDir, cupReplay[CUP_REPLAY_ITEM_FILENAME]);
 	RunReplayFile(id, replayFilePath);
 
@@ -3118,12 +3162,11 @@ CmdReplay(id, RUN_TYPE:runType)
 	if (maxReplays <= 0)
 	{
 		client_print(id, print_chat, "[%s] Sorry, this server doesn't allow replaying records :(", PLUGIN_TAG);
-		return PLUGIN_HANDLED;
+		return;
 	}
 
-	static authid[32], replayFile[256], idNumbers[24], stats[STATS], time[32];
+	static replayFile[REPLAY_PATH_LEN], idNumbers[24], stats[STATS];
 	new args[32], cmd[15], replayRank, replayArg[33], Regex:pattern;
-	new minutes, Float:seconds;
 
 	read_args(args, charsmax(args));
 	remove_quotes(args);
@@ -3143,55 +3186,283 @@ CmdReplay(id, RUN_TYPE:runType)
 	LoadRecords(runType);
 	new Array:arr = g_ArrayStats[runType];
 
+	new bool:foundMatch;
 	for (new i = 0; i < ArraySize(arr); i++)
 	{
 		ArrayGetArray(arr, i, stats);
 		if ((replayRank && i == replayRank - 1) || (_:pattern == 1 && regex_match_c(stats[STATS_NAME], pattern) == 1))
 		{
 			stats[STATS_NAME][17] = EOS;
-			formatex(authid, charsmax(authid), "%s", stats[STATS_ID]);
+			foundMatch = true;
 			break; // the desired record info is now stored in stats, so exit loop
 		}
 	}
-	if (!replayRank)
+	if (pattern)
 		regex_free(pattern);
 
-	new replayingMsg[96], replayFailedMsg[96], szTopType[32];
-	ConvertSteamID32ToNumbers(authid, idNumbers);
-	formatex(szTopType, charsmax(szTopType), "%s", g_TopType[runType]);
-	strtolower(szTopType);
-	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
-	//formatex(g_ReplayFile[id], charsmax(replayFile), "%s", replayFile);
-	//console_print(id, "rank %d's idNumbers: '%s', replay file: '%s'", replayRank, idNumbers, replayFile);
+	if (!foundMatch)
+	{
+		client_print(id, print_chat, "[%s] Sorry, couldn't find a run by that rank or name", PLUGIN_TAG);
+		return;
+	}
 
-	minutes = floatround(stats[STATS_TIME], floatround_floor) / 60;
-	seconds = stats[STATS_TIME] - (60 * minutes);
+	new topType[32], realTopType[32];
+
+	// This is just for the chat messages, to have it "pretty printed"
+	formatex(realTopType, charsmax(realTopType), "%s", g_TopType[runType]);
+	ucfirst(realTopType);
+
+	if (!GetLocalReplay(runType, stats, idNumbers, topType, replayFile))
+	{
+		// Look for the replay in the remote replay server
+		new replayHost[1024];
+		if (get_pcvar_string(pcvar_kz_replay_host, replayHost, charsmax(replayHost)) > 0)
+		{
+			// Download the replay from the specified host
+			new replayURL[1536];
+			formatex(replayURL, charsmax(replayURL), "%s/%s/%s_%s_%s.dat", replayHost, g_ReplaysDir, g_Map, idNumbers, topType);
+			formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDownloadsDir, g_Map, idNumbers, topType);
+
+			server_print("[%s] Attempting to download the replay of rank #%d", PLUGIN_TAG, replayRank);
+			DownloadAndRunReplay(id, replayURL, replayFile, stats);
+		}
+		else
+		{
+			client_print(id, print_chat, "[%s] Sorry, no replay available for %s's %s run", PLUGIN_TAG, stats[STATS_NAME], realTopType);
+			TrieSetCell(g_ReplayCache, stats[STATS_ID], false);
+		}
+
+		// If downloads are not enabled then nothing else we can do, and otherwise
+		// we handle running the replay on the callback of the download, so we exit here
+		return;
+	}
+	server_print("[%s] Replaying run ranked #%d", PLUGIN_TAG, replayRank);
+
+	new replayingMsg[96], time[32];
+	new minutes = floatround(stats[STATS_TIME], floatround_floor) / 60;
+	new Float:seconds = stats[STATS_TIME] - (60 * minutes);
 
 	formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%0"), minutes, seconds);
-	ucfirst(szTopType);
-	formatex(replayingMsg, charsmax(replayingMsg), "[%s] Replaying %s's %s run (%ss)", PLUGIN_TAG, stats[STATS_NAME], szTopType, time);
-	formatex(replayFailedMsg, charsmax(replayFailedMsg), "[%s] Sorry, no replay available for %s's %s run", PLUGIN_TAG, stats[STATS_NAME], szTopType);
+	formatex(replayingMsg, charsmax(replayingMsg), "[%s] Replaying %s's %s run (%ss)", PLUGIN_TAG, stats[STATS_NAME], realTopType, time);
 
-	new file = fopen(replayFile, "rb");
-	if (!file && runType == PRO && ComparePro2PureTime(stats[STATS_ID], stats[STATS_TIME]) == 0)
-	{
-		formatex(replayFile, charsmax(replayFile), "%s/%s_%s_pure.dat", g_ReplaysDir, g_Map, idNumbers);
-		file = fopen(replayFile, "rb");
-	}
-	if (!file)
-	{
-		client_print(id, print_chat, "%s", replayFailedMsg);
-		return PLUGIN_HANDLED;
-	}
-
-	if (file)
-		fclose(file);
-
-	// TODO: refactor these replayingMsg params
 	new botId = RunReplayFile(id, replayFile, replayingMsg, charsmax(replayingMsg));
 	datacopy(g_BotRunStats[botId], stats[STATS_RS], RUNSTATS);
+}
 
-	return PLUGIN_HANDLED;
+bool:GetLocalReplay(RUN_TYPE:runType, stats[], idNumbers[] = "", topType[] = "", localPath[] = "")
+{
+	new authid[32], mainReplayFile[REPLAY_PATH_LEN], dlsReplayFile[REPLAY_PATH_LEN];
+
+	// Check if there's demo for this record
+	formatex(authid, charsmax(authid), "%s", stats[STATS_ID]);
+	ConvertSteamID32ToNumbers(authid, idNumbers);
+
+	new isProSameAsPure = (runType == PRO && ComparePro2PureTime(stats[STATS_ID], stats[STATS_TIME]) == 0);
+	if (isProSameAsPure)
+		formatex(topType, charsmax(g_TopType[]), "pure");
+	else
+		formatex(topType, charsmax(g_TopType[]), "%s", g_TopType[runType]);
+
+	strtolower(topType);
+
+	// Look for a replay both in the main replays folder and in the download one
+	formatex(mainReplayFile, charsmax(mainReplayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, topType);
+	formatex(dlsReplayFile, charsmax(dlsReplayFile), "%s/%s_%s_%s.dat", g_ReplaysDownloadsDir, g_Map, idNumbers, topType);
+
+	new mainSize = file_size(mainReplayFile);
+	new dlsSize  = file_size(dlsReplayFile);
+
+	if (-1 == mainSize && -1 == dlsSize)
+		return false;  // there's no replay
+	else if (-1 == mainSize)
+		mainSize = MAX_INT;  // makes things easier
+	else if (-1 == dlsSize)
+		dlsSize = MAX_INT;
+
+	// Then keep the one that is shorter, which means it'll be the faster one
+	if (dlsSize < mainSize)
+		copy(localPath, charsmax(dlsReplayFile), dlsReplayFile);
+	else
+		copy(localPath, charsmax(mainReplayFile), mainReplayFile);
+
+	TrieSetCell(g_ReplayCache, authid, true);
+
+	return true;
+}
+
+public CleanLocalReplays(taskId)
+{
+	new replayFile[64];
+	new dirHandle = open_dir(g_ReplaysDir, replayFile, charsmax(replayFile));
+
+	if (!dirHandle)
+	{
+		log_amx("[%s] Unable to open replay downloads dir %s", PLUGIN_TAG, g_ReplaysDir);
+		return;
+	}
+
+	do {
+		if (equali(replayFile, ".", 1))
+			continue;  // ignore anything starting with a dot, which includes special files like "." and ".."
+
+		if (containi(replayFile, g_Map) == 0)
+			continue;  // we ignore replays of the current map, because they might be in use
+
+		new replayPath[REPLAY_PATH_LEN];
+		formatex(replayPath, charsmax(replayPath), "%s/%s", g_ReplaysDir, replayFile);
+		server_print("[%s] Clearing local replay %s", PLUGIN_TAG, replayPath);
+		delete_file(replayPath);
+	} while (next_file(dirHandle, replayFile, charsmax(replayFile)));
+
+	close_dir(dirHandle);
+}
+
+// Doing rmdir() of the directory does not always work as per the docs, so we have to go file by file deleting them...
+CleanDownloadedReplays()
+{
+	new replayFile[64];
+	new dirHandle = open_dir(g_ReplaysDownloadsDir, replayFile, charsmax(replayFile));
+
+	if (!dirHandle)
+	{
+		log_amx("[%s] Unable to open replay downloads dir %s", PLUGIN_TAG, g_ReplaysDownloadsDir);
+		return;
+	}
+
+	do {
+		if (equali(replayFile, ".", 1))
+			continue;  // ignore anything starting with a dot, which includes special files like "." and ".."
+
+		new replayPath[REPLAY_PATH_LEN];
+		formatex(replayPath, charsmax(replayPath), "%s/%s", g_ReplaysDownloadsDir, replayFile);
+		server_print("[%s] Clearing temporally downloaded replay %s", PLUGIN_TAG, replayPath);
+		delete_file(replayPath);
+	} while (next_file(dirHandle, replayFile, charsmax(replayFile)));
+
+	close_dir(dirHandle);
+}
+
+DownloadFile(const url[], const localPath[])
+{
+	new CURL:hCurl = curl_easy_init();
+	if (!hCurl)
+		return;
+
+	new data[1 + REPLAY_PATH_LEN];
+	data[0] = fopen(localPath, "wb");
+	copy(data[1], REPLAY_PATH_LEN, localPath);
+
+	curl_easy_setopt(hCurl, CURLOPT_BUFFERSIZE, 512);
+	curl_easy_setopt(hCurl, CURLOPT_URL, url);
+	curl_easy_setopt(hCurl, CURLOPT_FAILONERROR, 1);
+	curl_easy_setopt(hCurl, CURLOPT_CONNECTTIMEOUT, 8);
+	curl_easy_setopt(hCurl, CURLOPT_TIMEOUT, 8);
+	curl_easy_setopt(hCurl, CURLOPT_WRITEDATA, data[0]);
+	curl_easy_setopt(hCurl, CURLOPT_WRITEFUNCTION, "DownloadFileWrite");
+	curl_easy_perform(hCurl, "DownloadFileComplete", data, sizeof(data) + 1);
+}
+
+public DownloadFileWrite(const byteData[], const size, const nmemb, hFile) {
+	new realSize = size * nmemb;
+	fwrite_blocks(hFile, byteData, realSize, BLOCK_CHAR);
+	return realSize;
+}
+
+public DownloadFileComplete(CURL:curl, CURLcode:code, data[])
+{
+	new bool:errored;
+	if (code == CURLE_OK)
+	{
+		static status;
+		curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, status);
+		if (status >= 400)
+		{
+			log_amx("[%s] [Error] HTTP Error: %d", PLUGIN_TAG, status);
+			errored = true;
+		}
+	}
+	else
+	{
+		log_amx("[%s] [Error] cURL Error: %d", PLUGIN_TAG, code);
+		errored = true;
+	}
+
+	curl_easy_cleanup(curl);
+	fclose(data[0]);
+
+	if (errored)
+	{
+		delete_file(data[1]);
+		server_print("[%s] Download failed: %s", PLUGIN_TAG, data[1]);
+	}
+	else
+		server_print("[%s] Download completed: %s", PLUGIN_TAG, data[1]);
+}
+
+DownloadAndRunReplay(id, const url[], const localPath[], stats[])
+{
+	new CURL:hCurl = curl_easy_init();
+	if (!hCurl)
+		return;
+
+	new data[2 + STATS + REPLAY_PATH_LEN];
+	data[0] = id;
+	data[1] = fopen(localPath, "wb");
+	datacopy(data, stats, STATS, 2);
+	copy(data[2 + STATS], REPLAY_PATH_LEN, localPath);
+
+	curl_easy_setopt(hCurl, CURLOPT_BUFFERSIZE, 512);
+	curl_easy_setopt(hCurl, CURLOPT_URL, url);
+	curl_easy_setopt(hCurl, CURLOPT_FAILONERROR, 1);
+	curl_easy_setopt(hCurl, CURLOPT_CONNECTTIMEOUT, 8);
+	curl_easy_setopt(hCurl, CURLOPT_TIMEOUT, 8);
+	curl_easy_setopt(hCurl, CURLOPT_WRITEDATA, data[1]);
+	curl_easy_setopt(hCurl, CURLOPT_WRITEFUNCTION, "DownloadFileWrite");
+	curl_easy_perform(hCurl, "DownloadAndRunReplayComplete", data, sizeof(data) + 1);
+}
+
+public DownloadAndRunReplayComplete(CURL:curl, CURLcode:code, data[])
+{
+	new bool:errored;
+	if (code == CURLE_OK)
+	{
+		static status;
+		curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, status);
+		if (status >= 400)
+		{
+			log_amx("[%s] [Error] HTTP Error: %d", PLUGIN_TAG, status);
+			errored = true;
+		}
+	}
+	else
+	{
+		log_amx("[%s] [Error] cURL Error: %d", PLUGIN_TAG, code);
+		errored = true;
+	}
+
+	curl_easy_cleanup(curl);
+	fclose(data[1]);
+
+	new stats[STATS], replayFile[REPLAY_PATH_LEN];
+	datacopy(stats, data, STATS, 0, 2);
+	copy(replayFile, REPLAY_PATH_LEN, data[2 + STATS]);
+
+	if (errored)
+	{
+		client_print(data[0], print_chat, "[%s] Sorry, that replay is not available.", PLUGIN_TAG);
+		TrieSetCell(g_ReplayCache, stats[STATS_ID], false);
+	
+		server_print("[%s] Download failed: %s", PLUGIN_TAG, replayFile);
+
+		delete_file(replayFile);
+		return;
+	}
+	TrieSetCell(g_ReplayCache, stats[STATS_ID], true);
+
+	new botId = RunReplayFile(data[0], replayFile);
+	datacopy(g_BotRunStats[botId], stats[STATS_RS], RUNSTATS);
+
+	server_print("[%s] Download completed: %s", PLUGIN_TAG, replayFile);
 }
 
 RunReplayFile(id, replayFileName[], replayingMsg[] = "", lenMsg = 0)
@@ -9787,7 +10058,7 @@ ShowTopClimbersGoldLaps(id, RUN_TYPE:topType)
 ShowTopClimbers(id, RUN_TYPE:topType)
 {
 	new buffer[MAX_MOTD_LENGTH], len;
-	new stats[STATS], date[32], time[32], minutes, Float:seconds;
+	new stats[STATS], date[32], time[32], minutes, Float:seconds, demo[4];
 	LoadRecords(topType);
 	new Array:arr = g_ArrayStats[topType];
 
@@ -9825,7 +10096,7 @@ ShowTopClimbers(id, RUN_TYPE:topType)
 
 	for (new i = recMin; i < recMax && charsmax(buffer) - len > 0; i++)
 	{
-		static authid[32], idNumbers[24], replayFile[256];
+		static idNumbers[24], replayFile[REPLAY_PATH_LEN];
 		ArrayGetArray(arr, i, stats);
 
 		// TODO: Solve UTF halfcut at the end
@@ -9837,27 +10108,36 @@ ShowTopClimbers(id, RUN_TYPE:topType)
 		formatex(time, charsmax(time), GetVariableDecimalMessage(id, "%02d:%0"), minutes, seconds);
 		format_time(date, charsmax(date), "%d/%m/%Y", stats[STATS_TIMESTAMP]);
 
-		// Check if there's demo for this record
-		formatex(authid, charsmax(authid), "%s", stats[STATS_ID]);
-		ConvertSteamID32ToNumbers(authid, idNumbers);
-
-		formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDir, g_Map, idNumbers, szTopType);
-		new hasDemo = file_exists(replayFile);
-		if (!hasDemo && topType == PRO && ComparePro2PureTime(stats[STATS_ID], stats[STATS_TIME]) == 0)
+		// Check if there's a demo for this record
+		new bool:hasDemo;
+		if (!TrieGetCell(g_ReplayCache, stats[STATS_ID], hasDemo))
 		{
-	    	formatex(replayFile, charsmax(replayFile), "%s/%s_%s_pure.dat", g_ReplaysDir, g_Map, idNumbers);
-	        hasDemo = file_exists(replayFile);
+			// Not cached, check if the replay file exists
+			if (GetLocalReplay(topType, stats, idNumbers, szTopType, replayFile))
+				formatex(demo, charsmax(demo), "yes");
+			else
+			{
+				new replayHost[1024];
+				if (get_pcvar_string(pcvar_kz_replay_host, replayHost, charsmax(replayHost)) > 0)
+					formatex(demo, charsmax(demo), "?");  // TODO: get a list of available demos from the remote replay server
+				else
+					formatex(demo, charsmax(demo), "no");
+			}
 		}
+		else if (hasDemo)
+			formatex(demo, charsmax(demo), "yes");
+		else
+			formatex(demo, charsmax(demo), "no");
 
 		if (topType == NOOB)
 		{
 			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s  %3d %3d        %s   %s\n",
-								i + 1, stats[STATS_NAME], time, stats[STATS_CP], stats[STATS_TP], date, hasDemo ? "yes" : "no");
+								i + 1, stats[STATS_NAME], time, stats[STATS_CP], stats[STATS_TP], date, demo);
 		}
 		else
 		{
 			len += formatex(buffer[len], charsmax(buffer) - len, "%-2d  %-17s  %10s         %s   %s\n",
-								i + 1, stats[STATS_NAME], time, date, hasDemo ? "yes" : "no");
+								i + 1, stats[STATS_NAME], time, date, demo);
 		}
 	}
 	len += formatex(buffer[len], charsmax(buffer) - len, "\n%s %s", PLUGIN, VERSION);
@@ -10020,7 +10300,7 @@ RecordRunFrame(id)
 
 SaveRecordedRun(id, RUN_TYPE:topType)
 {
-	static authid[32], replayFile[256], idNumbers[24];
+	static authid[32], replayFile[REPLAY_PATH_LEN], idNumbers[24];
 	get_user_authid(id, authid, charsmax(authid));
 
 	ConvertSteamID32ToNumbers(authid, idNumbers);
@@ -10041,6 +10321,9 @@ SaveRecordedRun(id, RUN_TYPE:topType)
 		// TODO: write the replay version and speed (RP_SPEED), simplify angles to 1 number and process with anglemod
 	}
 	fclose(g_RecordRun[id]);
+
+	TrieSetCell(g_ReplayCache, authid, true);
+
 	server_print("[%s] Saved %d frames to replay file", PLUGIN_TAG, ArraySize(g_RunFrames[id]));
 }
 
@@ -10052,7 +10335,7 @@ SaveRecordedRunPrefixed(id, prefix[])
 		return;
 	}
 
-	static authid[32], replayFile[256], idNumbers[24];
+	static authid[32], replayFile[REPLAY_PATH_LEN], idNumbers[24];
 	get_user_authid(id, authid, charsmax(authid));
 
 	ConvertSteamID32ToNumbers(authid, idNumbers);
@@ -10288,6 +10571,16 @@ public RunSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime
 
 	ArrayClear(arr);
 
+	new rank = 1;
+	new replaysToDownload = -1;
+	if (!g_isLeaderboardInitializedFromDb[topType])
+	{
+		// TODO: implement this for non-database setups too (local filesystem leaderboards but
+		// remote server to download replays from)
+		replaysToDownload = get_pcvar_num(pcvar_kz_replay_predownloads);
+		g_isLeaderboardInitializedFromDb[topType] = true;
+	}
+
 	while (mysql_more_results())
 	{
 		stats[STATS_RUN_ID] = mysql_read_result(0);
@@ -10319,6 +10612,24 @@ public RunSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime
 
 		ArrayPushArray(arr, stats);
 
+		// Check if we have to download the replay for this run
+		if (rank <= replaysToDownload)
+		{
+			new replayHost[1024];
+			if (get_pcvar_string(pcvar_kz_replay_host, replayHost, charsmax(replayHost)) > 0)
+			{
+				new replayURL[1536], replayFile[REPLAY_PATH_LEN], szTopType[32], idNumbers[24];
+				ConvertSteamID32ToNumbers(stats[STATS_ID], idNumbers);
+				formatex(szTopType, charsmax(szTopType), "%s", g_TopType[topType]);
+				strtolower(szTopType);
+				formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDownloadsDir, g_Map, idNumbers, szTopType);
+				formatex(replayURL, charsmax(replayURL), "%s/%s/%s_%s_%s.dat", replayHost, g_ReplaysDir, g_Map, idNumbers, szTopType);
+
+				DownloadFile(replayURL, replayFile);
+			}
+		}
+
+		rank++;
 		mysql_next_row();
 	}
 
