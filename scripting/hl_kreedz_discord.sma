@@ -4,7 +4,7 @@
 #include <hlkz>
 
 #define PLUGIN "HLKZ Discord WR Notifier"
-#define VERSION "1.1.0"
+#define VERSION "1.1.1"
 #define AUTHOR "Th3-822 & naz"
 
 #define TASKID_RETRY_POST 5810306
@@ -30,9 +30,9 @@ public plugin_init()
 {
 	register_plugin(PLUGIN, VERSION, AUTHOR);
 
-	g_cvar_webhook = register_cvar("kz_discord_webhook", "");
-	g_cvar_bot_name = register_cvar("kz_discord_bot_name", "HL KreedZ");
-	g_cvar_bot_avatar = register_cvar("kz_discord_bot_avatar", "http://212.71.238.124/hlkz/hlkz.png");
+	g_cvar_webhook = register_cvar("kz_discord_webhook", "", FCVAR_PROTECTED);
+	g_cvar_bot_name = register_cvar("kz_discord_bot_name", "HL KreedZ", FCVAR_PROTECTED);
+	g_cvar_bot_avatar = register_cvar("kz_discord_bot_avatar", "http://212.71.238.124/hlkz/hlkz.png", FCVAR_PROTECTED);
 
 	// Making everything customizable at the expense of discord group admins having to be
 	// more cautious about who they give permission to connect to their webhook to post WRs

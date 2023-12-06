@@ -824,10 +824,10 @@ public plugin_init()
 	pcvar_kz_mysql_threads = register_cvar("kz_mysql_threads", "1");
 	pcvar_kz_mysql_thread_fps = register_cvar("kz_mysql_thread_fps", "33");  // MySQLT module only admits values between 4 and 33 fps
 	pcvar_kz_mysql_collect_time_ms = register_cvar("kz_mysql_collect_time_ms", "30");  // MySQLT module only admits values between 30 and 300 ms
-	pcvar_kz_mysql_host = register_cvar("kz_mysql_host", "");  // IP:port, FQDN:port, etc.
-	pcvar_kz_mysql_user = register_cvar("kz_mysql_user", "");  // Name of the MySQL user that will be used to read/write data in the DB
-	pcvar_kz_mysql_pass = register_cvar("kz_mysql_pass", "");  // Password of the MySQL user
-	pcvar_kz_mysql_db   = register_cvar("kz_mysql_db", "");    // MySQL database name
+	pcvar_kz_mysql_host = register_cvar("kz_mysql_host", "", FCVAR_PROTECTED);  // IP:port, FQDN:port, etc.
+	pcvar_kz_mysql_user = register_cvar("kz_mysql_user", "", FCVAR_PROTECTED);  // Name of the MySQL user that will be used to read/write data in the DB
+	pcvar_kz_mysql_pass = register_cvar("kz_mysql_pass", "", FCVAR_PROTECTED);  // Password of the MySQL user
+	pcvar_kz_mysql_db   = register_cvar("kz_mysql_db",   "", FCVAR_PROTECTED);  // MySQL database name
 
 	pcvar_kz_stop_moving_platforms = register_cvar("kz_stop_moving_platforms", "0");
 	pcvar_kz_noclip = register_cvar("kz_noclip", "0"); // Whether or not /noclip is allowed
