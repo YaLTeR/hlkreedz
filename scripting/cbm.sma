@@ -19,6 +19,7 @@
  * v0.4 - Edited functions
  * v0.5 - Added rotate buttons
  * v0.6 - Finded and fixed double make buttons bug
+ * v0.7 - Fixed buttons not getting saved sometimes
  */
 
 #include <amxmodx>
@@ -26,8 +27,8 @@
 #include <fakemeta>
 
 #define PLUGIN "Climb Button Maker"
-#define VERSION "0.6"
-#define AUTHOR "Kr1Zo"
+#define VERSION "0.7"
+#define AUTHOR "Kr1Zo & naz"
 
 new cbmStart[] = "models/kz_timer_start.mdl"
 new cbmStop[] = "models/kz_timer_stop.mdl"
@@ -40,6 +41,8 @@ new cbmMenu
 
 new className
 new cbmClassName[] = "func_button"
+
+new Array:buttons
 
 public plugin_init() {
 	register_plugin(PLUGIN, VERSION, AUTHOR)
@@ -70,6 +73,8 @@ public plugin_init() {
 		mkdir(szDir)
 
 	formatex(cbmFile, 96, "%s/%s.cfg", szDir, szMap)
+
+	buttons = ArrayCreate(1, 4)
 }
 
 public plugin_precache() {
@@ -79,6 +84,11 @@ public plugin_precache() {
 
 public plugin_cfg() {
 	readFile()
+}
+
+public plugin_end()
+{
+	ArrayDestroy(buttons)
 }
 
 readFile() {
@@ -161,7 +171,13 @@ public cbmMnu(id, menu, item) {
 			new ent = FindButton(id, action)
 
 			if(ent != 0)
+			{
 				set_pev(ent, pev_flags, pev(ent, pev_flags) | FL_KILLME)
+
+				new index = ArrayFindValue(buttons, ent)
+				if (-1 != index)
+					ArrayDeleteItem(buttons, index)
+			}
 		}
 		case '5': {
 			if(file_exists(cbmFile))
@@ -170,25 +186,20 @@ public cbmMnu(id, menu, item) {
 			new ent, Float:vOrigin[3], Float:vAngles[3], szData[57]
 			new f = fopen(cbmFile, "at")
 
-			while((ent = engfunc(EngFunc_FindEntityByString, ent, "target", cbmStartTargetName))) {
+			for (new i = 0; i < ArraySize(buttons); i++) {
+				ent = ArrayGetCell(buttons, i)
 				pev(ent, pev_angles, vAngles)
 				pev(ent, pev_origin, vOrigin)
 
-				if(vOrigin[0] != 0.0 && vOrigin[1] != 0.0 && vOrigin[2] != 0.0) {
-					formatex(szData, 56, "1 %f %f %f %f^n", vOrigin[0], vOrigin[1], vOrigin[2], vAngles[1])
-					fputs(f, szData)
-				}
-			}
-			ent = 0
+				new szTarget[33]
+				pev(ent, pev_target, szTarget, charsmax(szTarget))
 
-			while((ent = engfunc(EngFunc_FindEntityByString, ent, "target", cbmStopTargetName))) {
-				pev(ent, pev_angles, vAngles)
-				pev(ent, pev_origin, vOrigin)
+				if (equal(szTarget, cbmStartTargetName))
+					formatex(szData, charsmax(szData), "1 %f %f %f %f^n", vOrigin[0], vOrigin[1], vOrigin[2], vAngles[1])
+				else if (equal(szTarget, cbmStopTargetName))
+					formatex(szData, charsmax(szData), "2 %f %f %f %f^n", vOrigin[0], vOrigin[1], vOrigin[2], vAngles[1])
 
-				if(vOrigin[0] != 0.0 && vOrigin[1] != 0.0 && vOrigin[2] != 0.0) {
-					formatex(szData, 56, "2 %f %f %f %f^n", vOrigin[0], vOrigin[1], vOrigin[2], vAngles[1])
-					fputs(f, szData)
-				}
+				fputs(f, szData)
 			}
 
 			formatex(szData, 56, ":: This line to fix double make climb buttons bug ::")
@@ -248,6 +259,8 @@ stock makeButton(id, szTarget[], type, Float:pOrigin[3], Float:pAnglesY) {
 
 
 	SetEntityRendering(ent, kRenderFxGlowShell, 255, 0, 0, kRenderNormal, type == 1 ? 30 : 60);
+
+	ArrayPushCell(buttons, ent)
 	
 	return 1;
 }
