@@ -10075,7 +10075,16 @@ ShowTopClimbers(id, RUN_TYPE:topType)
 			{
 				new replayHost[1024];
 				if (get_pcvar_string(pcvar_kz_replay_host, replayHost, charsmax(replayHost)) > 0)
-					formatex(demo, charsmax(demo), "?");  // TODO: get a list of available demos from the remote replay server
+				{
+					new initialReplays = get_pcvar_num(pcvar_kz_replay_predownloads);
+					if (i < initialReplays)
+					{
+						// This should have been downloaded by now, so if we don't have it then there's probably no replay
+						formatex(demo, charsmax(demo), "no");
+					}
+					else
+						formatex(demo, charsmax(demo), "?");  // TODO: get a list of available demos from the remote replay server
+				}
 				else
 					formatex(demo, charsmax(demo), "no");
 			}
