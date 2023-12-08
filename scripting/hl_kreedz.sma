@@ -591,7 +591,7 @@ new g_EndButton;
 new Float:g_EndButtonOrigin[3];
 
 new bool:g_isLeaderboardInitializedFromDb[RUN_TYPE];
-new Trie:g_ReplayCache;
+new Trie:g_ReplayCache[RUN_TYPE];
 
 new pcvar_kz_uniqueid;
 new pcvar_kz_messages;
@@ -794,8 +794,11 @@ public plugin_init()
 	pcvar_kz_speclist_admin_invis = register_cvar("kz_speclist_admin_invis", "0");
 
 	pcvar_kz_autorecord = register_cvar("kz_autorecord", "1");
+
+	// TODO: rename these 2 to kz_replay_... to follow the same format as the other cvars for replays
 	pcvar_kz_max_concurrent_replays = register_cvar("kz_max_concurrent_replays", "5");
 	pcvar_kz_max_replay_duration = register_cvar("kz_max_replay_duration", "1200");  // in seconds (default: 20 minutes)
+
 	pcvar_kz_replay_setup_time = register_cvar("kz_replay_setup_time", "2");  // in seconds
 	pcvar_kz_replay_dir_suffix = register_cvar("kz_replay_dir_suffix", "", FCVAR_PROTECTED);
 	pcvar_kz_replay_host = register_cvar("kz_replay_host", "", FCVAR_PROTECTED);
@@ -1063,7 +1066,9 @@ public plugin_init()
 
 	g_ReplayNum = 0;
 
-	g_ReplayCache = TrieCreate();
+	g_ReplayCache[NOOB] = TrieCreate();
+	g_ReplayCache[PRO]  = TrieCreate();
+	g_ReplayCache[PURE] = TrieCreate();
 }
 
 public plugin_cfg()
@@ -1217,7 +1222,9 @@ public plugin_end()
 	TrieDestroy(g_ColorsList);
 	TrieDestroy(g_Splits);
 	TrieDestroy(g_RunReqs);
-	TrieDestroy(g_ReplayCache);
+	TrieDestroy(Trie:g_ReplayCache[NOOB]);
+	TrieDestroy(Trie:g_ReplayCache[PRO]);
+	TrieDestroy(Trie:g_ReplayCache[PURE]);
 
 	DestroyForward(mfwd_hlkz_cheating);
 	DestroyForward(mfwd_hlkz_worldrecord);
@@ -3224,12 +3231,12 @@ CmdReplay(id, RUN_TYPE:runType)
 			formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDownloadsDir, g_Map, idNumbers, topType);
 
 			server_print("[%s] Attempting to download the replay of rank #%d", PLUGIN_TAG, replayRank);
-			DownloadAndRunReplay(id, replayURL, replayFile, stats);
+			DownloadAndRunReplay(id, replayURL, replayFile, runType, stats);
 		}
 		else
 		{
 			client_print(id, print_chat, "[%s] Sorry, no replay available for %s's %s run", PLUGIN_TAG, stats[STATS_NAME], realTopType);
-			TrieSetCell(g_ReplayCache, stats[STATS_ID], false);
+			TrieSetCell(g_ReplayCache[runType], stats[STATS_ID], false);
 		}
 
 		// If downloads are not enabled then nothing else we can do, and otherwise
@@ -3285,7 +3292,7 @@ bool:GetLocalReplay(RUN_TYPE:runType, stats[], idNumbers[] = "", topType[] = "",
 	else
 		copy(localPath, charsmax(mainReplayFile), mainReplayFile);
 
-	TrieSetCell(g_ReplayCache, authid, true);
+	TrieSetCell(g_ReplayCache[runType], authid, true);
 
 	return true;
 }
@@ -3359,7 +3366,7 @@ DownloadFile(const url[], const localPath[])
 	curl_easy_setopt(hCurl, CURLOPT_TIMEOUT, 8);
 	curl_easy_setopt(hCurl, CURLOPT_WRITEDATA, data[0]);
 	curl_easy_setopt(hCurl, CURLOPT_WRITEFUNCTION, "DownloadFileWrite");
-	curl_easy_perform(hCurl, "DownloadFileComplete", data, sizeof(data) + 1);
+	curl_easy_perform(hCurl, "DownloadFileComplete", data, sizeof(data));
 }
 
 public DownloadFileWrite(const byteData[], const size, const nmemb, hFile) {
@@ -3399,26 +3406,27 @@ public DownloadFileComplete(CURL:curl, CURLcode:code, data[])
 		server_print("[%s] Download completed: %s", PLUGIN_TAG, data[1]);
 }
 
-DownloadAndRunReplay(id, const url[], const localPath[], stats[])
+DownloadAndRunReplay(id, const url[], const localPath[], RUN_TYPE:runType, stats[])
 {
 	new CURL:hCurl = curl_easy_init();
 	if (!hCurl)
 		return;
 
-	new data[2 + STATS + REPLAY_PATH_LEN];
+	new data[3 + STATS + REPLAY_PATH_LEN];
 	data[0] = id;
-	data[1] = fopen(localPath, "wb");
-	datacopy(data, stats, STATS, 2);
-	copy(data[2 + STATS], REPLAY_PATH_LEN, localPath);
+	data[1] = _:runType;
+	data[2] = fopen(localPath, "wb");
+	datacopy(data, stats, STATS, 3);
+	copy(data[3 + STATS], REPLAY_PATH_LEN, localPath);
 
 	curl_easy_setopt(hCurl, CURLOPT_BUFFERSIZE, 512);
 	curl_easy_setopt(hCurl, CURLOPT_URL, url);
 	curl_easy_setopt(hCurl, CURLOPT_FAILONERROR, 1);
 	curl_easy_setopt(hCurl, CURLOPT_CONNECTTIMEOUT, 8);
 	curl_easy_setopt(hCurl, CURLOPT_TIMEOUT, 8);
-	curl_easy_setopt(hCurl, CURLOPT_WRITEDATA, data[1]);
+	curl_easy_setopt(hCurl, CURLOPT_WRITEDATA, data[2]);
 	curl_easy_setopt(hCurl, CURLOPT_WRITEFUNCTION, "DownloadFileWrite");
-	curl_easy_perform(hCurl, "DownloadAndRunReplayComplete", data, sizeof(data) + 1);
+	curl_easy_perform(hCurl, "DownloadAndRunReplayComplete", data, sizeof(data));
 }
 
 public DownloadAndRunReplayComplete(CURL:curl, CURLcode:code, data[])
@@ -3440,26 +3448,30 @@ public DownloadAndRunReplayComplete(CURL:curl, CURLcode:code, data[])
 		errored = true;
 	}
 
+	new id = data[0];
+	new RUN_TYPE:runType = RUN_TYPE:data[1];
+	new hFile = data[2];
+
 	curl_easy_cleanup(curl);
-	fclose(data[1]);
+	fclose(hFile);
 
 	new stats[STATS], replayFile[REPLAY_PATH_LEN];
-	datacopy(stats, data, STATS, 0, 2);
-	copy(replayFile, REPLAY_PATH_LEN, data[2 + STATS]);
+	datacopy(stats, data, STATS, 0, 3);
+	copy(replayFile, REPLAY_PATH_LEN, data[3 + STATS]);
 
 	if (errored)
 	{
-		client_print(data[0], print_chat, "[%s] Sorry, that replay is not available.", PLUGIN_TAG);
-		TrieSetCell(g_ReplayCache, stats[STATS_ID], false);
+		client_print(id, print_chat, "[%s] Sorry, that replay is not available.", PLUGIN_TAG);
+		TrieSetCell(g_ReplayCache[runType], stats[STATS_ID], false);
 	
 		server_print("[%s] Download failed: %s", PLUGIN_TAG, replayFile);
 
 		delete_file(replayFile);
 		return;
 	}
-	TrieSetCell(g_ReplayCache, stats[STATS_ID], true);
+	TrieSetCell(g_ReplayCache[runType], stats[STATS_ID], true);
 
-	new botId = RunReplayFile(data[0], replayFile);
+	new botId = RunReplayFile(id, replayFile);
 	datacopy(g_BotRunStats[botId], stats[STATS_RS], RUNSTATS);
 
 	server_print("[%s] Download completed: %s", PLUGIN_TAG, replayFile);
@@ -10110,7 +10122,7 @@ ShowTopClimbers(id, RUN_TYPE:topType)
 
 		// Check if there's a demo for this record
 		new bool:hasDemo;
-		if (!TrieGetCell(g_ReplayCache, stats[STATS_ID], hasDemo))
+		if (!TrieGetCell(g_ReplayCache[topType], stats[STATS_ID], hasDemo))
 		{
 			// Not cached, check if the replay file exists
 			if (GetLocalReplay(topType, stats, idNumbers, szTopType, replayFile))
@@ -10322,7 +10334,7 @@ SaveRecordedRun(id, RUN_TYPE:topType)
 	}
 	fclose(g_RecordRun[id]);
 
-	TrieSetCell(g_ReplayCache, authid, true);
+	TrieSetCell(g_ReplayCache[topType], authid, true);
 
 	server_print("[%s] Saved %d frames to replay file", PLUGIN_TAG, ArraySize(g_RunFrames[id]));
 }
@@ -10625,6 +10637,7 @@ public RunSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime
 				formatex(replayFile, charsmax(replayFile), "%s/%s_%s_%s.dat", g_ReplaysDownloadsDir, g_Map, idNumbers, szTopType);
 				formatex(replayURL, charsmax(replayURL), "%s/%s/%s_%s_%s.dat", replayHost, g_ReplaysDir, g_Map, idNumbers, szTopType);
 
+				// TODO: add the entry to the replay cache on download success or failure
 				DownloadFile(replayURL, replayFile);
 			}
 		}
