@@ -2122,7 +2122,7 @@ public client_putinserver(id)
 	g_RunStatsEndHudStartTime[id] = -RUN_STATS_HUD_MAX_HOLD_TIME;
 	g_RunStatsEndHudShown[id] = false;
 
-	g_MapRating[id] = -1;
+	g_MapRating[id] = -1.0;
 
 	g_ControlPoints[id][CP_TYPE_DEFAULT_START] = g_MapDefaultStart;
 
@@ -2219,7 +2219,7 @@ public client_disconnect(id)
 
 	g_HadInvisPreSpec[id] = false;
 
-	g_MapRating[id] = -1;
+	g_MapRating[id] = -1.0;
 
 	ArrayClear(g_SplitTimes[id]);
 	ArrayClear(g_LapTimes[id]);
@@ -2752,7 +2752,7 @@ public DisplayMapRatingMessage(id)
 	if (!pev_valid(id) || !IsPlayer(id) || pev(id, pev_iuser1))
 		return;
 
-	if (g_MapRating[id] != -1)
+	if (g_MapRating[id] < -0.0)
 		return;  // they already rated the current map; -1 is unrated
 
 	client_print(id, print_chat, "[%s] Are you enjoying this map? Consider rating it by saying /rate and a score from 0 to 10 :) like /rate 6.5", PLUGIN_TAG);
