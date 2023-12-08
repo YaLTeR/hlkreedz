@@ -31,8 +31,8 @@
 #define VERSION "0.8"
 #define AUTHOR "Kr1Zo & naz"
 
-new cbmStart[] = "models/kz_timer_start.mdl"
-new cbmStop[] = "models/kz_timer_stop.mdl"
+new cbmStart[] = "models/cbm/kz_timer_start.mdl"
+new cbmStop[] = "models/cbm/kz_timer_stop.mdl"
 
 new cbmStartTargetName[] = "counter_start"    // "cbm_start"
 new cbmStopTargetName[] = "counter_off"       // "cbm_stop"
