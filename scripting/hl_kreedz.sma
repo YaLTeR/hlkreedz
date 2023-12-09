@@ -2752,7 +2752,7 @@ public DisplayMapRatingMessage(id)
 	if (!pev_valid(id) || !IsPlayer(id) || pev(id, pev_iuser1))
 		return;
 
-	if (g_MapRating[id] < -0.0)
+	if (g_MapRating[id] >= 0.0)
 		return;  // they already rated the current map; -1 is unrated
 
 	client_print(id, print_chat, "[%s] Are you enjoying this map? Consider rating it by saying /rate and a score from 0 to 10 :) like /rate 6.5", PLUGIN_TAG);
