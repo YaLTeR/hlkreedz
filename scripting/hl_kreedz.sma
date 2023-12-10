@@ -2648,6 +2648,9 @@ InitPlayer(id, bool:onDisconnectOrAgstart = false, bool:onlyTimer = false)
 		pev(id, pev_health, health);
 		if (health < 100.0 && IsAlive(id) && !pev(id, pev_iuser1))
 			set_pev(id, pev_health, 100.0);
+
+		// Reset gravity modifier
+		set_user_gravity(id, 1.0)
 	}
 
 	// Reset checkpoints
