@@ -1540,11 +1540,11 @@ LoadMapRating(id)
 	mysql_query(g_DbConnection, "MapRatingSelectHandler", query, data, sizeof(data));
 }
 
-//*******************************************************
+//*******************************************************/
 //*                                                     *
 //* Menus                                               *
 //*                                                     *
-//*******************************************************
+//*******************************************************/
 
 public CmdTPMenuHandler(id, level, cid)
 {
@@ -2066,11 +2066,11 @@ public HandleCupReplaysMenu(id, menu, item)
 
 
 
-//*******************************************************
+//*******************************************************/
 //*                                                     *
 //* Player handling                                     *
 //*                                                     *
-//*******************************************************
+//*******************************************************/
 
 public client_putinserver(id)
 {
@@ -2094,7 +2094,7 @@ public client_putinserver(id)
 
 	if (!g_FulfilledRunReqs[id])
 		g_FulfilledRunReqs[id] = TrieCreate();
-	
+
 	g_SplitTimes[id] = ArrayCreate(1, 3);
 	g_LapTimes[id] = ArrayCreate();
 	g_CurrentLap[id] = 0;
@@ -2757,11 +2757,11 @@ public DisplayMapRatingMessage(id)
 }
 
 
-//*******************************************************
+//*******************************************************/
 //*                                                     *
 //* Client commands                                     *
 //*                                                     *
-//*******************************************************
+//*******************************************************/
 
 CmdCp(id)
 {
@@ -2778,7 +2778,7 @@ CmdTp(id)
 CmdNoclip(id)
  {
 	g_IsInNoclip[id] = bool:get_user_noclip(id);
-	
+
 	if (get_pcvar_num(pcvar_kz_noclip) == 0)
 	{
 		client_print(id, print_chat, "[%s] Noclip is not enabled on this server.", PLUGIN_TAG);
@@ -2789,9 +2789,9 @@ CmdNoclip(id)
 		client_print(id, print_chat, "[%s] You must be alive to use this command.", PLUGIN_TAG);
 		return;
 	}
-	
+
 	if (g_IsInNoclip[id] == false)           // enter noclip
-	{	
+	{
 		if (g_RunMode[id] || g_RunModeStarting[id] != MODE_NORMAL)
 		{
 			client_print(id, print_chat, "[%s] No cheating in a race or a no-reset run!", PLUGIN_TAG);
@@ -2806,7 +2806,7 @@ CmdNoclip(id)
 		return;
 	}
 	else                                     // exit noclip
-	{	
+	{
 		set_user_noclip(id, 0);              // turn off noclip
 		set_user_velocity(id, Float:{0.0, 0.0, 0.0})  // just in case
 		HandleNoclipCheating(id);
@@ -2982,7 +2982,7 @@ CmdStartNr(id)
 		CmdStart(id);
 		return;
 	}
-	
+
 	if (g_IsInNoclip[id])
 	{
 		client_print(id, print_chat, "[%s] Disable noclip to start a no-reset run.", PLUGIN_TAG);
@@ -3461,7 +3461,7 @@ public DownloadAndRunReplayComplete(CURL:curl, CURLcode:code, data[])
 	{
 		client_print(id, print_chat, "[%s] Sorry, that replay is not available.", PLUGIN_TAG);
 		TrieSetCell(g_ReplayCache[runType], stats[STATS_ID], false);
-	
+
 		server_print("[%s] Download failed: %s", PLUGIN_TAG, replayFile);
 
 		delete_file(replayFile);
@@ -3994,7 +3994,7 @@ CmdRespawn(id)
 		ShowMessage(id, "You can't respawn during a race or No-Reset run");
 		return;
 	}
-	
+
 	if (g_IsInNoclip[id])
 	{
 		client_print(id, print_chat, "[%s] Exit noclip to respawn.", PLUGIN_TAG);
@@ -4210,7 +4210,7 @@ public CmdSayHandler(id, level, cid)
 
 	else if (equali(args[1], "runstats_con") || equali(args[1], "runstats_console"))
 		CmdShowRunStatsOnConsole(id);
-	
+
 	else if (equali(args[1], "noclip"))
 		CmdNoclip(id);
 
@@ -4311,7 +4311,7 @@ public CmdSayHandler(id, level, cid)
 	{
 		CmdHudColor(id);
 	}
-	
+
 	else if (containi(args[1], "noclipspeed") == 0)
 		CmdNoclipSpeed(id);
 
@@ -4414,11 +4414,11 @@ public TASCmdHandler(id)
 }
 
 
-//*******************************************************
+//*******************************************************/
 //*                                                     *
 //* Checkpoint functions                                *
 //*                                                     *
-//*******************************************************
+//*******************************************************/
 
 bool:CanCreateCp(id, bool:showMessages = true, bool:practiceMode = false)
 {
@@ -4699,11 +4699,11 @@ bool:IsUserOnGround(id)
 }
 
 
-//*******************************************************
+//*******************************************************/
 //*                                                     *
 //* Spectate mode handling                              *
 //*                                                     *
-//*******************************************************
+//*******************************************************/
 
 bool:CanSpectate(id, bool:showMessages = true)
 {
@@ -4926,11 +4926,11 @@ ClientCommandSpectatePost(id)
 
 
 
-//*******************************************************
+//*******************************************************/
 //*                                                     *
 //* Time management                                     *
 //*                                                     *
-//*******************************************************
+//*******************************************************/
 
 bool:CanPause(id, bool:showMessages = true)
 {
@@ -5862,11 +5862,11 @@ CheckRunReqs(ent, id)
 
 
 
-//*******************************************************
+//*******************************************************/
 //*                                                     *
 //* Hud display                                         *
 //*                                                     *
-//*******************************************************
+//*******************************************************/
 
 public Fw_FmThinkPre(ent)
 {
@@ -6980,11 +6980,11 @@ DispatchChat(id, dst, CHAT_TYPE:type, const message[], {Float,Sql,Result,_}:...)
 
 
 
-//*******************************************************
+//*******************************************************/
 //*                                                     *
 //* Forwards (mostly about damage and spawn)            *
 //*                                                     *
-//*******************************************************
+//*******************************************************/
 
 public Fw_HamSpawnPlayerPost(id)
 {
@@ -7278,7 +7278,7 @@ public Fw_FmKeyValuePre(ent, kvd)
 		GetRequirementsFromMap(ent, kvd);
 	}
 	// TODO: review if there are more entities to account for regarding requirements,
-	// and maybe refactor this if it gets too big. Can we just check in 
+	// and maybe refactor this if it gets too big. Can we just check in
 
 	return FMRES_IGNORED;
 }
@@ -7529,11 +7529,11 @@ public Fw_HamSpawnWeaponboxPost(weaponboxId)
 	return HAM_IGNORED;
 }
 
-//*******************************************************
+//*******************************************************/
 //*                                                     *
 //* Semiclip                                            *
 //*                                                     *
-//*******************************************************
+//*******************************************************/
 
 public Fw_FmPlayerPreThinkPost(id)
 {
@@ -7579,7 +7579,7 @@ public Fw_FmPlayerPreThinkPost(id)
 			// they're gonna fail the jump. They wanna reset while falling and they only stop holding spacebar
 			// the very moment they hit reset, so we ignore spacebar (+jump) for this kind of idle time
 			g_RunIdleTime[id] += g_FrameTime[id];
-			
+
 			if (!xs_vec_len(g_RunIdleOrigin[id]))
 				xs_vec_copy(g_PrevOrigin[id], g_RunIdleOrigin[id]);
 		}
@@ -7804,7 +7804,7 @@ CheckNoclipSpeed(id)
 	pev(id, pev_v_angle, vAngles);
 	angle_vector(vAngles, ANGLEVECTOR_FORWARD, forwardMove);
 	angle_vector(vAngles, ANGLEVECTOR_RIGHT, rightMove);
-	
+
 	new Float:input[3];
 	if (g_Buttons[id] & IN_FORWARD)
 		input[0]++;
@@ -7830,7 +7830,7 @@ CheckNoclipSpeed(id)
 		// need to do anything for that apparently, we handle the whole thing
 		auxSpeed -= get_pcvar_float(pcvar_sv_maxspeed);
 	}
-	
+
 	// If you're pressing forward and right with a noclip maxspeed of 800, the x velocity should be 565
 	// and the y velocity 565 too, so that the total speed is 800; so that's what we do here
 	for (new i = 0; i < 3; i++)
@@ -8036,7 +8036,7 @@ public Fw_FmPlayerPostThinkPre(id)
 			g_hasSlopebugged[id] = true;
 		}
 	}
-	
+
 	if (g_IsInNoclip[id] || pev(id, pev_iuser1) == OBS_ROAMING)
 		CheckNoclipSpeed(id);
 	else
@@ -8137,11 +8137,11 @@ public Fw_FmLightStyle(style, const value[]) {
 }
 
 
-//*******************************************************
+//*******************************************************/
 //*                                                     *
 //* Map tuning                                          *
 //*                                                     *
-//*******************************************************
+//*******************************************************/
 
 /*
 kz_create_button(id, type, Float:pOrigin[3] = {0.0, 0.0, 0.0})
@@ -8368,7 +8368,7 @@ CheckStartEnd()
 			g_usesStartingZone = true;
 			// TODO: handle edge case of also having a start button
 			// TODO: handle start split? (GetEntityButtonType(ent) = BUTTON_SPLIT)
-			
+
 		}
 	}
 
@@ -9224,14 +9224,14 @@ CmdRunStatsHudHoldTime(id)
 	{
 		holdTime = RUN_STATS_HUD_MAX_HOLD_TIME;
 		ShowMessage(id, "Run stats HUD hold time set to %.1f (max. allowed)", holdTime);
-		
+
 		isMsgAlreadyShown = true;
 	}
 	else if (holdTime < RUN_STATS_HUD_MIN_HOLD_TIME)
 	{
 		holdTime = RUN_STATS_HUD_MIN_HOLD_TIME;
 		ShowMessage(id, "Run stats HUD hold time set to %.1f (min. allowed)", holdTime);
-		
+
 		isMsgAlreadyShown = true;
 	}
 	g_RunStatsHudHoldTime[id] = holdTime;
@@ -9307,7 +9307,7 @@ CmdRunStatsHudX(id)
 	{
 		x = 1.0;
 		ShowMessage(id, "Run stats HUD X set to %.1f (max. allowed)", x);
-		
+
 		isMsgAlreadyShown = true;
 	}
 	else if (x < 0.0 && x != -1.0)
@@ -9315,7 +9315,7 @@ CmdRunStatsHudX(id)
 		// -1.0 means centered, so we allow that value
 		x = 0.0;
 		ShowMessage(id, "Run stats HUD X set to %.1f (min. allowed)", x);
-		
+
 		isMsgAlreadyShown = true;
 	}
 	g_RunStatsHudX[id] = x;
@@ -9338,7 +9338,7 @@ CmdRunStatsHudY(id)
 	{
 		y = 1.0;
 		ShowMessage(id, "Run stats HUD Y set to %.1f (max. allowed)", y);
-		
+
 		isMsgAlreadyShown = true;
 	}
 	else if (y < 0.0 && y != -1.0)
@@ -9346,7 +9346,7 @@ CmdRunStatsHudY(id)
 		// -1.0 means centered, so we allow that value
 		y = 0.0;
 		ShowMessage(id, "Run stats HUD Y set to %.1f (min. allowed)", y);
-		
+
 		isMsgAlreadyShown = true;
 	}
 	g_RunStatsHudY[id] = y;
@@ -9428,11 +9428,11 @@ bool:IsAnyActiveNR()
 
 
 
-//*******************************************************
+//*******************************************************/
 //*                                                     *
 //* Records handling                                    *
 //*                                                     *
-//*******************************************************
+//*******************************************************/
 
 GetUserUniqueId(id, uniqueid[], len)
 {
@@ -9744,7 +9744,7 @@ SaveFailedAttemptDB(id, RUN_TYPE:topType, stats[STATS])
 {
 	new queryData[QUERY];
 	FillQueryData(id, queryData, topType, stats);
-	
+
 	if (!queryData[QUERY_PID])
 	{
 		ShowMessage(id, "Unable to save the run attempt! Try to reconnect");
@@ -10369,7 +10369,7 @@ LaunchRecordFireworks(dst = 0)
 
 		message_begin(MSG_ONE_UNRELIABLE, SVC_TEMPENTITY, _, dst)
 	}
-	
+
 	write_byte(TE_EXPLOSION);
 	write_coord(floatround(g_PrevButtonOrigin[0]));	// start position
 	write_coord(floatround(g_PrevButtonOrigin[1]));
@@ -10433,11 +10433,11 @@ bool:GetSplitByEntityId(id, result[])
 
 
 
-//*******************************************************
+//*******************************************************/
 //*                                                     *
 //* MySQL query handling                                *
 //*                                                     *
-//*******************************************************
+//*******************************************************/
 
 public DefaultInsertHandler(failstate, error[], errNo, what[], size, Float:queuetime)
 {
