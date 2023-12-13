@@ -2650,7 +2650,7 @@ InitPlayer(id, bool:onDisconnectOrAgstart = false, bool:onlyTimer = false)
 			set_pev(id, pev_health, 100.0);
 
 		// Reset gravity modifier
-		set_user_gravity(id, 1.0)
+		set_user_gravity(id, 1.0);
 	}
 
 	// Reset checkpoints
