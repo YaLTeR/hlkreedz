@@ -1073,8 +1073,15 @@ public plugin_cfg()
 {
 	server_print("[%s] [%.3f] Executing plugin_cfg()", PLUGIN_TAG, get_gametime());
 	get_configsdir(g_ConfigsDir, charsmax(g_ConfigsDir));
-	get_mapname(g_Map, charsmax(g_Map));
-	strtolower(g_Map);
+
+	// TODO: fix this serverside i.e in agmod itself?
+	new tempMapName[64];
+	get_mapname(tempMapName, charsmax(tempMapName));
+	strtolower(tempMapName);
+	if (tempMapName[0] == '\\' || tempMapName[0] == '/')
+		copy(g_Map, charsmax(g_Map), tempMapName[1]);
+	else
+		copy(g_Map, charsmax(g_Map), tempMapName);
 
 	// Execute custom config file
 	new cfg[256];
