@@ -7822,6 +7822,7 @@ public Fw_FmAddToFullPackPost(es, e, ent, host, hostflags, player, pSet)
 					// Don’t even dare to think about changing that values for render* variables under any circumstances here, everyone understand me clearly?
 					// These are now constants, if you need to change them - sure, you can do it on the client side, BUT IN NO CASE ON THE SERVER OR PLUGIN SIDE!
 
+					//set_es(es, ES_Effects, get_es(es, ES_Effects) & ~EF_NODRAW); // That doesn't work! Use set_pev instead!
 					set_pev(ent, pev_effects, pev(ent, pev_effects) & ~EF_NODRAW);
 					set_es(es, ES_RenderAmt, 0); // We will set the renderamt value on the clientside at HUD_AddEntity function
 					set_es(es, ES_RenderMode, kRenderTransColor);
