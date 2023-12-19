@@ -4324,6 +4324,9 @@ public CmdSayHandler(id, level, cid)
 	else if (containi(args[1], "rate") == 0)
 		CmdRateMap(id);
 
+	else if (containi(args[1], "lastplayed") == 0)
+		ShowLastPlayedMaps(id);
+
 /*
 	else if (containi(args[1], "pov") == 0)
 	{
@@ -10185,6 +10188,39 @@ ShowTopNoReset(id)
 	return PLUGIN_HANDLED;
 }
 
+ShowLastPlayedMaps(id)
+{
+	new pid = 0;
+	TrieGetCell(g_DbPlayerId, g_UniqueId[id], pid);
+
+	new query[512];
+	formatex(query, charsmax(query), "\
+	    SELECT t1.name, UNIX_TIMESTAMP(t1.date) \
+	    FROM ( \
+	        SELECT  m.name, \
+	                r.date, \
+	                RANK() OVER ( \
+	                    PARTITION BY m.name \
+                        ORDER BY r.date DESC \
+	                ) num \
+	        FROM run r \
+	        INNER JOIN map m \ 
+	        ON m.id = r.map \
+	        WHERE r.player = %d \ 
+	    ) t1 \
+	    WHERE t1.num = 1 \
+	    ORDER BY t1.date DESC \
+	    LIMIT 15 \
+	", pid);
+
+	set_hudmessage(g_HudRGB[id][0], g_HudRGB[id][1], g_HudRGB[id][2], _, -1.0, _, 0.0, 999999.9);
+	ShowSyncHudMsg(id, g_SyncHudLoading, "Loading...");
+
+	new data[1];
+	data[0] = id;
+	mysql_query(g_DbConnection, "LastPlayedMapsHandler", query, data, sizeof(data));
+}
+
 // Checks if the bounding box of the player has its nearest boundary to the wall inside that same wall
 // The nearest boundary is the one that is frontmost, known thanks to the velocity of the player
 public IsPlayerInsideWall(id, Float:origin[3], Float:leadingBoundary[3], Float:collisionPoint[3])
@@ -11418,6 +11454,36 @@ public MapRatingSelectHandler(failstate, error[], errNo, data[], size, Float:que
 	mysql_read_result(0, g_MapRating[id]);
 }
 
+public LastPlayedMapsHandler(failstate, error[], errNo, data[], size, Float:queuetime)
+{
+	new id = data[0];
+	ClearSyncHud(id, g_SyncHudLoading);
+
+	if (failstate != TQUERY_SUCCESS)
+	{
+		log_to_file(MYSQL_LOG_FILENAME, "ERROR @ LastPlayedMapsHandler(): [%d] - [%s]", errNo, error);
+		return;
+	}
+
+	new len = 0;
+	new buffer[MAX_MOTD_LENGTH];
+	new map[64], timestamp, date[16];
+	while (mysql_more_results())
+	{
+		mysql_read_result(0, map, charsmax(map));
+		timestamp = mysql_read_result(1);
+		format_time(date, charsmax(date), "%d/%m/%Y", timestamp);
+		len += formatex(buffer[len], charsmax(buffer) - len, "\n%-20s  %-10s", map, date);
+		mysql_next_row();
+	}
+	len += formatex(buffer[len], charsmax(buffer) - len, "\n\n%s %s", PLUGIN, VERSION);
+
+	new header[32], subHeader[32];
+	formatex(subHeader, charsmax(subHeader), "Map                 Date");
+	formatex(header, charsmax(header), "Last 15 Played Maps");
+	format(buffer, charsmax(buffer), "%s\n%s", subHeader, buffer);
+	show_motd(id, buffer, header);
+}
 
 /*
 ------------------------------------------
