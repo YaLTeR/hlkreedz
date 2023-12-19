@@ -893,7 +893,7 @@ public plugin_init()
 		register_clcmd("callvote agmap",        "CmdMapVoteHandler");
 		register_clcmd("agnextmap",             "CmdMapVoteHandler");
 		register_clcmd("vote agnextmap",        "CmdMapVoteHandler");
-		register_clcmd("callvote agnextmap"     "CmdMapVoteHandler");
+		register_clcmd("callvote agnextmap",    "CmdMapVoteHandler");
 		register_clcmd("mp_timelimit",          "CmdTimelimitVoteHandler");
 		register_clcmd("vote mp_timelimit",     "CmdTimelimitVoteHandler");
 		register_clcmd("callvote mp_timelimit", "CmdTimelimitVoteHandler");
