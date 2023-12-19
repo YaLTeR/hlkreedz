@@ -10204,9 +10204,9 @@ ShowLastPlayedMaps(id)
                         ORDER BY r.date DESC \
 	                ) num \
 	        FROM run r \
-	        INNER JOIN map m \ 
+	        INNER JOIN map m \
 	        ON m.id = r.map \
-	        WHERE r.player = %d \ 
+	        WHERE r.player = %d \
 	    ) t1 \
 	    WHERE t1.num = 1 \
 	    ORDER BY t1.date DESC \
