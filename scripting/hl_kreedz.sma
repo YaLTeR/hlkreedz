@@ -210,7 +210,7 @@ enum _:INSERT_MAP_RATING_DATA
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.51";
+new const VERSION[] = "0.52";
 //new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the replay format changes
 new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, execut4ble, naz, mxpph";
 
@@ -507,6 +507,7 @@ new Float:g_MapRating[MAX_PLAYERS + 1];
 
 new g_MapWeapons[MAX_ENTITIES][WEAPON];  // weapons that are in the map, with their origin and angles
 new g_HideableEntity[MAX_ENTITIES];
+new g_RenderizableTrigger[MAX_ENTITIES];  // triggers that we may allow the client to see
 
 // These are for a fix for players receiving too much damage from trigger_hurt
 new Array:g_DamagedByEntity[MAX_PLAYERS + 1];
@@ -752,6 +753,8 @@ public plugin_init()
 	}
 
 	pcvar_kz_show_triggers_disable = register_cvar("kz_show_triggers_disable", "0");
+	hook_cvar_change(pcvar_kz_show_triggers_disable, "ShowTriggersChange");
+
 	pcvar_kz_uniqueid = register_cvar("kz_uniqueid", "3");  // 1 - name, 2 - ip, 3 - steamid
 	pcvar_kz_spawn_mainmenu = register_cvar("kz_spawn_mainmenu", "1");
 	pcvar_kz_messages = register_cvar("kz_messages", "2");  // 0 - none, 1 - chat, 2 - hud
@@ -1184,6 +1187,7 @@ public plugin_cfg()
 	CheckTeleportDestinations();
 	CheckHideableEntities();
 	CheckStartEnd();
+	AdjustTriggersVisibility();
 
 	g_RunTotalReq = TrieGetSize(g_RunReqs);
 	if (g_RunTotalReq)
@@ -8097,56 +8101,59 @@ public Fw_FmAddToFullPackPost(es, e, ent, host, hostflags, player, pSet)
 		{
 			static className[32];
 			pev(ent, pev_classname, className, charsmax(className));
-		
-			if ((equali(className, "trigger_", 8)) || (equali(className, "func_ladder")))
+
+			if (equali(className, "trigger_", 8) || equali(className, "func_ladder"))
 			{
-				if (!get_pcvar_num(pcvar_kz_show_triggers_disable))
+				if (!g_RenderizableTrigger[ent])
 				{
-					// Don’t even dare to think about changing that values for render* variables under any circumstances here, everyone understand me clearly?
-					// These are now constants, if you need to change them - sure, you can do it on the client side, BUT IN NO CASE ON THE SERVER OR PLUGIN SIDE!
-
-					//set_es(es, ES_Effects, get_es(es, ES_Effects) & ~EF_NODRAW); // That doesn't work! Use set_pev instead!
-					set_pev(ent, pev_effects, pev(ent, pev_effects) & ~EF_NODRAW);
-					set_es(es, ES_RenderAmt, 0); // We will set the renderamt value on the clientside at HUD_AddEntity function
-					set_es(es, ES_RenderMode, kRenderTransColor);
-					set_es(es, ES_RenderFx, 241); // That's how we gonna detect if entity is trigger, since there is no way to get classname straight on clientside AFAIK
-
-					// Assign a separate color to each trigger class so that we can optionally turn off or change their color on the client (e.g. to not showing the single-player triggers as _transition or _changelevel)
-					if (equali(className, "func_ladder"))
-						set_es(es, ES_RenderColor, { 102, 178, 255 } ); // Sky
-					else if (equali(className, "trigger_autosave"))
-						set_es(es, ES_RenderColor, { 128, 128, 128 } ); // Grey
-					else if (equali(className, "trigger_cdaudio"))
-						set_es(es, ES_RenderColor, { 128, 128, 0 } ); // Olive
-					else if (equali(className, "trigger_changelevel"))
-						set_es(es, ES_RenderColor, { 79, 255, 10 } ); // Bright green
-					else if (equali(className, "trigger_endsection"))
-						set_es(es, ES_RenderColor, { 150, 75, 0 } ); // Brown
-					else if (equali(className, "trigger_gravity"))
-						set_es(es, ES_RenderColor, { 70, 130, 180 } ); // Steel blue
-					else if (equali(className, "trigger_hurt"))
-						set_es(es, ES_RenderColor, { 255, 0, 0 } ); // Red
-					else if (equali(className, "trigger_monsterjump"))
-						set_es(es, ES_RenderColor, { 238, 154, 77 } ); // Brown Sand
-					else if (equali(className, "trigger_multiple"))
-						set_es(es, ES_RenderColor, { 0, 0, 255 } ); // Blue
-					else if (equali(className, "trigger_once"))
-						set_es(es, ES_RenderColor, { 0, 255, 255 } ); // Cyan
-					else if (equali(className, "trigger_push"))
-						set_es(es, ES_RenderColor, { 255, 255, 0 } ); // Bright yellow
-					else if (equali(className, "trigger_teleport"))
-						set_es(es, ES_RenderColor, { 81, 147, 49 } ); // Dull green
-					else if (equali(className, "trigger_transition"))
-						set_es(es, ES_RenderColor, { 203, 103, 212 } ); // Magenta
-					else
-						set_es(es, ES_RenderColor, { 255, 255, 255 } ); // White
+					//server_print("invisibilizing %s %d", className, ent);
+					set_es(es, ES_Effects, get_es(es, ES_Effects) | EF_NODRAW);
+					return FMRES_IGNORED;
 				}
-				else if (get_entity_visibility(ent))
-				{
-					set_pev(ent, pev_effects, pev(ent, pev_effects) | EF_NODRAW);
-				}
+				//else
+				//	server_print("rendering %s %d", className, ent);
+
+				// Don’t even dare to think about changing that values for render* variables under any circumstances here, everyone understand me clearly?
+				// These are now constants, if you need to change them - sure, you can do it on the client side, BUT IN NO CASE ON THE SERVER OR PLUGIN SIDE!
+
+				//set_es(es, ES_Effects, get_es(es, ES_Effects) & ~EF_NODRAW); // That doesn't work! Use set_pev instead!
+				//set_pev(ent, pev_effects, pev(ent, pev_effects) & ~EF_NODRAW); // This is now done during plugin_cfg --> AdjustTriggersVisibility
+				set_es(es, ES_RenderAmt, 0); // We will set the renderamt value on the clientside at HUD_AddEntity function
+				set_es(es, ES_RenderMode, kRenderTransColor);
+				set_es(es, ES_RenderFx, 241); // That's how we gonna detect if entity is trigger, since there is no way to get classname straight on clientside AFAIK
+
+				// Assign a separate color to each trigger class so that we can optionally turn off or change their color on the client (e.g. to not showing the single-player triggers as _transition or _changelevel)
+				if (equali(className, "func_ladder"))
+					set_es(es, ES_RenderColor, { 102, 178, 255 } ); // Sky
+				else if (equali(className, "trigger_autosave"))
+					set_es(es, ES_RenderColor, { 128, 128, 128 } ); // Grey
+				else if (equali(className, "trigger_cdaudio"))
+					set_es(es, ES_RenderColor, { 128, 128, 0 } ); // Olive
+				else if (equali(className, "trigger_changelevel"))
+					set_es(es, ES_RenderColor, { 79, 255, 10 } ); // Bright green
+				else if (equali(className, "trigger_endsection"))
+					set_es(es, ES_RenderColor, { 150, 75, 0 } ); // Brown
+				else if (equali(className, "trigger_gravity"))
+					set_es(es, ES_RenderColor, { 70, 130, 180 } ); // Steel blue
+				else if (equali(className, "trigger_hurt"))
+					set_es(es, ES_RenderColor, { 255, 0, 0 } ); // Red
+				else if (equali(className, "trigger_monsterjump"))
+					set_es(es, ES_RenderColor, { 238, 154, 77 } ); // Brown Sand
+				else if (equali(className, "trigger_multiple"))
+					set_es(es, ES_RenderColor, { 0, 0, 255 } ); // Blue
+				else if (equali(className, "trigger_once"))
+					set_es(es, ES_RenderColor, { 0, 255, 255 } ); // Cyan
+				else if (equali(className, "trigger_push"))
+					set_es(es, ES_RenderColor, { 255, 255, 0 } ); // Bright yellow
+				else if (equali(className, "trigger_teleport"))
+					set_es(es, ES_RenderColor, { 81, 147, 49 } ); // Dull green
+				else if (equali(className, "trigger_transition"))
+					set_es(es, ES_RenderColor, { 203, 103, 212 } ); // Magenta
+				else
+					set_es(es, ES_RenderColor, { 255, 255, 255 } ); // White
 			}
 		}
+
 		if (get_bit(g_bit_waterinvis, host) && g_HideableEntity[ent])
 		{
 			set_es(es, ES_Effects, get_es(es, ES_Effects) | EF_NODRAW);
@@ -8364,6 +8371,52 @@ CheckTeleportDestinations()
 		server_print("[%s] The current map doesn't have teleports", PLUGIN_TAG);
 }
 
+public ShowTriggersChange(pcvar, const old_value[], const new_value[])
+{
+	AdjustTriggersVisibility();
+}
+
+AdjustTriggersVisibility()
+{
+	new ent, entCount;
+
+	new disableTriggers = get_pcvar_num(pcvar_kz_show_triggers_disable);
+
+	server_print("disableTriggers is %d", disableTriggers);
+	for (ent = g_MaxPlayers + 1; ent < global_get(glb_maxEntities); ent++)
+	{
+		if (!pev_valid(ent))
+			continue;
+
+		new className[32];
+		pev(ent, pev_classname, className, charsmax(className));
+
+		if (equali(className, "trigger_", 8) || equali(className, "func_ladder"))
+		{
+			if (!disableTriggers)
+			{
+				g_RenderizableTrigger[ent] = true;
+
+				// This seems to allow these entities to go through Fw_FmAddToFullPackPost, and there we decide
+				// if we actually want the client to see them or not
+				set_pev(ent, pev_effects, pev(ent, pev_effects) & ~EF_NODRAW);
+
+				entCount++;
+			}
+			else
+			{
+				g_RenderizableTrigger[ent] = false;
+				// This is left here commented out as a reminder that this does not work as intended
+				//set_pev(ent, pev_effects, pev(ent, pev_effects) | EF_NODRAW);
+			}
+		}
+		else
+			g_RenderizableTrigger[ent] = false;
+	}
+
+	server_print("[%s] The current map has %d triggers that can now be turned visible", PLUGIN_TAG, entCount);
+}
+
 public InvisFuncConveyorChange(pcvar, const old_value[], const new_value[])
 {
 	CheckHideableEntities();
@@ -8385,7 +8438,7 @@ CheckHideableEntities()
 		}
 		else
 		{
-			// Could be true if for example kz_invis_func_conveyor's value was switches a couple times,
+			// Could be true if for example kz_invis_func_conveyor's value was switched a couple times,
 			// so we have to update the state here too for /winvis to work correctly
 			g_HideableEntity[ent] = false;
 		}
