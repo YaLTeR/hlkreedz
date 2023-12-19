@@ -884,6 +884,13 @@ public plugin_init()
 		register_clcmd("agmap",                 "CmdAgVoteHandler");
 		register_clcmd("vote agmap",            "CmdAgVoteHandler");
 		register_clcmd("callvote agmap",        "CmdAgVoteHandler");
+		register_clcmd("vote map",              "CmdMapVoteHandler");
+		register_clcmd("callvote map",          "CmdMapVoteHandler");
+		register_clcmd("vote changelevel",      "CmdMapVoteHandler");
+		register_clcmd("callvote changelevel",  "CmdMapVoteHandler");
+		register_clcmd("agmap",                 "CmdMapVoteHandler");
+		register_clcmd("vote agmap",            "CmdMapVoteHandler");
+		register_clcmd("callvote agmap",        "CmdMapVoteHandler");
 		register_clcmd("mp_timelimit",          "CmdTimelimitVoteHandler");
 		register_clcmd("vote mp_timelimit",     "CmdTimelimitVoteHandler");
 		register_clcmd("callvote mp_timelimit", "CmdTimelimitVoteHandler");
@@ -4807,6 +4814,19 @@ public CmdTimelimitVoteHandler(id)
 		return PLUGIN_HANDLED;
 	}
 	return PLUGIN_CONTINUE;
+}
+
+public CmdMapVoteHandler(id)
+{
+	new args[256];
+	read_args(args, charsmax(args));
+	if (contain(args, "/") != -1)
+		console_print(id, "Can't vote for map containing '/'.");
+	else if (contain(args, "\\") != -1)
+		console_print(id, "Can't vote for map containing '\\'.");
+	else
+		return PLUGIN_CONTINUE;
+	return PLUGIN_HANDLED;
 }
 
 public Fw_FmClientCommandPost(id)
