@@ -10195,21 +10195,21 @@ ShowLastPlayedMaps(id)
 
 	new query[512];
 	formatex(query, charsmax(query), "\
-	    SELECT t1.name, UNIX_TIMESTAMP(t1.date) \
+	    SELECT t1.name, UNIX_TIMESTAMP(t1.disconnect_date) \
 	    FROM ( \
 	        SELECT  m.name, \
-	                r.date, \
+	                p.disconnect_date, \
 	                RANK() OVER ( \
 	                    PARTITION BY m.name \
-                        ORDER BY r.date DESC \
+	                    ORDER BY p.disconnect_date DESC \
 	                ) num \
-	        FROM run r \
+	        FROM player_connection p \
 	        INNER JOIN map m \
-	        ON m.id = r.map \
-	        WHERE r.player = %d \
+	        ON m.id = p.map \
+	        WHERE p.player = %d \
 	    ) t1 \
 	    WHERE t1.num = 1 \
-	    ORDER BY t1.date DESC \
+	    ORDER BY t1.disconnect_date DESC \
 	    LIMIT 15 \
 	", pid);
 
@@ -11473,13 +11473,13 @@ public LastPlayedMapsHandler(failstate, error[], errNo, data[], size, Float:queu
 		mysql_read_result(0, map, charsmax(map));
 		timestamp = mysql_read_result(1);
 		format_time(date, charsmax(date), "%d/%m/%Y", timestamp);
-		len += formatex(buffer[len], charsmax(buffer) - len, "\n%-20s  %-10s", map, date);
+		len += formatex(buffer[len], charsmax(buffer) - len, "\n%-32s  %-10s", map, date);
 		mysql_next_row();
 	}
 	len += formatex(buffer[len], charsmax(buffer) - len, "\n\n%s %s", PLUGIN, VERSION);
 
-	new header[32], subHeader[32];
-	formatex(subHeader, charsmax(subHeader), "Map                 Date");
+	new header[20], subHeader[40];
+	formatex(subHeader, charsmax(subHeader), "Map                               Date");
 	formatex(header, charsmax(header), "Last 15 Played Maps");
 	format(buffer, charsmax(buffer), "%s\n%s", subHeader, buffer);
 	show_motd(id, buffer, header);
