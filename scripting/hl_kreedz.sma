@@ -7858,7 +7858,7 @@ public Fw_FmAddToFullPackPost(es, e, ent, host, hostflags, player, pSet)
 					else
 						set_es(es, ES_RenderColor, { 255, 255, 255 } ); // White
 				}
-				else if (!equali(className, "func_ladder") && get_entity_visibility(ent)) // Always transmit func_ladder since it is used in pm_shared.c (CONTENTS_LADDER from skin variable)
+				else if (get_entity_visibility(ent))
 				{
 					set_pev(ent, pev_effects, pev(ent, pev_effects) | EF_NODRAW);
 				}
