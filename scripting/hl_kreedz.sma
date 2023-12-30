@@ -601,6 +601,7 @@ new pcvar_kz_stuck;
 new pcvar_kz_semiclip;
 new pcvar_kz_pause;
 new pcvar_kz_nodamage;
+new pcvar_kz_show_triggers_disable;
 new pcvar_kz_show_timer;
 new pcvar_kz_show_keys;
 new pcvar_kz_show_start_msg;
@@ -750,6 +751,7 @@ public plugin_init()
 		g_IsAgServer = true;
 	}
 
+	pcvar_kz_show_triggers_disable = register_cvar("kz_show_triggers_disable", "0");
 	pcvar_kz_uniqueid = register_cvar("kz_uniqueid", "3");  // 1 - name, 2 - ip, 3 - steamid
 	pcvar_kz_spawn_mainmenu = register_cvar("kz_spawn_mainmenu", "1");
 	pcvar_kz_messages = register_cvar("kz_messages", "2");  // 0 - none, 1 - chat, 2 - hud
@@ -8124,6 +8126,61 @@ public Fw_FmAddToFullPackPost(es, e, ent, host, hostflags, player, pSet)
 
 	if (!player)
 	{
+		if (pev_valid(ent))
+		{
+			static className[32];
+			pev(ent, pev_classname, className, charsmax(className));
+		
+			if ((equali(className, "trigger_", 8)) || (equali(className, "func_ladder")))
+			{
+				if (!get_pcvar_num(pcvar_kz_show_triggers_disable))
+				{
+					// Don’t even dare to think about changing that values for render* variables under any circumstances here, everyone understand me clearly?
+					// These are now constants, if you need to change them - sure, you can do it on the client side, BUT IN NO CASE ON THE SERVER OR PLUGIN SIDE!
+
+					//set_es(es, ES_Effects, get_es(es, ES_Effects) & ~EF_NODRAW); // That doesn't work! Use set_pev instead for unset flag!
+					set_pev(ent, pev_effects, pev(ent, pev_effects) & ~EF_NODRAW);
+					set_es(es, ES_RenderAmt, 0); // We will set the renderamt value on the clientside at HUD_AddEntity function
+					set_es(es, ES_RenderMode, kRenderTransColor);
+					set_es(es, ES_RenderFx, 241); // That's how we gonna detect if entity is trigger, since there is no way to get classname straight on clientside AFAIK
+
+					// Assign a separate color to each trigger class so that we can optionally turn off or change their color on the client (e.g. to not showing the single-player triggers as _transition or _changelevel)
+					if (equali(className, "func_ladder"))
+						set_es(es, ES_RenderColor, { 102, 178, 255 } ); // Sky
+					else if (equali(className, "trigger_autosave"))
+						set_es(es, ES_RenderColor, { 128, 128, 128 } ); // Grey
+					else if (equali(className, "trigger_cdaudio"))
+						set_es(es, ES_RenderColor, { 128, 128, 0 } ); // Olive
+					else if (equali(className, "trigger_changelevel"))
+						set_es(es, ES_RenderColor, { 79, 255, 10 } ); // Bright green
+					else if (equali(className, "trigger_endsection"))
+						set_es(es, ES_RenderColor, { 150, 75, 0 } ); // Brown
+					else if (equali(className, "trigger_gravity"))
+						set_es(es, ES_RenderColor, { 70, 130, 180 } ); // Steel blue
+					else if (equali(className, "trigger_hurt"))
+						set_es(es, ES_RenderColor, { 255, 0, 0 } ); // Red
+					else if (equali(className, "trigger_monsterjump"))
+						set_es(es, ES_RenderColor, { 238, 154, 77 } ); // Brown Sand
+					else if (equali(className, "trigger_multiple"))
+						set_es(es, ES_RenderColor, { 0, 0, 255 } ); // Blue
+					else if (equali(className, "trigger_once"))
+						set_es(es, ES_RenderColor, { 0, 255, 255 } ); // Cyan
+					else if (equali(className, "trigger_push"))
+						set_es(es, ES_RenderColor, { 255, 255, 0 } ); // Bright yellow
+					else if (equali(className, "trigger_teleport"))
+						set_es(es, ES_RenderColor, { 81, 147, 49 } ); // Dull green
+					else if (equali(className, "trigger_transition"))
+						set_es(es, ES_RenderColor, { 203, 103, 212 } ); // Magenta
+					else
+						set_es(es, ES_RenderColor, { 255, 255, 255 } ); // White
+				}
+				else if (get_entity_visibility(ent))
+				{
+					set_pev(ent, pev_effects, pev(ent, pev_effects) | EF_NODRAW);
+					return FMRES_IGNORED;
+				}
+			}
+		}
 		if (get_bit(g_bit_waterinvis, host) && g_HideableEntity[ent])
 		{
 			set_es(es, ES_Effects, get_es(es, ES_Effects) | EF_NODRAW);
