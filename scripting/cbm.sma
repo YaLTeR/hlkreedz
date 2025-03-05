@@ -13,7 +13,7 @@
  * I know this small job but is useful for public servers on some unfinished maps (kz_ascension_v7, kz_giantbean_v8 and others)
  *
  *  Change log:
- * v0.1 - Ñlearing BCM plugin
+ * v0.1 - Clearing BCM plugin
  * v0.2 - Changed BCM to CBM
  * v0.3 - Added buttons
  * v0.4 - Edited functions
@@ -21,6 +21,7 @@
  * v0.6 - Finded and fixed double make buttons bug
  * v0.7 - Fixed buttons not getting saved sometimes
  * v0.8 - Fixed not being able to rotate or remove buttons
+ * v0.9 - Users with the 's' access flag can now use the menu
  */
 
 #include <amxmodx>
@@ -28,7 +29,7 @@
 #include <fakemeta>
 
 #define PLUGIN "Climb Button Maker"
-#define VERSION "0.8"
+#define VERSION "0.9"
 #define AUTHOR "Kr1Zo & naz"
 
 new cbmStart[] = "models/cbm/kz_timer_start.mdl"
@@ -48,9 +49,9 @@ new Array:buttons
 public plugin_init() {
 	register_plugin(PLUGIN, VERSION, AUTHOR)
 
-	register_cvar("kr1zo", "cbm0.8", FCVAR_SERVER)
+	register_cvar("kr1zo", "cbm0.9", FCVAR_SERVER)
 
-	register_clcmd("say /cbm", "cmdCbmMenu", ADMIN_IMMUNITY, "- open Climb Button Maker menu")
+	register_clcmd("say /cbm", "cmdCbmMenu", ADMIN_LEVEL_G, "- open Climb Button Maker menu")
 
 	cbmMenu = menu_create("Climb Button Maker by Kr1Zo", "cbmMnu")
 
