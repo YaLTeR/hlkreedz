@@ -64,6 +64,7 @@
 #define MAX_COUNTDOWN                   30.0
 #define MATCH_START_CHECK_SECOND        2
 #define HUD_UPDATE_TIME                 0.05
+#define CVARS_CHECK_INTERVAL            0.2
 #define MIN_TIMELEFT_ALLOWED_NORESET    5.0
 #define HUD_SPLIT_HOLDTIME              2.0
 #define HUD_LAP_HOLDTIME                2.5
@@ -85,6 +86,7 @@
 #define START_BUTTON_ALLOWED_PRESPEED   50.0
 #define MAX_MAP_INSERTIONS_AT_ONCE      7
 #define DEFAULT_HLKZ_NOCLIP_SPEED       800.0
+#define ALLOWED_YAWSPEED_VALUE          210
 
 // TODO: make this configurable
 #define DOUBLEPRESS_THRESHOLD               0.3   // in seconds, max time between keypresses to consider it a doublepress (like doubleclick)
@@ -210,7 +212,7 @@ enum _:INSERT_MAP_RATING_DATA
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.52";
+new const VERSION[] = "0.53";
 //new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the replay format changes
 new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, execut4ble, naz, mxpph";
 
@@ -536,7 +538,8 @@ new g_SyncHudRunStats;
 
 new g_MaxPlayers;
 new g_PauseSprite;
-new g_TaskEnt;
+new g_CvarsTaskEnt;
+new g_HudTaskEnt;
 new g_Firework;
 new Float:g_PrevButtonOrigin[3];
 
@@ -655,6 +658,7 @@ new pcvar_kz_noclip_speed;
 new pcvar_kz_fireworks_on_wr;
 new pcvar_kz_default_antireset_threshold;
 new pcvar_kz_ask_map_rating_interval;
+new pcvar_kz_ban_yawspeed_change;
 
 // Pinters to game/engine cvars
 new pcvar_allow_spectators;
@@ -854,6 +858,7 @@ public plugin_init()
 
 	pcvar_kz_ask_map_rating_interval = create_cvar("kz_ask_map_rating_interval", "15", _, "Minutes to wait before asking (again) about rating the current map, if not rated yet", true, 0.0);
 
+	pcvar_kz_ban_yawspeed_change = register_cvar("kz_ban_yawspeed_change", "0");
 
 	register_dictionary("telemenu.txt");
 	register_dictionary("common.txt");
@@ -1022,9 +1027,13 @@ public plugin_init()
 		register_message(get_user_msgid("Settings"), "Fw_MsgSettings");
 	}
 
-	g_TaskEnt = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
-	set_pev(g_TaskEnt, pev_classname, engfunc(EngFunc_AllocString, "timer_entity"));
-	set_pev(g_TaskEnt, pev_nextthink, get_gametime() + 1.01);
+	g_HudTaskEnt = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
+	set_pev(g_HudTaskEnt, pev_classname, engfunc(EngFunc_AllocString, "timer_entity"));
+	set_pev(g_HudTaskEnt, pev_nextthink, get_gametime() + 1.01);
+
+	g_CvarsTaskEnt = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
+	set_pev(g_CvarsTaskEnt, pev_classname, engfunc(EngFunc_AllocString, "timer_entity"));
+	set_pev(g_CvarsTaskEnt, pev_nextthink, get_gametime() + 1.01);
 
 	g_MaxPlayers = get_maxplayers();
 
@@ -4923,7 +4932,7 @@ ClientCommandSpectatePost(id)
 				CreateCp(id, CP_TYPE_SPEC, true);
 
 			// Update hud soon
-			set_pev(g_TaskEnt, pev_nextthink, get_gametime() + 0.01);
+			set_pev(g_HudTaskEnt, pev_nextthink, get_gametime() + 0.01);
 			ClearSyncHud(id, g_SyncHudKeys);
 
 			// Pause timer, but don't froze and no pause sprite
@@ -5074,6 +5083,7 @@ StartClimb(id, bool:isMatch = false)
 	set_bit(g_baIsClimbing, id);
 	g_RunFrameCount[id] = 1;
 
+	//CheckPlayerCVars(id); // TODO: check only once per usespam
 	CheckSpeedcap(id, true);
 	CheckStartSpeed(id);
 
@@ -5096,6 +5106,7 @@ AgstartClimb(id)
 	set_bit(g_baIsClimbing, id);
 	g_RunFrameCount[id] = 1;
 
+	//CheckPlayerCVars(id); // TODO: check only once per usespam
 	CheckSpeedcap(id, true);
 	CheckStartSpeed(id);
 
@@ -5909,15 +5920,39 @@ CheckRunReqs(ent, id)
 
 public Fw_FmThinkPre(ent)
 {
+	static Float:currGameTime;
+	currGameTime = get_gametime();
 
-	if (ent == g_TaskEnt)
+	if (ent == g_HudTaskEnt)
 	{
 		// Hud update task
-		static Float:currGameTime;
-		currGameTime = get_gametime();
 		UpdateHud(currGameTime);
 		set_pev(ent, pev_nextthink, currGameTime + HUD_UPDATE_TIME);
 	}
+	else if (ent == g_CvarsTaskEnt)
+	{
+		static players[MAX_PLAYERS], playersNum, id, i;
+		get_players(players, playersNum);
+
+		for (i = 0; i < playersNum; i++)
+		{
+			id = players[i];
+			CheckPlayerCVars(id);
+		}
+
+		// Randomize the interval for the checks so that they're not predictable and makes it harder
+		// to craft scripts to avoid the punishment.  This calculation is for it to be on average
+		// the interval value that the admin set
+		new Float:intervalLow = CVARS_CHECK_INTERVAL / 1.5;
+		new Float:randInterval = random_float(intervalLow, (CVARS_CHECK_INTERVAL * 2) - intervalLow);
+		set_pev(ent, pev_nextthink, currGameTime + randInterval);
+	}
+}
+
+CheckPlayerCVars(id)
+{
+	if (get_bit(g_baIsClimbing, id) && !IsBot(id) && get_pcvar_bool(pcvar_kz_ban_yawspeed_change))
+		query_client_cvar(id, "cl_yawspeed", "CheckYawSpeedHandler");
 }
 
 UpdateHud(Float:currGameTime)
@@ -6418,6 +6453,17 @@ GetSpectatorList(id, hud[], len, sendTo[])
 		}
 	}
 	return send;
+}
+
+public CheckYawSpeedHandler(id, const cvar[], const value[], const param[])
+{
+	new Float:yawspeed = str_to_float(value);
+
+	if (yawspeed != ALLOWED_YAWSPEED_VALUE)
+	{
+		server_cmd("kick #%d \"Invalid cl_yawspeed value. Set it to %d if you want to play here.\"",
+			get_user_userid(id), ALLOWED_YAWSPEED_VALUE);
+	}
 }
 
 CheckSettings(id)
@@ -9498,7 +9544,6 @@ CmdRunStatsHudY(id)
 
 	return PLUGIN_HANDLED;
 }
-
 
 // TODO: refactor to use AMX_SETTINGS_API
 LoadMapSettings()
