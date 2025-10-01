@@ -212,7 +212,7 @@ enum _:INSERT_MAP_RATING_DATA
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.53";
+new const VERSION[] = "0.54";
 //new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the replay format changes
 new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, execut4ble, naz, mxpph";
 
@@ -1208,7 +1208,6 @@ public plugin_cfg()
 	// Player settings relative to the map are in this file
 	formatex(g_PlayerMapIniFile, charsmax(g_PlayerMapIniFile), "%s/players/%s.ini", CONFIGS_SUB_DIR, g_Map);
 
-	g_isAnyBoostWeaponInMap = false;
 	CheckMapWeapons();
 	CheckTeleportDestinations();
 	CheckHideableEntities();
@@ -7362,6 +7361,20 @@ public Fw_FmKeyValuePre(ent, kvd)
 	{
 		GetRequirementsFromMap(ent, kvd);
 	}
+	else if (equali(className, "game_player_equip") && !g_isAnyBoostWeaponInMap)
+	{
+		new key[32];
+		get_kvd(kvd, KV_KeyName, key, charsmax(key));
+
+		for (new i = 0; i < sizeof(g_BoostWeapons); i++)
+		{
+			if (equal(key, g_BoostWeapons[i]))
+			{
+				g_isAnyBoostWeaponInMap = true;
+				break;
+			}
+		}
+	}
 	// TODO: review if there are more entities to account for regarding requirements,
 	// and maybe refactor this if it gets too big. Can we just check in
 
@@ -8426,12 +8439,15 @@ bool:FindNextSplit(prev[], result[])
 
 CheckMapWeapons()
 {
-	for (new i = 0; i < sizeof(g_BoostWeapons); i++)
-	{
-		if (find_ent_by_class(-1, g_BoostWeapons[i]))
+	// Could have already been set to true previously at Fw_FmKeyValuePre
+	if (!g_isAnyBoostWeaponInMap) {
+		for (new i = 0; i < sizeof(g_BoostWeapons); i++)
 		{
-			g_isAnyBoostWeaponInMap = true;
-			break;
+			if (find_ent_by_class(-1, g_BoostWeapons[i]))
+			{
+				g_isAnyBoostWeaponInMap = true;
+				break;
+			}
 		}
 	}
 	server_print("[%s] The current map %s weapons to boost with", PLUGIN_TAG, g_isAnyBoostWeaponInMap ? "has" : "doesn't have");
