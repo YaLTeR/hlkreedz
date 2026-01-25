@@ -311,7 +311,8 @@ new const g_BoostWeapons[][] = {
 	"weapon_rpg",
 	"weapon_satchel",
 	"weapon_snark",
-	"weapon_tripmine"
+	"weapon_tripmine",
+	"item_longjump"
 };
 
 // Entities thay may be still alive without the owner being online
@@ -620,6 +621,7 @@ new pcvar_kz_top_records_max;
 new pcvar_kz_pure_max_damage_boost;
 new pcvar_kz_pure_max_start_speed;
 new pcvar_kz_pure_limit_zone_speed;
+new pcvar_kz_pure_weapons;
 new pcvar_kz_remove_func_friction;
 new pcvar_kz_invis_func_conveyor;
 new pcvar_kz_nightvision;
@@ -790,6 +792,7 @@ public plugin_init()
 	hook_cvar_change(pcvar_kz_invis_func_conveyor, "InvisFuncConveyorChange");
 
 	pcvar_kz_pure_max_damage_boost = register_cvar("kz_pure_max_damage_boost", "100");
+	pcvar_kz_pure_weapons = register_cvar("kz_pure_weapons", "0");
 
 	// 0 = disabled, 1 = all nightvision types allowed, 2 = only flashlight-like nightvision allowed, 3 = only map-global nightvision allowed
 	pcvar_kz_nightvision = register_cvar("kz_def_nightvision", "0");
@@ -8038,7 +8041,7 @@ public Fw_FmPlayerPostThinkPre(id)
 	{
 		// TODO: check whether the player has really longjumped, not if it has the LJ module
 		// and has performed a jump that may be just a normal jump and not a longjump-assisted one
-		clr_bit(g_baIsPureRunning, id);
+		PunishPlayerCheatingWithWeapons(id);
 	}
 
 	new Float:endSpeed = xs_vec_len_2d(g_Velocity[id]);
@@ -10549,7 +10552,7 @@ PunishPlayerCheatingWithWeapons(id)
 {
 	if ((!g_isAnyBoostWeaponInMap && get_bit(g_baIsClimbing, id)) || equali(g_Map, "agtricks"))
 		ResetPlayer(id, false, false); // "agstart full" is not allowed on maps without weapons
-	else
+	else if (!get_pcvar_bool(pcvar_kz_pure_weapons))
 		clr_bit(g_baIsPureRunning, id); // downgrade run from pure to pro
 }
 
