@@ -212,7 +212,7 @@ enum _:INSERT_MAP_RATING_DATA
 
 new const PLUGIN[] = "HL KreedZ Beta";
 new const PLUGIN_TAG[] = "HLKZ";
-new const VERSION[] = "0.54";
+new const VERSION[] = "0.55";
 //new const DEMO_VERSION = 36; // Should not be decreased. This is for replays, to know which version they're in, in case the replay format changes
 new const AUTHOR[] = "KORD_12.7, Lev, YaLTeR, execut4ble, naz, mxpph";
 
@@ -487,6 +487,7 @@ new bool:g_StoppedSlidingRamp[MAX_PLAYERS + 1];
 new g_RampFrameCounter[MAX_PLAYERS + 1];
 new MOVEMENT_STATE:g_Movement[MAX_PLAYERS + 1];
 new Float:g_LastStartAttempt[MAX_PLAYERS + 1];
+new Float:g_StartCooldown[MAX_PLAYERS + 1];
 
 // Run stats
 new g_RunStats[MAX_PLAYERS + 1][RUNSTATS];
@@ -638,6 +639,7 @@ new pcvar_kz_replay_host;
 new pcvar_kz_replay_predownloads;
 new pcvar_kz_replay_local_clean_delay;
 new pcvar_kz_spec_unfreeze;
+new pcvar_kz_start_cooldown_upon_cheating;
 new pcvar_kz_denied_sound;
 new pcvar_sv_items_respawn_time;
 new pcvar_kz_mysql;
@@ -816,6 +818,9 @@ public plugin_init()
 	pcvar_kz_replay_local_clean_delay = register_cvar("kz_replay_local_clean_delay", "180");  // delay in seconds from the start of the map to purge local replays, to have a time window to sync files
 
 	pcvar_kz_spec_unfreeze = register_cvar("kz_spec_unfreeze", "1");  // unfreeze spectator cam when watching a replaybot teleport
+
+	// Cooldown time in seconds after using +hook or tp before starting a run, to avoid starting runs through a ceiling or hooking upwards to a block
+	pcvar_kz_start_cooldown_upon_cheating = register_cvar("kz_start_cooldown_upon_cheating", "2.0");
 
 	pcvar_allow_spectators    = get_cvar_pointer("allow_spectators");
 	pcvar_edgefriction        = get_cvar_pointer("edgefriction");
@@ -2249,6 +2254,8 @@ public client_disconnect(id)
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_RunIdleOrigin[id]);
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastRunIdleOrigin[id]);
 
+	g_StartCooldown[id] = 0.0;
+
 	g_HadInvisPreSpec[id] = false;
 
 	g_MapRating[id] = -1.0;
@@ -2725,6 +2732,8 @@ InitPlayerVariables(id)
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_RunIdleOrigin[id]);
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastRunIdleOrigin[id]);
 	g_LastStartAttempt[id] = 0.0;
+	
+	g_StartCooldown[id] = 0.0;
 
 	pev(id, pev_origin,   g_Origin[id]);
 	pev(id, pev_angles,   g_Angles[id]);
@@ -4402,6 +4411,8 @@ public CheatCmdHandler(id)
 	if (get_bit(g_baIsClimbing, id))
 		ResetPlayer(id, false, true);
 
+	g_StartCooldown[id] = get_gametime();
+
 	new ret;
 	ExecuteForward(mfwd_hlkz_cheating, ret, id);
 
@@ -4638,6 +4649,9 @@ Teleport(id, cp)
 
 		g_CpCounters[id][COUNTER_PRACTICE_TP]++;
 		ShowMessage(id, "Go practice checkpoint #%d", g_CpCounters[id][COUNTER_PRACTICE_TP]);
+		
+		// Set cooldown after teleporting to practice checkpoint
+		g_StartCooldown[id] = get_gametime();
 	}
 	else
 	{
@@ -4669,21 +4683,33 @@ Teleport(id, cp)
 	else if (cp == CP_TYPE_START)
 	{
 		ShowMessage(id, "Teleported to the start position");
+		
+		// Reset cooldown when teleporting to start position
+		g_StartCooldown[id] = 0.0;
 	}
 	else if (cp == CP_TYPE_CUSTOM_START)
 	{
 		ShowMessage(id, "Teleported to the custom start position");
+		
+		// Reset cooldown when teleporting to custom start position
+		g_StartCooldown[id] = 0.0;
 	}
 	else if (cp == CP_TYPE_CURRENT || cp == CP_TYPE_OLD)
 	{
 		// Increment teleport times counter
 		g_CpCounters[id][COUNTER_TP]++;
 		ShowMessage(id, "Go checkpoint #%d", g_CpCounters[id][COUNTER_TP]);
+		
+		// Set cooldown after teleporting to checkpoint
+		g_StartCooldown[id] = get_gametime();
 	}
 	else if (cp == CP_TYPE_DEFAULT_START)
 	{
 		ResetPlayer(id, false, true);
 		ShowMessage(id, "Teleported to the default start position");
+		
+		// Reset cooldown when teleporting to default start position
+		g_StartCooldown[id] = 0.0;
 	}
 }
 
@@ -5060,6 +5086,20 @@ StartClimb(id, bool:isMatch = false)
 			client_cmd(id, "spk \"vox/access denied\"");
 		}
 		ShowMessage(id, "Using timer while cheating is prohibited");
+		return;
+	}
+
+	// Check if player is on cooldown after using hook or teleporting to checkpoint
+	new Float:currentTime = get_gametime();
+	new Float:cooldownTime = get_pcvar_float(pcvar_kz_start_cooldown_upon_cheating);
+	if (g_StartCooldown[id] > 0.0 && (currentTime - g_StartCooldown[id]) < cooldownTime)
+	{
+		new Float:remainingTime = cooldownTime - (currentTime - g_StartCooldown[id]);
+		ShowMessage(id, "%.1fs cooldown left after using +hook or TP", remainingTime);
+		if(get_pcvar_num(pcvar_kz_denied_sound))
+		{
+			client_cmd(id, "spk \"vox/access denied\"");
+		}
 		return;
 	}
 
