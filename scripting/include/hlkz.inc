@@ -131,6 +131,7 @@ enum _:RUNSTATS
 	Float:RS_DISTANCE_3D,
 	Float:RS_SYNC,
 	Float:RS_SPEEDGAIN,
+	Float:RS_AIR_SPEEDGAIN,
 	Float:RS_LAST_FAIL_ORIGIN[3],
 	RS_JUMPS,
 	RS_DUCKTAPS,
@@ -809,6 +810,7 @@ ClearRunStats(runstats[RUNSTATS])
 	runstats[RS_DISTANCE_3D] = 0.0;
 	runstats[RS_SYNC] = 0.0;
 	runstats[RS_SPEEDGAIN] = 0.0;
+	runstats[RS_AIR_SPEEDGAIN] = 0.0;
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, runstats[RS_LAST_FAIL_ORIGIN]);
 	runstats[RS_JUMPS] = 0;
 	runstats[RS_DUCKTAPS] = 0;

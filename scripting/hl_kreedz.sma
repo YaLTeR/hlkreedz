@@ -506,6 +506,8 @@ new g_RunSyncFrames[MAX_PLAYERS + 1];           // how many frames you got with 
 new g_RunSyncFramesMax[MAX_PLAYERS + 1];        // how many frames qualify for sync tracking; e.g.: we track when ground/airstrafing but not when surfing
 new Float:g_RunSpeedgain[MAX_PLAYERS + 1];      // how much speed you gained during the run when ground/airstrafing
 new Float:g_RunSpeedgainMax[MAX_PLAYERS + 1];   // how much speed you could have gained if you ground/airstrafed perfectly
+new Float:g_RunAirSpeedgain[MAX_PLAYERS + 1];   // how much speed you gained during the run when airborne only
+new Float:g_RunAirSpeedgainMax[MAX_PLAYERS + 1]; // how much speed you could have gained if you ground/airstrafed perfectly while airborne
 
 new Float:g_MapRating[MAX_PLAYERS + 1];
 
@@ -2155,6 +2157,8 @@ public client_putinserver(id)
 	g_RunSyncFramesMax[id] = 0;
 	g_RunSpeedgain[id] = 0.0;
 	g_RunSpeedgainMax[id] = 0.0;
+	g_RunAirSpeedgain[id] = 0.0;
+	g_RunAirSpeedgainMax[id] = 0.0;
 
 	g_RunStatsEndHudStartTime[id] = -RUN_STATS_HUD_MAX_HOLD_TIME;
 	g_RunStatsEndHudShown[id] = false;
@@ -2243,6 +2247,8 @@ public client_disconnect(id)
 	g_RunSyncFramesMax[id] = 0;
 	g_RunSpeedgain[id] = 0.0;
 	g_RunSpeedgainMax[id] = 0.0;
+	g_RunAirSpeedgain[id] = 0.0;
+	g_RunAirSpeedgainMax[id] = 0.0;
 
 	g_RunStatsEndHudStartTime[id] = -RUN_STATS_HUD_MAX_HOLD_TIME;
 	g_RunStatsEndHudShown[id] = false;
@@ -2724,6 +2730,8 @@ InitPlayerVariables(id)
 	g_RunSyncFramesMax[id] = 0;
 	g_RunSpeedgain[id] = 0.0;
 	g_RunSpeedgainMax[id] = 0.0;
+	g_RunAirSpeedgain[id] = 0.0;
+	g_RunAirSpeedgainMax[id] = 0.0;
 
 	g_IdleTime[id] = 0.0;
 	g_RunIdleTime[id] = 0.0;
@@ -2732,7 +2740,7 @@ InitPlayerVariables(id)
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_RunIdleOrigin[id]);
 	xs_vec_copy(Float:{0.0, 0.0, 0.0}, g_LastRunIdleOrigin[id]);
 	g_LastStartAttempt[id] = 0.0;
-	
+
 	g_StartCooldown[id] = 0.0;
 
 	pev(id, pev_origin,   g_Origin[id]);
@@ -5328,7 +5336,11 @@ FinishTimer(id)
 			console_print(id, "Distance 3D: %.2f",           g_RunStats[id][RS_DISTANCE_3D]);
 
 		console_print(id, "Sync: %.2f%%%%",                  g_RunStats[id][RS_SYNC]);
-		console_print(id, "Speedgain: %.2f%%%%",             g_RunStats[id][RS_SPEEDGAIN]);
+		
+		if (g_RunStatsConsoleDetailLevel[id] >= 2)
+			console_print(id, "Speedgain: %.2f%%%%",             g_RunStats[id][RS_SPEEDGAIN]);
+		
+		console_print(id, "Air Speedgain: %.2f%%%%",         g_RunStats[id][RS_AIR_SPEEDGAIN]);
 
 		console_print(id, "Jumps: %d",                       g_RunStats[id][RS_JUMPS]);
 		console_print(id, "Ducktaps: %d",                    g_RunStats[id][RS_DUCKTAPS]);
@@ -6711,7 +6723,20 @@ BuildRunStats(id)
 				g_RunSpeedgain[id] += cappedGainedSpeed;
 
 			g_RunSpeedgainMax[id] += maxAccel;
-			g_RunStats[id][RS_SPEEDGAIN] = (g_RunSpeedgain[id] / g_RunSpeedgainMax[id]) * 100.0;
+
+			if (g_RunSpeedgainMax[id] > 0.0)
+				g_RunStats[id][RS_SPEEDGAIN] = (g_RunSpeedgain[id] / g_RunSpeedgainMax[id]) * 100.0;
+
+			if (!IsUserOnGround(id))
+			{
+				if (cappedGainedSpeed > 0.0)
+					g_RunAirSpeedgain[id] += cappedGainedSpeed;
+
+				g_RunAirSpeedgainMax[id] += maxAccel;
+
+				if (g_RunAirSpeedgainMax[id] > 0.0)
+					g_RunStats[id][RS_AIR_SPEEDGAIN] = (g_RunAirSpeedgain[id] / g_RunAirSpeedgainMax[id]) * 100.0;
+			}
 
 			// Sync%
 			g_RunSyncFramesMax[id]++;
@@ -6965,6 +6990,7 @@ GetRunStatsHudText(id, text[], len, detailLevel, runStats[RUNSTATS])
 
 	format(text, len, "%sSync: %.2f%%%%\n",                  text, runStats[RS_SYNC]);
 	format(text, len, "%sSpeedgain: %.2f%%%%\n",             text, runStats[RS_SPEEDGAIN]);
+	format(text, len, "%sAir Speedgain: %.2f%%%%\n",         text, runStats[RS_AIR_SPEEDGAIN]);
 
 	format(text, len, "%sJumps: %d\n",                       text, runStats[RS_JUMPS]);
 	format(text, len, "%sDucktaps: %d\n",                    text, runStats[RS_DUCKTAPS]);
@@ -9734,6 +9760,7 @@ LoadRecords(RUN_TYPE:topType)
 			        r.distance_3d, \
 			        r.sync, \
 			        r.speedgain, \
+			        r.air_speedgain, \
 			        r.jumps, \
 			        r.ducktaps, \
 			        r.slowdowns, \
@@ -9786,6 +9813,7 @@ LoadRecords(RUN_TYPE:topType)
 			        r.distance_3d, \
 			        r.sync, \
 			        r.speedgain, \
+			        r.air_speedgain, \
 			        r.jumps, \
 			        r.ducktaps, \
 			        r.slowdowns, \
@@ -10813,10 +10841,11 @@ public RunSelectHandler(failstate, error[], errNo, data[], size, Float:queuetime
 		mysql_read_result(18, stats[STATS_RS][RS_DISTANCE_3D]);
 		mysql_read_result(19, stats[STATS_RS][RS_SYNC]);
 		mysql_read_result(20, stats[STATS_RS][RS_SPEEDGAIN]);
-		stats[STATS_RS][RS_JUMPS]     = mysql_read_result(21);
-		stats[STATS_RS][RS_DUCKTAPS]  = mysql_read_result(22);
-		stats[STATS_RS][RS_SLOWDOWNS] = mysql_read_result(23);
-		stats[STATS_HLKZ_VERSION]     = mysql_read_result(24);
+		mysql_read_result(21, stats[STATS_RS][RS_AIR_SPEEDGAIN]);
+		stats[STATS_RS][RS_JUMPS]     = mysql_read_result(22);
+		stats[STATS_RS][RS_DUCKTAPS]  = mysql_read_result(23);
+		stats[STATS_RS][RS_SLOWDOWNS] = mysql_read_result(24);
+		stats[STATS_HLKZ_VERSION]     = mysql_read_result(25);
 
 		ArrayPushArray(arr, stats);
 
@@ -10918,7 +10947,7 @@ public PlayerNameInsertHandler(failstate, error[], errNo, queryData[], size, Flo
 	// the run insert queries before this one, so it would be weird to have the splits update query run before the splits insert one,
 	// but it's a race condition and has to be tackled at some moment... FIXME: make sure the run is inserted only after the splits insert
 	formatex(query, charsmax(query), "\
-	    CALL InsertRunWithStatsAndUpdateSplits(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %d, %d, %d, %.4f, %.2f, %.2f, %.2f, %.2f, %.6f, %.6f, %.6f, %.6f, %.4f, %.2f, %.2f, %.6f, %.6f, %d, %d, %d, %d)",
+	    CALL InsertRunWithStatsAndUpdateSplits(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %d, %d, %d, %.4f, %.2f, %.2f, %.2f, %.2f, %.6f, %.6f, %.6f, %.6f, %.4f, %.2f, %.2f, %.6f, %.6f, %.6f, %d, %d, %d, %d)",
 	    queryData[QUERY_PID],
 	    g_MapId,
 	    g_TopType[queryData[QUERY_RUN_TYPE]],
@@ -10942,6 +10971,7 @@ public PlayerNameInsertHandler(failstate, error[], errNo, queryData[], size, Flo
 	    queryData[QUERY_RUNSTATS][RS_DISTANCE_3D],
 	    queryData[QUERY_RUNSTATS][RS_SYNC],
 	    queryData[QUERY_RUNSTATS][RS_SPEEDGAIN],
+	    queryData[QUERY_RUNSTATS][RS_AIR_SPEEDGAIN],
 	    queryData[QUERY_RUNSTATS][RS_JUMPS],
 	    queryData[QUERY_RUNSTATS][RS_DUCKTAPS],
 	    queryData[QUERY_RUNSTATS][RS_SLOWDOWNS],
@@ -10986,7 +11016,7 @@ public FailedAttemptInsert(queryData[], size)
 	// the run insert queries before this one, so it would be weird to have the splits update query run before the splits insert one,
 	// but it's a race condition and has to be tackled at some moment... FIXME: make sure the run is inserted only after the splits insert
 	formatex(query, charsmax(query), "\
-	    CALL InsertFailedAttempt(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %.6f, %.6f, %.6f, %.4f, %.2f, %.2f, %.2f, %.6f, %.6f, %.6f, %.4f, %.2f, %.2f, %.6f, %.6f, %d, %d, %d, %d)",
+	    CALL InsertFailedAttempt(%d, %d, '%s', %.6f, FROM_UNIXTIME(%i), FROM_UNIXTIME(%i), %.6f, %.6f, %.6f, %.4f, %.2f, %.2f, %.2f, %.6f, %.6f, %.6f, %.4f, %.2f, %.2f, %.6f, %.6f, %.6f, %d, %d, %d, %d)",
 	    queryData[QUERY_PID],
 	    g_MapId,
 	    g_TopType[queryData[QUERY_RUN_TYPE]],
@@ -11008,6 +11038,7 @@ public FailedAttemptInsert(queryData[], size)
 	    queryData[QUERY_RUNSTATS][RS_DISTANCE_3D],
 	    queryData[QUERY_RUNSTATS][RS_SYNC],
 	    queryData[QUERY_RUNSTATS][RS_SPEEDGAIN],
+	    queryData[QUERY_RUNSTATS][RS_AIR_SPEEDGAIN],
 	    queryData[QUERY_RUNSTATS][RS_JUMPS],
 	    queryData[QUERY_RUNSTATS][RS_DUCKTAPS],
 	    queryData[QUERY_RUNSTATS][RS_SLOWDOWNS],

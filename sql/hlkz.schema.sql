@@ -345,6 +345,7 @@ CREATE TABLE `failed_attempt` (
   `distance_3d` decimal(11,2) DEFAULT NULL,
   `sync` decimal(10,6) DEFAULT NULL,
   `speedgain` decimal(10,6) DEFAULT NULL,
+  `air_speedgain` decimal(10,6) DEFAULT NULL,
   `jumps` mediumint(8) unsigned DEFAULT NULL,
   `ducktaps` mediumint(8) unsigned DEFAULT NULL,
   `slowdowns` mediumint(8) unsigned DEFAULT NULL,
@@ -889,6 +890,7 @@ CREATE TABLE `run` (
   `distance_3d` decimal(11,2) DEFAULT NULL,
   `sync` decimal(10,6) DEFAULT NULL,
   `speedgain` decimal(10,6) DEFAULT NULL,
+  `air_speedgain` decimal(10,6) DEFAULT NULL,
   `jumps` mediumint(8) unsigned DEFAULT NULL,
   `ducktaps` mediumint(8) unsigned DEFAULT NULL,
   `slowdowns` mediumint(8) unsigned DEFAULT NULL,
@@ -1639,7 +1641,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `InsertFailedAttempt`(IN `playerId` SMALLINT UNSIGNED, IN `mapId` SMALLINT UNSIGNED, IN `topType` VARCHAR(32), IN `runTime` DECIMAL(12,6), IN `runStartDate` DATETIME, IN `runDate` DATETIME, IN `x` DECIMAL(12,6), IN `y` DECIMAL(12,6), IN `z` DECIMAL(12,6), IN `fps` DECIMAL(8,4), IN `avgSpeed` DECIMAL(11,2), IN `maxSpeed` DECIMAL(11,2), IN `preSpeed` DECIMAL(11,2), IN `preTime` DECIMAL(10,6), IN `timelossStart` DECIMAL(10,6), IN `groundTime` DECIMAL(10,6), IN `groundDistance` DECIMAL(13,4), IN `distance2D` DECIMAL(11,2), IN `distance3D` DECIMAL(11,2), IN `sync` DECIMAL(10,6), IN `speedgain` DECIMAL(10,6), IN `jumps` MEDIUMINT UNSIGNED, IN `ducktaps` MEDIUMINT UNSIGNED, IN `slowdowns` MEDIUMINT UNSIGNED, IN `hlkzVersion` SMALLINT UNSIGNED)
+CREATE DEFINER=`root`@`localhost` PROCEDURE `InsertFailedAttempt`(IN `playerId` SMALLINT UNSIGNED, IN `mapId` SMALLINT UNSIGNED, IN `topType` VARCHAR(32), IN `runTime` DECIMAL(12,6), IN `runStartDate` DATETIME, IN `runDate` DATETIME, IN `x` DECIMAL(12,6), IN `y` DECIMAL(12,6), IN `z` DECIMAL(12,6), IN `fps` DECIMAL(8,4), IN `avgSpeed` DECIMAL(11,2), IN `maxSpeed` DECIMAL(11,2), IN `preSpeed` DECIMAL(11,2), IN `preTime` DECIMAL(10,6), IN `timelossStart` DECIMAL(10,6), IN `groundTime` DECIMAL(10,6), IN `groundDistance` DECIMAL(13,4), IN `distance2D` DECIMAL(11,2), IN `distance3D` DECIMAL(11,2), IN `sync` DECIMAL(10,6), IN `speedgain` DECIMAL(10,6), IN `airSpeedgain` DECIMAL(10,6), IN `jumps` MEDIUMINT UNSIGNED, IN `ducktaps` MEDIUMINT UNSIGNED, IN `slowdowns` MEDIUMINT UNSIGNED, IN `hlkzVersion` SMALLINT UNSIGNED)
     MODIFIES SQL DATA
 BEGIN
 	DECLARE faId INT(10) UNSIGNED;
@@ -1649,8 +1651,8 @@ BEGIN
     END;
     START TRANSACTION;
 
-        INSERT INTO failed_attempt (player, map, type, time, date, fail_x, fail_y, fail_z, fps, avg_speed, max_speed, pre_speed, pre_time, timeloss_start, ground_time, ground_distance, distance_2d, distance_3d, sync, speedgain, jumps, ducktaps, slowdowns, hlkz_version)
-        SELECT playerId, mapId, topType, runTime, runDate, x, y, z, fps, avgSpeed, maxSpeed, preSpeed, preTime, timelossStart, groundTime, groundDistance, distance2D, distance3D, sync, speedgain, jumps, ducktaps, slowdowns, hlkzVersion
+        INSERT INTO failed_attempt (player, map, type, time, date, fail_x, fail_y, fail_z, fps, avg_speed, max_speed, pre_speed, pre_time, timeloss_start, ground_time, ground_distance, distance_2d, distance_3d, sync, speedgain, air_speedgain, jumps, ducktaps, slowdowns, hlkz_version)
+        SELECT playerId, mapId, topType, runTime, runDate, x, y, z, fps, avgSpeed, maxSpeed, preSpeed, preTime, timelossStart, groundTime, groundDistance, distance2D, distance3D, sync, speedgain, airSpeedgain, jumps, ducktaps, slowdowns, hlkzVersion
         FROM (select 1) as a
         WHERE NOT EXISTS(
             SELECT player, map, type, time, date, fail_x, fail_y, fail_z
@@ -1804,7 +1806,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `InsertRunWithStatsAndUpdateSplits`(IN `playerId` SMALLINT(5) UNSIGNED, IN `mapId` SMALLINT(5) UNSIGNED, IN `topType` VARCHAR(32), IN `runTime` DECIMAL(12,6), IN `runStartDate` DATETIME, IN `runDate` DATETIME, IN `cps` SMALLINT(5) UNSIGNED, IN `tps` SMALLINT(5) UNSIGNED, IN `noReset` TINYINT(1), IN `fps` DECIMAL(8,4), IN `avgSpeed` DECIMAL(11,2), IN `maxSpeed` DECIMAL(11,2), IN `endSpeed` DECIMAL(11,2), IN `preSpeed` DECIMAL(11,2), IN `preTime` DECIMAL(10,6), IN `timelossStart` DECIMAL(10,6), IN `timelossEnd` DECIMAL(10,6), IN `groundTime` DECIMAL(10,6), IN `groundDistance` DECIMAL(13,4), IN `distance2D` DECIMAL(11,2), IN `distance3D` DECIMAL(11,2), IN `sync` DECIMAL(10,6), IN `speedgain` DECIMAL(10,6), IN `jumps` MEDIUMINT UNSIGNED, IN `ducktaps` MEDIUMINT UNSIGNED, IN `slowdowns` MEDIUMINT UNSIGNED, IN `hlkzVersion` SMALLINT UNSIGNED)
+CREATE DEFINER=`root`@`localhost` PROCEDURE `InsertRunWithStatsAndUpdateSplits`(IN `playerId` SMALLINT(5) UNSIGNED, IN `mapId` SMALLINT(5) UNSIGNED, IN `topType` VARCHAR(32), IN `runTime` DECIMAL(12,6), IN `runStartDate` DATETIME, IN `runDate` DATETIME, IN `cps` SMALLINT(5) UNSIGNED, IN `tps` SMALLINT(5) UNSIGNED, IN `noReset` TINYINT(1), IN `fps` DECIMAL(8,4), IN `avgSpeed` DECIMAL(11,2), IN `maxSpeed` DECIMAL(11,2), IN `endSpeed` DECIMAL(11,2), IN `preSpeed` DECIMAL(11,2), IN `preTime` DECIMAL(10,6), IN `timelossStart` DECIMAL(10,6), IN `timelossEnd` DECIMAL(10,6), IN `groundTime` DECIMAL(10,6), IN `groundDistance` DECIMAL(13,4), IN `distance2D` DECIMAL(11,2), IN `distance3D` DECIMAL(11,2), IN `sync` DECIMAL(10,6), IN `speedgain` DECIMAL(10,6), IN `airSpeedgain` DECIMAL(10,6), IN `jumps` MEDIUMINT UNSIGNED, IN `ducktaps` MEDIUMINT UNSIGNED, IN `slowdowns` MEDIUMINT UNSIGNED, IN `hlkzVersion` SMALLINT UNSIGNED)
 BEGIN
 	DECLARE runId MEDIUMINT(8) UNSIGNED;
     DECLARE EXIT HANDLER FOR SQLEXCEPTION 
@@ -1813,8 +1815,8 @@ BEGIN
     END;
     START TRANSACTION;
     
-        INSERT INTO run (player, map, type, time, date, checkpoints, teleports, is_no_reset, fps, avg_speed, max_speed, end_speed, pre_speed, pre_time, timeloss_start, timeloss_end, ground_time, ground_distance, distance_2d, distance_3d, sync, speedgain, jumps, ducktaps, slowdowns, hlkz_version)
-        SELECT playerId, mapId, topType, runTime, runDate, cps, tps, noReset, fps, avgSpeed, maxSpeed, endSpeed, preSpeed, preTime, timelossStart, timelossEnd, groundTime, groundDistance, distance2D, distance3D, sync, speedgain, jumps, ducktaps, slowdowns, hlkzVersion
+        INSERT INTO run (player, map, type, time, date, checkpoints, teleports, is_no_reset, fps, avg_speed, max_speed, end_speed, pre_speed, pre_time, timeloss_start, timeloss_end, ground_time, ground_distance, distance_2d, distance_3d, sync, speedgain, air_speedgain, jumps, ducktaps, slowdowns, hlkz_version)
+        SELECT playerId, mapId, topType, runTime, runDate, cps, tps, noReset, fps, avgSpeed, maxSpeed, endSpeed, preSpeed, preTime, timelossStart, timelossEnd, groundTime, groundDistance, distance2D, distance3D, sync, speedgain, airSpeedgain, jumps, ducktaps, slowdowns, hlkzVersion
         FROM (select 1) as a
         WHERE NOT EXISTS(
             SELECT player, map, type, time, date, checkpoints, teleports, is_no_reset
