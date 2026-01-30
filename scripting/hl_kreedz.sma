@@ -6989,7 +6989,10 @@ GetRunStatsHudText(id, text[], len, detailLevel, runStats[RUNSTATS])
 		format(text, len, "%sDistance 3D: %.2f\n",           text, runStats[RS_DISTANCE_3D]);
 
 	format(text, len, "%sSync: %.2f%%%%\n",                  text, runStats[RS_SYNC]);
-	format(text, len, "%sSpeedgain: %.2f%%%%\n",             text, runStats[RS_SPEEDGAIN]);
+
+	if (detailLevel >= 2)
+		format(text, len, "%sSpeedgain: %.2f%%%%\n",         text, runStats[RS_SPEEDGAIN]);
+
 	format(text, len, "%sAir Speedgain: %.2f%%%%\n",         text, runStats[RS_AIR_SPEEDGAIN]);
 
 	format(text, len, "%sJumps: %d\n",                       text, runStats[RS_JUMPS]);
