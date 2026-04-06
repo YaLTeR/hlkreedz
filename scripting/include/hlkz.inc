@@ -107,7 +107,7 @@ enum _:CP_TYPES
 	CP_TYPE_CURRENT,
 	CP_TYPE_OLD,
 	CP_TYPE_PRACTICE, // Practice checkpoints (with speed / midair)
-	CP_TYPE_PRACTICE_OLD,
+	CP_TYPE_PRACTICE_PREVNEXT,
 	CP_TYPE_CUSTOM_START, // kz_set_custom_start position.
 	CP_TYPE_START,        // Start button.
 	CP_TYPE_DEFAULT_START // Standard spawn
