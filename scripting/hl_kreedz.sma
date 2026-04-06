@@ -458,6 +458,8 @@ new g_FrameTimeMs[MAX_PLAYERS + 1];
 new Float:g_FrameTime[MAX_PLAYERS + 1];
 
 new g_ControlPoints[MAX_PLAYERS + 1][CP_TYPES][CP_DATA];
+new Array:g_PracticePoints[MAX_PLAYERS + 1];
+new g_CurrentPracticeCp[MAX_PLAYERS + 1];
 new g_CpCounters[MAX_PLAYERS + 1][COUNTERS];
 new g_RunType[MAX_PLAYERS + 1][5];
 
@@ -1772,12 +1774,15 @@ DisplayKzMenu(id, mode)
 		}
 	case 3:
 		{
-			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3;
+			keys |= MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5;
 
-			len = formatex(menuBody[len], charsmax(menuBody) - len, "Practice CPs: %d | TPs: %d\n\n", g_CpCounters[id][COUNTER_PRACTICE_CP],g_CpCounters[id][COUNTER_PRACTICE_TP]);
+			len = formatex(menuBody[len], charsmax(menuBody) - len, "Practice CPs: %d | TPs: %d\n", g_CpCounters[id][COUNTER_PRACTICE_CP],g_CpCounters[id][COUNTER_PRACTICE_TP]);
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "Current practice CP: %d/%d\n\n", g_CurrentPracticeCp[id] + (ArraySize(g_PracticePoints[id]) ? 1 : 0), ArraySize(g_PracticePoints[id]));
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "1. Checkpoint\n");
-			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Teleport\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "2. Teleport\n\n");
 			len += formatex(menuBody[len], charsmax(menuBody) - len, "3. Previous\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "4. Next\n");
+			len += formatex(menuBody[len], charsmax(menuBody) - len, "5. Delete\n");
 		}
 	case 4:
 		{
@@ -1889,6 +1894,8 @@ public ActionKzMenu(id, key)
 			case 1: CmdPracticeCp(id);
 			case 2: CmdPracticeTp(id);
 			case 3: CmdPracticePrev(id);
+			case 4: CmdPracticeNext(id);
+			case 5: CmdPracticeDelete(id);
 		}
 	case 4:
 		switch (key)
@@ -2166,6 +2173,7 @@ public client_putinserver(id)
 	g_MapRating[id] = -1.0;
 
 	g_ControlPoints[id][CP_TYPE_DEFAULT_START] = g_MapDefaultStart;
+	g_PracticePoints[id] = ArrayCreate(CP_DATA);
 
 	g_ReplayFrames[id] = ArrayCreate(REPLAY);
 
@@ -2703,7 +2711,7 @@ InitPlayer(id, bool:onDisconnectOrAgstart = false, bool:onlyTimer = false)
 	// Reset checkpoints
 	for (i = 0; i < CP_TYPE_CUSTOM_START; i++)
 	{
-		if (i == CP_TYPE_PRACTICE || i == CP_TYPE_PRACTICE_OLD)
+		if (i == CP_TYPE_PRACTICE || i == CP_TYPE_PRACTICE_PREVNEXT)
 		{
 			// TODO: test if we can safely do the same with CP_TYPE_CURRENT and CP_TYPE_OLD
 			continue;
@@ -2829,6 +2837,12 @@ CmdTp(id)
 		Teleport(id, CP_TYPE_CURRENT);
 }
 
+CmdStuck(id)
+{
+	if (CanTeleport(id, CP_TYPE_OLD))
+		Teleport(id, CP_TYPE_OLD);
+}
+
 CmdNoclip(id)
  {
 	g_IsInNoclip[id] = bool:get_user_noclip(id);
@@ -2939,7 +2953,7 @@ CmdRateMap(id)
 CmdPracticeCp(id)
 {
 	if (CanCreateCp(id, true, true))
-		CreateCp(id, CP_TYPE_PRACTICE)
+		CreatePracticeCp(id);
 }
 
 CmdPracticeTp(id)
@@ -2947,23 +2961,51 @@ CmdPracticeTp(id)
 	if (CanTeleport(id, CP_TYPE_PRACTICE))
 	{
 		ResetPlayer(id, false, true);
-		Teleport(id, CP_TYPE_PRACTICE);
+		TeleportPractice(id);
 	}
-}
-
-CmdStuck(id)
-{
-	if (CanTeleport(id, CP_TYPE_OLD))
-		Teleport(id, CP_TYPE_OLD);
 }
 
 CmdPracticePrev(id)
 {
-	if(CanTeleport(id, CP_TYPE_PRACTICE_OLD))
+	if (CanTeleport(id, CP_TYPE_PRACTICE_PREVNEXT))
 	{
-		ResetPlayer(id, false, true)
-		Teleport(id, CP_TYPE_PRACTICE_OLD);
+		if (g_CurrentPracticeCp[id] > 0)
+			g_CurrentPracticeCp[id] -= 1;
+		else
+			g_CurrentPracticeCp[id] = ArraySize(g_PracticePoints[id]) - 1;
+
+		ResetPlayer(id, false, true);
+		TeleportPractice(id);
 	}
+}
+
+CmdPracticeNext(id)
+{
+	if (CanTeleport(id, CP_TYPE_PRACTICE_PREVNEXT))
+	{
+		g_CurrentPracticeCp[id] += 1;
+		if (g_CurrentPracticeCp[id] >= ArraySize(g_PracticePoints[id]))
+			g_CurrentPracticeCp[id] = 0;
+		
+		ResetPlayer(id, false, true);
+		TeleportPractice(id);
+	}
+}
+
+CmdPracticeDelete(id)
+{
+	if (ArraySize(g_PracticePoints[id]) == 0)
+	{
+		ShowMessage(id, "You don't have a practice checkpoint created");
+		return;
+	}
+
+	ArrayDeleteItem(g_PracticePoints[id], g_CurrentPracticeCp[id]);
+	ShowMessage(id, "Practice checkpoint #%d deleted", g_CurrentPracticeCp[id] + 1);
+	if (g_CurrentPracticeCp[id] > 1)
+		g_CurrentPracticeCp[id] -= 1;
+	else if (g_CurrentPracticeCp[id] == 1)
+		g_CurrentPracticeCp[id] = 0;
 }
 
 CmdStart(id)
@@ -4156,6 +4198,12 @@ public CmdSayHandler(id, level, cid)
 	else if (equali(args[1], "practiceprev"))
 		CmdPracticePrev(id);
 
+	else if (equali(args[1], "practicenext"))
+		CmdPracticeNext(id);
+
+	else if (equali(args[1], "practicedelete"))
+		CmdPracticeDelete(id);
+
 	else if (equali(args[1], "pause"))
 		CmdPause(id);
 
@@ -4547,7 +4595,12 @@ bool:CanTeleportNr(id, cp, bool:showMessages = true)
 		if (showMessages) ShowMessage(id, "Stuck/Unstuck commands are disabled");
 		return false;
 	}
-	if (cp == CP_TYPE_PRACTICE_OLD && !get_pcvar_num(pcvar_kz_stuck))
+	if ((cp == CP_TYPE_PRACTICE || cp == CP_TYPE_PRACTICE_PREVNEXT) && ArraySize(g_PracticePoints[id]) == 0)
+	{
+		ShowMessage(id, "You don't have a practice checkpoint created");
+		return false;
+	}
+	if (cp == CP_TYPE_PRACTICE_PREVNEXT && !get_pcvar_num(pcvar_kz_stuck))
 	{
 		if (showMessages) ShowMessage(id, "Teleporting to previous checkpoints is disabled")
 		return false;
@@ -4563,7 +4616,7 @@ bool:CanTeleportNr(id, cp, bool:showMessages = true)
 		return false;
 	}
 
-	if (!g_ControlPoints[id][cp][CP_VALID])
+	if (!g_ControlPoints[id][cp][CP_VALID] && (cp != CP_TYPE_PRACTICE && cp != CP_TYPE_PRACTICE_PREVNEXT))
 	{
 		if (showMessages)
 			switch (cp)
@@ -4573,13 +4626,37 @@ bool:CanTeleportNr(id, cp, bool:showMessages = true)
 			case CP_TYPE_CUSTOM_START: ShowMessage(id, "You don't have a custom start point set");
 			case CP_TYPE_START: ShowMessage(id, "You don't have start checkpoint created");
 			case CP_TYPE_DEFAULT_START: ShowMessage(id, "The map doesn't have a default start checkpoint set");
-			case CP_TYPE_PRACTICE: ShowMessage(id, "You don't have a practice checkpoint created");
-			case CP_TYPE_PRACTICE_OLD: ShowMessage(id, "You don't have a previous practice checkpoint created")
 			}
 		return false;
 	}
 
 	return true;
+}
+
+CreatePracticeCp(id)
+{
+	if (ArraySize(g_PracticePoints[id]) >= 100)
+	{
+		ShowMessage(id, "Practice checkpoint limit reached");
+		return;
+	}
+
+	g_CpCounters[id][COUNTER_PRACTICE_CP]++;
+	g_CurrentPracticeCp[id] = ArraySize(g_PracticePoints[id]);
+
+	new PracticePoint[CP_DATA];
+	PracticePoint[CP_VALID] = true;
+	PracticePoint[CP_FLAGS] = pev(id, pev_flags);
+	pev(id, pev_origin, PracticePoint[CP_ORIGIN]);
+	pev(id, pev_v_angle, PracticePoint[CP_ANGLES]);
+	pev(id, pev_view_ofs, PracticePoint[CP_VIEWOFS]);
+	pev(id, pev_velocity, PracticePoint[CP_VELOCITY]);
+	pev(id, pev_health, PracticePoint[CP_HEALTH]);
+	pev(id, pev_armorvalue, PracticePoint[CP_ARMOR]);
+	PracticePoint[CP_LONGJUMP] = hl_get_user_longjump(id);
+
+	ArrayPushArray(g_PracticePoints[id], PracticePoint);
+	ShowMessage(id, "Practice checkpoint #%d created", g_CurrentPracticeCp[id] + 1);
 }
 
 CreateCp(id, cp, bool:specModeStepTwo = false)
@@ -4604,14 +4681,6 @@ CreateCp(id, cp, bool:specModeStepTwo = false)
 			// Backup current checkpoint
 			g_ControlPoints[id][CP_TYPE_OLD] = g_ControlPoints[id][CP_TYPE_CURRENT];
 		}
-	case CP_TYPE_PRACTICE:
-		{
-			g_CpCounters[id][COUNTER_PRACTICE_CP]++;
-			ShowMessage(id, "Practice checkpoint #%d created", g_CpCounters[id][COUNTER_PRACTICE_CP]);
-
-			// Backup current checkpoint
-			g_ControlPoints[id][CP_TYPE_PRACTICE_OLD] = g_ControlPoints[id][CP_TYPE_PRACTICE];
-		}
 	}
 
 	// Store current player state and position
@@ -4624,6 +4693,48 @@ CreateCp(id, cp, bool:specModeStepTwo = false)
 	pev(id, pev_health, g_ControlPoints[id][cp][CP_HEALTH]);
 	pev(id, pev_armorvalue, g_ControlPoints[id][cp][CP_ARMOR]);
 	g_ControlPoints[id][cp][CP_LONGJUMP] = hl_get_user_longjump(id);
+}
+
+TeleportPractice(id)
+{
+	new PracticePoint[CP_DATA];
+	ArrayGetArray(g_PracticePoints[id], g_CurrentPracticeCp[id], PracticePoint);
+
+	if (!PracticePoint[CP_VALID])
+	{
+		return;
+	}
+
+	g_RampFrameCounter[id] = 0;
+
+	// Restore player state and position
+	if (PracticePoint[CP_FLAGS] & FL_DUCKING)
+		set_pev(id, pev_flags, pev(id, pev_flags) | FL_DUCKING);
+	else
+		set_pev(id, pev_flags, pev(id, pev_flags) & ~FL_DUCKING);
+
+	set_pev(id, pev_origin, PracticePoint[CP_ORIGIN]);
+	set_pev(id, pev_angles, PracticePoint[CP_ANGLES]);
+	set_pev(id, pev_v_angle, PracticePoint[CP_ANGLES]);
+	set_pev(id, pev_view_ofs, PracticePoint[CP_VIEWOFS]);
+	set_pev(id, pev_velocity, PracticePoint[CP_VELOCITY]);
+	set_pev(id, pev_fixangle, true);
+	set_pev(id, pev_health, PracticePoint[CP_HEALTH]);
+	set_pev(id, pev_armorvalue, PracticePoint[CP_ARMOR]);
+	hl_set_user_longjump(id, PracticePoint[CP_LONGJUMP]);
+
+	g_CpCounters[id][COUNTER_PRACTICE_TP]++;
+	ShowMessage(id, "Go practice checkpoint #%d", g_CpCounters[id][COUNTER_PRACTICE_TP]);
+	
+	// Set cooldown after teleporting to practice checkpoint
+	g_StartCooldown[id] = get_gametime();
+
+	ExecuteHamB(Ham_AddPoints, id, -1, true);
+
+	pev(id, pev_origin,   g_Origin[id]);
+	pev(id, pev_angles,   g_Angles[id]);
+	pev(id, pev_view_ofs, g_ViewOfs[id]);
+	pev(id, pev_velocity, g_Velocity[id]);
 }
 
 Teleport(id, cp)
@@ -4643,39 +4754,19 @@ Teleport(id, cp)
 	else
 		set_pev(id, pev_flags, pev(id, pev_flags) & ~FL_DUCKING);
 
-	if  (cp == CP_TYPE_PRACTICE || cp == CP_TYPE_PRACTICE_OLD)
-	{
-		set_pev(id, pev_origin, g_ControlPoints[id][cp][CP_ORIGIN]);
-		set_pev(id, pev_angles, g_ControlPoints[id][cp][CP_ANGLES]);
-		set_pev(id, pev_v_angle, g_ControlPoints[id][cp][CP_ANGLES]);
-		set_pev(id, pev_view_ofs, g_ControlPoints[id][cp][CP_VIEWOFS]);
+	set_pev(id, pev_origin, g_ControlPoints[id][cp][CP_ORIGIN]);
+	set_pev(id, pev_angles, g_ControlPoints[id][cp][CP_ANGLES]);
+	set_pev(id, pev_v_angle, g_ControlPoints[id][cp][CP_ANGLES]);
+	set_pev(id, pev_view_ofs, g_ControlPoints[id][cp][CP_VIEWOFS]);
+	if (g_usesStartingZone && (cp == CP_TYPE_START || cp == CP_TYPE_CUSTOM_START))
 		set_pev(id, pev_velocity, g_ControlPoints[id][cp][CP_VELOCITY]);
-		set_pev(id, pev_fixangle, true);
-		set_pev(id, pev_health, g_ControlPoints[id][cp][CP_HEALTH]);
-		set_pev(id, pev_armorvalue, g_ControlPoints[id][cp][CP_ARMOR]);
-		hl_set_user_longjump(id, g_ControlPoints[id][cp][CP_LONGJUMP]);
-
-		g_CpCounters[id][COUNTER_PRACTICE_TP]++;
-		ShowMessage(id, "Go practice checkpoint #%d", g_CpCounters[id][COUNTER_PRACTICE_TP]);
-		
-		// Set cooldown after teleporting to practice checkpoint
-		g_StartCooldown[id] = get_gametime();
-	}
 	else
-	{
-		set_pev(id, pev_origin, g_ControlPoints[id][cp][CP_ORIGIN]);
-		set_pev(id, pev_angles, g_ControlPoints[id][cp][CP_ANGLES]);
-		set_pev(id, pev_v_angle, g_ControlPoints[id][cp][CP_ANGLES]);
-		set_pev(id, pev_view_ofs, g_ControlPoints[id][cp][CP_VIEWOFS]);
-		if (g_usesStartingZone && (cp == CP_TYPE_START || cp == CP_TYPE_CUSTOM_START))
-			set_pev(id, pev_velocity, g_ControlPoints[id][cp][CP_VELOCITY]);
-		else
-			set_pev(id, pev_velocity, Float:{ 0.0, 0.0, 0.0 });
-		set_pev(id, pev_fixangle, true);
-		set_pev(id, pev_health, g_ControlPoints[id][cp][CP_HEALTH]);
-		set_pev(id, pev_armorvalue, g_ControlPoints[id][cp][CP_ARMOR]);
-		hl_set_user_longjump(id, g_ControlPoints[id][cp][CP_LONGJUMP]);
-	}
+		set_pev(id, pev_velocity, Float:{ 0.0, 0.0, 0.0 });
+	set_pev(id, pev_fixangle, true);
+	set_pev(id, pev_health, g_ControlPoints[id][cp][CP_HEALTH]);
+	set_pev(id, pev_armorvalue, g_ControlPoints[id][cp][CP_ARMOR]);
+	hl_set_user_longjump(id, g_ControlPoints[id][cp][CP_LONGJUMP]);
+
 	ExecuteHamB(Ham_AddPoints, id, -1, true);
 
 	pev(id, pev_origin,   g_Origin[id]);
